@@ -1,14 +1,8 @@
 {
   "mcpServers": {
     "browser": {
-      "type": "stdio",
-      "command": "node",
-      "args": [
-        "/home/paladin/src/chromium/tools/abp-mcp-server/dist/index.js"
-      ],
-      "env": {
-         "ABP_URL": "http://localhost:8222"
-      }
+      "type": "http",
+      "url": "http://localhost:8222/mcp"
     }
   }
 }
