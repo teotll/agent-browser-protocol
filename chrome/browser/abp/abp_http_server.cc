@@ -190,7 +190,7 @@ void AbpHttpServer::OnHttpRequest(int connection_id,
 void AbpHttpServer::OnWebSocketRequest(int connection_id,
                                        const net::HttpServerRequestInfo& info) {
   // Not supported
-  SendResponseOnIO(connection_id, 400, "text/plain", "WebSocket not supported");
+  SendResponseOnIO(connection_id, 400, "text/plain", {}, "WebSocket not supported");
 }
 
 void AbpHttpServer::OnWebSocketMessage(int connection_id, std::string data) {}
@@ -204,10 +204,6 @@ void AbpHttpServer::HandleRequestOnUI(int connection_id,
                                       std::map<std::string, std::string> headers) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  auto callback = base::BindOnce(&AbpHttpServer::OnResponseReady,
-                                 base::Unretained(this),
-                                 connection_id);
-
   // Route MCP requests to MCP handler
   // Path format: /mcp
   std::string clean_path = path;
@@ -217,9 +213,18 @@ void AbpHttpServer::HandleRequestOnUI(int connection_id,
   }
 
   if (clean_path == "/mcp") {
-    mcp_handler_->HandleRequest(method, headers, body, std::move(callback));
+    // MCP handler uses callback with headers support
+    auto mcp_callback = base::BindOnce(&AbpHttpServer::OnResponseWithHeadersReady,
+                                       base::Unretained(this),
+                                       connection_id);
+    mcp_handler_->HandleRequest(method, headers, body, std::move(mcp_callback));
     return;
   }
+
+  // Standard callback for non-MCP requests
+  auto callback = base::BindOnce(&AbpHttpServer::OnResponseReady,
+                                 base::Unretained(this),
+                                 connection_id);
 
   // Route history requests to history controller
   // Path format: /api/v1/history/...
@@ -253,13 +258,35 @@ void AbpHttpServer::OnResponseReady(int connection_id,
                      connection_id,
                      status_code,
                      content_type,
+                     std::map<std::string, std::string>(),
                      std::move(body)));
 }
 
-void AbpHttpServer::SendResponseOnIO(int connection_id,
-                                     int status_code,
-                                     const std::string& content_type,
-                                     const std::string& body) {
+void AbpHttpServer::OnResponseWithHeadersReady(
+    int connection_id,
+    int status_code,
+    const std::string& content_type,
+    std::map<std::string, std::string> headers,
+    std::string body) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  content::GetIOThreadTaskRunner({})->PostTask(
+      FROM_HERE,
+      base::BindOnce(&AbpHttpServer::SendResponseOnIO,
+                     base::Unretained(this),
+                     connection_id,
+                     status_code,
+                     content_type,
+                     std::move(headers),
+                     std::move(body)));
+}
+
+void AbpHttpServer::SendResponseOnIO(
+    int connection_id,
+    int status_code,
+    const std::string& content_type,
+    const std::map<std::string, std::string>& headers,
+    const std::string& body) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
   if (!server_) {
@@ -267,7 +294,54 @@ void AbpHttpServer::SendResponseOnIO(int connection_id,
   }
 
   net::HttpStatusCode status = static_cast<net::HttpStatusCode>(status_code);
-  server_->Send(connection_id, status, body, content_type, kAbpTrafficAnnotation);
+
+  // If we have custom headers, build and send raw response
+  if (!headers.empty()) {
+    std::string response = "HTTP/1.1 ";
+    response += base::NumberToString(status_code);
+    response += " ";
+    // Add reason phrase
+    switch (status_code) {
+      case 200: response += "OK"; break;
+      case 202: response += "Accepted"; break;
+      case 204: response += "No Content"; break;
+      case 400: response += "Bad Request"; break;
+      case 404: response += "Not Found"; break;
+      case 405: response += "Method Not Allowed"; break;
+      case 500: response += "Internal Server Error"; break;
+      default: response += "Unknown"; break;
+    }
+    response += "\r\n";
+
+    // Add content type
+    response += "Content-Type: ";
+    response += content_type;
+    response += "\r\n";
+
+    // Add content length
+    response += "Content-Length: ";
+    response += base::NumberToString(body.size());
+    response += "\r\n";
+
+    // Add custom headers
+    for (const auto& header : headers) {
+      response += header.first;
+      response += ": ";
+      response += header.second;
+      response += "\r\n";
+    }
+
+    // End headers
+    response += "\r\n";
+
+    // Add body
+    response += body;
+
+    server_->SendRaw(connection_id, response, kAbpTrafficAnnotation);
+  } else {
+    // No custom headers, use standard Send
+    server_->Send(connection_id, status, body, content_type, kAbpTrafficAnnotation);
+  }
 }
 
 }  // namespace abp

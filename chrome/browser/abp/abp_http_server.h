@@ -44,6 +44,7 @@ class AbpHttpServer : public net::HttpServer::Delegate {
   void SendResponseOnIO(int connection_id,
                         int status_code,
                         const std::string& content_type,
+                        const std::map<std::string, std::string>& headers,
                         const std::string& body);
 
   // UI thread
@@ -56,6 +57,11 @@ class AbpHttpServer : public net::HttpServer::Delegate {
                        int status_code,
                        const std::string& content_type,
                        std::string body);
+  void OnResponseWithHeadersReady(int connection_id,
+                                  int status_code,
+                                  const std::string& content_type,
+                                  std::map<std::string, std::string> headers,
+                                  std::string body);
 
   // Poll for browser readiness and center cursor when ready
   void PollForReadyAndCenterCursor();
