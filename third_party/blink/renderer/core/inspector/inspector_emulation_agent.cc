@@ -549,6 +549,8 @@ protocol::Response InspectorEmulationAgent::setVirtualTimePolicy(
                  PauseIfNetworkFetchesPending == policy) {
     scheduler_policy =
         VirtualTimeController::VirtualTimePolicy::kDeterministicLoading;
+  } else if (protocol::Emulation::VirtualTimePolicyEnum::Realtime == policy) {
+    scheduler_policy = VirtualTimeController::VirtualTimePolicy::kRealtime;
   } else {
     DCHECK_EQ(scheduler_policy,
               VirtualTimeController::VirtualTimePolicy::kPause);
