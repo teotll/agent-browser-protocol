@@ -2375,7 +2375,16 @@ void AbpController::ResumeExecution(const std::string& tab_id,
                                     base::OnceClosure then) {
   auto it = tab_states_.find(tab_id);
   if (it == tab_states_.end() || !it->second.execution.debugger_enabled) {
-    // Execution control not enabled for this tab, just proceed
+    // Execution control not enabled for this tab yet
+    // If global flag is enabled, auto-enable for this tab first
+    if (IsExecutionControlEnabled()) {
+      EnableExecutionControl(
+          tab_id, std::nullopt,
+          base::BindOnce(&AbpController::ResumeExecution,
+                         weak_factory_.GetWeakPtr(), tab_id, std::move(then)));
+      return;
+    }
+    // Global flag not enabled, just proceed
     std::move(then).Run();
     return;
   }
@@ -2459,7 +2468,14 @@ void AbpController::PauseExecution(const std::string& tab_id,
                                    base::OnceClosure then) {
   auto it = tab_states_.find(tab_id);
   if (it == tab_states_.end() || !it->second.execution.debugger_enabled) {
-    // Execution control not enabled for this tab, just proceed
+    // Execution control not enabled for this tab yet
+    // If global flag is enabled, auto-enable for this tab (starts paused)
+    if (IsExecutionControlEnabled()) {
+      // EnableExecutionControl starts in paused state, so just enable and done
+      EnableExecutionControl(tab_id, std::nullopt, std::move(then));
+      return;
+    }
+    // Global flag not enabled, just proceed
     std::move(then).Run();
     return;
   }

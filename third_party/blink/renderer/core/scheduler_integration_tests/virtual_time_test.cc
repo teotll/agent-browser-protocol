@@ -207,5 +207,75 @@ TEST_F(VirtualTimeTest,
 #undef MAYBE_SetInterval
 #undef MAYBE_AllowVirtualTimeToAdvance
 #undef MAYBE_VirtualTimeNotAllowedToAdvanceWhileResourcesLoading
+
+// http://crbug.com/633321
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
+#define MAYBE_RealtimePolicyDoesNotFastForward \
+  DISABLED_RealtimePolicyDoesNotFastForward
+#else
+#define MAYBE_RealtimePolicyDoesNotFastForward RealtimePolicyDoesNotFastForward
+#endif
+// Verify that in kRealtime mode, scheduled tasks don't fire instantly like
+// they do in kAdvance mode. Tasks should only fire when wall-clock time has
+// passed, not through virtual time fast-forwarding.
+TEST_F(VirtualTimeTest, MAYBE_RealtimePolicyDoesNotFastForward) {
+  GetVirtualTimeController()->SetVirtualTimePolicy(
+      VirtualTimeController::VirtualTimePolicy::kRealtime);
+
+  // Schedule a timer for 1000ms in the future
+  ExecuteJavaScript(
+      "var timer_fired = false;"
+      "setTimeout(function() { timer_fired = true; }, 1000);");
+
+  // Run pending tasks - in kRealtime mode, this should NOT cause the timer
+  // to fire because virtual time doesn't fast-forward past wall-clock time.
+  test::RunPendingTasks();
+
+  // The timer should NOT have fired because we haven't waited 1000ms of
+  // real wall-clock time.
+  EXPECT_EQ("false", ExecuteJavaScript("timer_fired.toString()"));
+}
+
+// http://crbug.com/633321
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
+#define MAYBE_RealtimePolicyVsAdvancePolicy \
+  DISABLED_RealtimePolicyVsAdvancePolicy
+#else
+#define MAYBE_RealtimePolicyVsAdvancePolicy RealtimePolicyVsAdvancePolicy
+#endif
+// Verify the behavioral difference between kRealtime and kAdvance policies.
+// In kAdvance mode, timers fast-forward instantly. In kRealtime mode, they
+// must wait for wall-clock time.
+TEST_F(VirtualTimeTest, MAYBE_RealtimePolicyVsAdvancePolicy) {
+  // First, test with kAdvance - timers should fire via fast-forward
+  GetVirtualTimeController()->SetVirtualTimePolicy(
+      VirtualTimeController::VirtualTimePolicy::kAdvance);
+
+  ExecuteJavaScript(
+      "var advance_timer_fired = false;"
+      "setTimeout(function() { advance_timer_fired = true; }, 100);");
+
+  RunTasksForPeriod(200);
+
+  // In kAdvance mode, the timer should have fired (fast-forwarded)
+  EXPECT_EQ("true", ExecuteJavaScript("advance_timer_fired.toString()"));
+
+  // Now switch to kRealtime mode and schedule another timer
+  GetVirtualTimeController()->SetVirtualTimePolicy(
+      VirtualTimeController::VirtualTimePolicy::kRealtime);
+
+  ExecuteJavaScript(
+      "var realtime_timer_fired = false;"
+      "setTimeout(function() { realtime_timer_fired = true; }, 1000);");
+
+  // Run pending tasks - this won't fast-forward in realtime mode
+  test::RunPendingTasks();
+
+  // The realtime timer should NOT have fired because no real time passed
+  EXPECT_EQ("false", ExecuteJavaScript("realtime_timer_fired.toString()"));
+}
+
+#undef MAYBE_RealtimePolicyDoesNotFastForward
+#undef MAYBE_RealtimePolicyVsAdvancePolicy
 }  // namespace virtual_time_test
 }  // namespace blink
