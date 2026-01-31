@@ -71,6 +71,12 @@ class PLATFORM_EXPORT AutoAdvancingVirtualTimeDomain
 
   base::TimeTicks InitialTicks() const { return initial_time_ticks_; }
 
+  // Enable realtime mode - virtual time advances with wall clock
+  void SetRealtimeMode(bool enabled);
+
+  // Check if realtime mode is active
+  bool IsRealtimeModeEnabled() const { return realtime_mode_enabled_; }
+
  private:
   // TickClock implementation:
   base::TimeTicks NowTicks() const override;
@@ -103,6 +109,11 @@ class PLATFORM_EXPORT AutoAdvancingVirtualTimeDomain
   std::unique_ptr<ProcessTimeOverrideCoordinator::ScopedOverride>
       time_override_;
   const base::TimeTicks initial_time_ticks_;
+
+  // Realtime mode state - tracks wall clock offset for sync advancement
+  bool realtime_mode_enabled_ = false;
+  base::TimeTicks realtime_mode_wall_clock_base_;   // Wall clock when realtime mode started
+  base::TimeTicks realtime_mode_virtual_time_base_; // Virtual time when realtime mode started
 };
 
 }  // namespace scheduler
