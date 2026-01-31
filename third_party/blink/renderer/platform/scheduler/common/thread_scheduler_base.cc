@@ -179,11 +179,13 @@ void ThreadSchedulerBase::ApplyVirtualTimePolicy() {
               ? 0
               : max_virtual_time_task_starvation_count_);
       virtual_time_domain_->SetVirtualTimeFence(base::TimeTicks());
+      virtual_time_domain_->SetRealtimeMode(false);
       SetVirtualTimeStopped(false);
       break;
     case VirtualTimePolicy::kPause:
       virtual_time_domain_->SetMaxVirtualTimeTaskStarvationCount(0);
       virtual_time_domain_->SetVirtualTimeFence(GetTickClock()->NowTicks());
+      virtual_time_domain_->SetRealtimeMode(false);
       SetVirtualTimeStopped(true);
       break;
     case VirtualTimePolicy::kDeterministicLoading:
@@ -191,6 +193,7 @@ void ThreadSchedulerBase::ApplyVirtualTimePolicy() {
           GetHelper().IsInNestedRunloop()
               ? 0
               : max_virtual_time_task_starvation_count_);
+      virtual_time_domain_->SetRealtimeMode(false);
 
       // We pause virtual time while the run loop is nested because that implies
       // something modal is happening such as the DevTools debugger pausing the
@@ -200,13 +203,12 @@ void ThreadSchedulerBase::ApplyVirtualTimePolicy() {
                             GetHelper().IsInNestedRunloop());
       break;
     case VirtualTimePolicy::kRealtime:
-      // TODO(anthropic): Implement realtime mode - for now, behave like kAdvance.
-      // Full implementation will sync virtual time with wall-clock time.
       virtual_time_domain_->SetMaxVirtualTimeTaskStarvationCount(
           GetHelper().IsInNestedRunloop()
               ? 0
               : max_virtual_time_task_starvation_count_);
       virtual_time_domain_->SetVirtualTimeFence(base::TimeTicks());
+      virtual_time_domain_->SetRealtimeMode(true);
       SetVirtualTimeStopped(false);
       break;
   }
