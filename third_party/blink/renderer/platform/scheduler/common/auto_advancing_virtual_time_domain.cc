@@ -36,6 +36,23 @@ AutoAdvancingVirtualTimeDomain::~AutoAdvancingVirtualTimeDomain() {
 }
 
 base::TimeTicks AutoAdvancingVirtualTimeDomain::NowTicks() const {
+  // In realtime mode, advance virtual time in sync with wall-clock time.
+  // This ensures Date.now() and performance.now() advance smoothly,
+  // enabling proper animation playback after pause/resume.
+  if (realtime_mode_enabled_) {
+    base::TimeTicks wall_clock_now =
+        base::subtle::TimeTicksNowIgnoringOverride();
+    base::TimeDelta wall_clock_elapsed =
+        wall_clock_now - realtime_mode_wall_clock_base_;
+    base::TimeTicks target_virtual_time =
+        realtime_mode_virtual_time_base_ + wall_clock_elapsed;
+
+    // Try to advance the time override to match wall-clock elapsed time.
+    // TryAdvancingTime will update the global time override that Date.now()
+    // and performance.now() read from.
+    base::TimeTicks actual_time = time_override_->TryAdvancingTime(target_virtual_time);
+    return actual_time;
+  }
   return time_override_->NowTicks();
 }
 
