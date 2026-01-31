@@ -45,6 +45,13 @@ class VirtualTimeController {
     // is not allowed to advance until we have seen at least one load. The aim
     // being to try and make loading (more) deterministic.
     kDeterministicLoading,
+
+    // In this policy virtual time advances in sync with wall-clock time.
+    // Unlike kAdvance which fast-forwards to the next task, kRealtime waits
+    // for wall-clock time to pass before advancing virtual time. This enables
+    // smooth animation playback after pausing. Tasks scheduled in the future
+    // will fire at their correct relative time, not instantly.
+    kRealtime,
   };
 
   // Enables virtual time for associated thread scheduler.

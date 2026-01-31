@@ -142,6 +142,8 @@ const char* VirtualTimePolicyToString(
       return "PAUSE";
     case VirtualTimeController::VirtualTimePolicy::kDeterministicLoading:
       return "DETERMINISTIC_LOADING";
+    case VirtualTimeController::VirtualTimePolicy::kRealtime:
+      return "REALTIME";
   }
 }
 }  // namespace
@@ -196,6 +198,16 @@ void ThreadSchedulerBase::ApplyVirtualTimePolicy() {
       // asynchronous things e.g. resource load or navigation.
       SetVirtualTimeStopped(virtual_time_pause_count_ != 0 ||
                             GetHelper().IsInNestedRunloop());
+      break;
+    case VirtualTimePolicy::kRealtime:
+      // TODO(anthropic): Implement realtime mode - for now, behave like kAdvance.
+      // Full implementation will sync virtual time with wall-clock time.
+      virtual_time_domain_->SetMaxVirtualTimeTaskStarvationCount(
+          GetHelper().IsInNestedRunloop()
+              ? 0
+              : max_virtual_time_task_starvation_count_);
+      virtual_time_domain_->SetVirtualTimeFence(base::TimeTicks());
+      SetVirtualTimeStopped(false);
       break;
   }
 }
