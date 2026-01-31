@@ -358,13 +358,21 @@ class InspectorOverlayAgent::InspectorPageOverlayDelegate final
       gfx::Rect bounds(layer_->bounds());
       cc::PaintCanvas* canvas = recorder.beginRecording();
 
-      // Draw cursor at its position
-      // Use scale of 1.0 since the overlay handles scaling
+      // The overlay layer is sized at EmulationScaleFactor scale (CSS pixels).
+      // Position is in CSS pixels matching the layer coordinate space.
+      // For cursor SIZE on HiDPI, we use WindowToViewportScale so the cursor
+      // appears at the correct physical size (matching system cursors).
+      float emulation_scale = overlay_->EmulationScaleFactor();
+      float cursor_size_scale = overlay_->WindowToViewportScale();
+      gfx::PointF position(
+          cursor_tool->GetPosition().x() * emulation_scale,
+          cursor_tool->GetPosition().y() * emulation_scale);
+
       InspectorCursorDrawer::DrawCursor(
           canvas,
           cursor_tool->GetDetectedCursorType(),
-          cursor_tool->GetPosition(),
-          1.0f);
+          position,
+          cursor_size_scale);
 
       display_list->push<cc::DrawRecordOp>(recorder.finishRecordingAsPicture());
     }

@@ -57,6 +57,10 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
     // If true, skip resume/pause execution control.
     // Use for actions like Navigate that need JS to run during the action.
     bool skip_execution_control = false;
+
+    // If true, center the virtual cursor in the viewport after the action
+    // completes. Use for navigation actions where cursor should reset to center.
+    bool center_cursor_after = false;
   };
 
   // Factory method - creates context and starts the action flow
@@ -131,6 +135,7 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   void ExecuteAction();
   void DoWaitUntil();
   void OnWaitUntilComplete();
+  void OnCursorCentered();
   void StopEventCaptureAndGetScrollPosition();
   void OnScrollPositionReceived(base::Value::Dict scroll_info);
   void PauseExecutionIfNeeded();

@@ -197,6 +197,17 @@ void AbpActionContext::DoWaitUntil() {
 void AbpActionContext::OnWaitUntilComplete() {
   wait_completed_ms_ = base::Time::Now().InMillisecondsSinceUnixEpoch();
 
+  // Center cursor if requested (e.g., after navigation)
+  if (options_.center_cursor_after) {
+    controller_->CenterCursorInTab(
+        tab_id_, base::BindOnce(&AbpActionContext::OnCursorCentered,
+                                weak_factory_.GetWeakPtr()));
+  } else {
+    OnCursorCentered();
+  }
+}
+
+void AbpActionContext::OnCursorCentered() {
   // Stop event capture and get scroll position
   StopEventCaptureAndGetScrollPosition();
 }

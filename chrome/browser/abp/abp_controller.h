@@ -143,9 +143,13 @@ class AbpController {
                      const std::string& body,
                      ResponseCallback callback);
 
-  // Center the mouse cursor in the active tab's viewport
-  // Used for ABP input-only mode initialization
-  void CenterMouseInActiveTab();
+  // Get the tab ID of the active tab in the first browser window
+  // Returns empty string if no active tab is available
+  std::string GetActiveTabId();
+
+  // Center the virtual cursor in the viewport of the specified tab
+  // Callback is invoked after cursor is centered (or on error)
+  void CenterCursorInTab(const std::string& tab_id, base::OnceClosure callback);
 
   // Check if browser is ready for ABP operations
   // Returns true if there's a browser window with a tab that has a valid view
@@ -188,6 +192,15 @@ class AbpController {
 
   // Update the virtual cursor state for a tab (used by input actions)
   void UpdateVirtualCursorState(const std::string& tab_id, double x, double y);
+
+  // Set virtual cursor position via Mojo IPC for on-screen rendering
+  void SetVirtualCursorViaMojo(content::WebContents* wc,
+                                float x,
+                                float y,
+                                bool visible);
+
+  // Enable/disable the virtual cursor system via Mojo IPC
+  void SetVirtualCursorEnabledViaMojo(content::WebContents* wc, bool enabled);
 
   // Get virtual time for a tab, or wall clock if not enabled
   int64_t GetVirtualTimeMs(const std::string& tab_id);
@@ -465,21 +478,12 @@ class AbpController {
   void CleanupTabState(const std::string& tab_id);
 
   // ==========================================================================
-  // Virtual cursor methods
+  // Virtual cursor methods (private)
   // ==========================================================================
-
-  // Sets the virtual cursor position via Mojo IPC to the renderer.
-  void SetVirtualCursorViaMojo(content::WebContents* wc,
-                                float x,
-                                float y,
-                                bool visible);
 
   // Sets the virtual cursor type via Mojo IPC.
   void SetVirtualCursorTypeViaMojo(content::WebContents* wc,
                                     ui::mojom::CursorType cursor_type);
-
-  // Enables/disables the virtual cursor system for a tab.
-  void SetVirtualCursorEnabledViaMojo(content::WebContents* wc, bool enabled);
 
   // Enable execution control (Debugger + virtual time) for a tab
   void EnableExecutionControl(

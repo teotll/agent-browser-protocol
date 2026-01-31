@@ -46,7 +46,7 @@ void VirtualCursorTool::DetectCursorStyle() {
     return;
   }
 
-  // Convert CSS pixel position to physical pixels for hit-testing
+  // Position is in CSS pixels for hit-testing
   gfx::PointF point_in_frame = position_;
 
   // Create hit test request with appropriate flags

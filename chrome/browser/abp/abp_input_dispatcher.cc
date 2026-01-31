@@ -40,6 +40,14 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
             ctx->controller()->UpdateVirtualCursorState(ctx->tab_id(), coord_x,
                                                         coord_y);
 
+            // Enable and set virtual cursor via Mojo for on-screen rendering
+            content::WebContents* wc = ctx->web_contents();
+            if (wc) {
+              ctx->controller()->SetVirtualCursorEnabledViaMojo(wc, true);
+              ctx->controller()->SetVirtualCursorViaMojo(wc, coord_x, coord_y,
+                                                          true);
+            }
+
             AbpCdpClient* client = ctx->client();
             if (!client) {
               ctx->OnActionError("CDP_ERROR", "CDP client lost");
@@ -211,6 +219,14 @@ void AbpInputDispatcher::Move(const std::string& tab_id,
             // Update virtual cursor state via controller
             ctx->controller()->UpdateVirtualCursorState(ctx->tab_id(), coord_x,
                                                         coord_y);
+
+            // Enable and set virtual cursor via Mojo for on-screen rendering
+            content::WebContents* wc = ctx->web_contents();
+            if (wc) {
+              ctx->controller()->SetVirtualCursorEnabledViaMojo(wc, true);
+              ctx->controller()->SetVirtualCursorViaMojo(wc, coord_x, coord_y,
+                                                          true);
+            }
 
             AbpCdpClient* client = ctx->client();
             if (!client) {

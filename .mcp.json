@@ -1,7 +1,7 @@
 {
   "mcpServers": {
-    "browser": {
-      "transport": "streamable-http",
+    "agent-browser-protocol": {
+      "type": "http",
       "url": "http://localhost:8222/mcp"
     }
   }

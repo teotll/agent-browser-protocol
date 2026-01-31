@@ -422,34 +422,44 @@ void AbpController::SetHistoryController(
   history_controller_ = history_controller;
 }
 
-void AbpController::CenterMouseInActiveTab() {
+std::string AbpController::GetActiveTabId() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   // Get the first browser with an active tab
-  Browser* browser = nullptr;
   const BrowserList* browser_list = BrowserList::GetInstance();
   for (auto it = browser_list->begin(); it != browser_list->end(); ++it) {
-    if ((*it)->tab_strip_model()->count() > 0) {
-      browser = *it;
-      break;
+    Browser* browser = *it;
+    if (browser->tab_strip_model()->count() > 0) {
+      content::WebContents* wc =
+          browser->tab_strip_model()->GetActiveWebContents();
+      if (wc) {
+        scoped_refptr<content::DevToolsAgentHost> host =
+            content::DevToolsAgentHost::GetOrCreateForTab(wc);
+        if (host) {
+          return host->GetId();
+        }
+      }
     }
   }
 
-  if (!browser) {
-    LOG(WARNING) << "ABP: No browser available for mouse centering";
-    return;
-  }
+  return std::string();
+}
 
-  content::WebContents* wc =
-      browser->tab_strip_model()->GetActiveWebContents();
+void AbpController::CenterCursorInTab(const std::string& tab_id,
+                                       base::OnceClosure callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
-    LOG(WARNING) << "ABP: No active WebContents for mouse centering";
+    LOG(WARNING) << "ABP: Tab not found for cursor centering: " << tab_id;
+    std::move(callback).Run();
     return;
   }
 
   content::RenderWidgetHostView* rwhv = wc->GetRenderWidgetHostView();
   if (!rwhv) {
-    LOG(WARNING) << "ABP: No RenderWidgetHostView for mouse centering";
+    LOG(WARNING) << "ABP: No RenderWidgetHostView for cursor centering";
+    std::move(callback).Run();
     return;
   }
 
@@ -458,37 +468,31 @@ void AbpController::CenterMouseInActiveTab() {
   double center_x = viewport_size.width() / 2.0;
   double center_y = viewport_size.height() / 2.0;
 
-  LOG(INFO) << "ABP: Centering mouse at (" << center_x << ", " << center_y
+  LOG(INFO) << "ABP: Centering cursor at (" << center_x << ", " << center_y
             << ") in viewport " << viewport_size.width() << "x"
             << viewport_size.height();
 
+  // Update internal virtual cursor state - this is what matters for screenshots
+  UpdateVirtualCursorState(tab_id, center_x, center_y);
+
+  // Enable and set virtual cursor via Mojo for on-screen rendering
+  SetVirtualCursorEnabledViaMojo(wc, true);
+  SetVirtualCursorViaMojo(wc, center_x, center_y, true);
+
+  // Call callback immediately - internal state is updated
+  // CDP commands below are fire-and-forget for visual updates
+  std::move(callback).Run();
+
   AbpCdpClient* client = GetOrCreateCdpClient(wc);
   if (!client) {
-    LOG(WARNING) << "ABP: Failed to create CDP client for mouse centering";
+    LOG(WARNING) << "ABP: Failed to create CDP client for cursor centering";
     return;
   }
 
-  // Update virtual cursor state so screenshots know the cursor position
-  scoped_refptr<content::DevToolsAgentHost> host =
-      content::DevToolsAgentHost::GetOrCreateForTab(wc);
-  if (host) {
-    TabState& tab_state = GetOrCreateTabState(host->GetId());
-    tab_state.cursor.active = true;
-    tab_state.cursor.x = center_x;
-    tab_state.cursor.y = center_y;
-  }
-
-  // First, set the virtual cursor position so it appears in screenshots
-  base::Value::Dict cursor_config;
-  cursor_config.Set("x", center_x);
-  cursor_config.Set("y", center_y);
-  cursor_config.Set("visible", true);
-
-  base::Value::Dict cursor_params;
-  cursor_params.Set("cursorConfig", std::move(cursor_config));
-
+  // Enable the Overlay domain first (required for setVirtualCursor)
+  base::Value::Dict empty_params;
   client->SendCommand(
-      "Overlay.setVirtualCursor", cursor_params,
+      "Overlay.enable", empty_params,
       base::BindOnce(
           [](base::WeakPtr<AbpController> controller, AbpCdpClient* client,
              double x, double y, bool success, const std::string& result) {
@@ -496,21 +500,43 @@ void AbpController::CenterMouseInActiveTab() {
               return;
             }
 
-            // Also send mouseMoved event for page interaction
-            base::Value::Dict cdp_params;
-            cdp_params.Set("type", "mouseMoved");
-            cdp_params.Set("x", x);
-            cdp_params.Set("y", y);
+            // Now set the virtual cursor position via CDP overlay
+            base::Value::Dict cursor_config;
+            cursor_config.Set("x", x);
+            cursor_config.Set("y", y);
+            cursor_config.Set("visible", true);
+
+            base::Value::Dict cursor_params;
+            cursor_params.Set("cursorConfig", std::move(cursor_config));
 
             client->SendCommand(
-                "Input.dispatchMouseEvent", cdp_params,
-                base::BindOnce([](bool success, const std::string& result) {
-                  if (success) {
-                    LOG(INFO) << "ABP: Mouse centered successfully";
-                  } else {
-                    LOG(WARNING) << "ABP: Failed to center mouse: " << result;
-                  }
-                }));
+                "Overlay.setVirtualCursor", std::move(cursor_params),
+                base::BindOnce(
+                    [](AbpCdpClient* client, double x, double y, bool success,
+                       const std::string& result) {
+                      if (!client) {
+                        return;
+                      }
+
+                      // Also send mouseMoved event for page interaction
+                      base::Value::Dict cdp_params;
+                      cdp_params.Set("type", "mouseMoved");
+                      cdp_params.Set("x", x);
+                      cdp_params.Set("y", y);
+
+                      client->SendCommand(
+                          "Input.dispatchMouseEvent", std::move(cdp_params),
+                          base::BindOnce([](bool success,
+                                            const std::string& result) {
+                            if (success) {
+                              LOG(INFO) << "ABP: Cursor centered successfully";
+                            } else {
+                              LOG(WARNING)
+                                  << "ABP: Failed to center cursor: " << result;
+                            }
+                          }));
+                    },
+                    client, x, y));
           },
           weak_factory_.GetWeakPtr(), client, center_x, center_y));
 }
@@ -1174,8 +1200,10 @@ void AbpController::Navigate(const std::string& tab_id,
   // Use AbpActionContext with skip_execution_control=true
   // Navigation is async and the page needs JS to run during loading.
   // If execution is paused, user should resume manually before navigate.
+  // Center cursor after navigation so it's in the viewport center.
   AbpActionContext::Options options;
   options.skip_execution_control = true;
+  options.center_cursor_after = true;
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "navigate", params, options,
@@ -1210,8 +1238,10 @@ void AbpController::Reload(const std::string& tab_id,
 
   // Use AbpActionContext with skip_execution_control=true
   // Reload is similar to Navigate - needs JS to run
+  // Center cursor after reload so it's in the viewport center.
   AbpActionContext::Options options;
   options.skip_execution_control = true;
+  options.center_cursor_after = true;
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "reload", params, options,
@@ -1245,8 +1275,10 @@ void AbpController::GoBack(const std::string& tab_id,
   base::Value::Dict params;  // Empty params for back
 
   // Use AbpActionContext with skip_execution_control=true
+  // Center cursor after navigation so it's in the viewport center.
   AbpActionContext::Options options;
   options.skip_execution_control = true;
+  options.center_cursor_after = true;
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "back", params, options,
@@ -1285,8 +1317,10 @@ void AbpController::GoForward(const std::string& tab_id,
   base::Value::Dict params;  // Empty params for forward
 
   // Use AbpActionContext with skip_execution_control=true
+  // Center cursor after navigation so it's in the viewport center.
   AbpActionContext::Options options;
   options.skip_execution_control = true;
+  options.center_cursor_after = true;
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "forward", params, options,

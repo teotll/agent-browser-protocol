@@ -4,6 +4,7 @@
 
 #include "base/command_line.h"
 #include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -133,7 +134,10 @@ void AbpHttpServer::PollForReadyAndCenterCursor() {
   if (controller_->IsBrowserReady()) {
     LOG(INFO) << "ABP: Browser ready, centering cursor";
     cursor_centered_ = true;
-    controller_->CenterMouseInActiveTab();
+    std::string tab_id = controller_->GetActiveTabId();
+    if (!tab_id.empty()) {
+      controller_->CenterCursorInTab(tab_id, base::DoNothing());
+    }
   } else {
     // Not ready yet, poll again
     content::GetUIThreadTaskRunner({})->PostDelayedTask(
