@@ -48,6 +48,31 @@ bool AutoAdvancingVirtualTimeDomain::MaybeFastForwardToWakeUp(
   if (!wakeup)
     return false;
 
+  // In realtime mode, calculate max allowed virtual time based on wall clock
+  if (realtime_mode_enabled_) {
+    // IMPORTANT: Use TimeTicksNowIgnoringOverride to get actual wall-clock time.
+    // Regular TimeTicks::Now() would return the overridden virtual time since
+    // ProcessTimeOverrideCoordinator overrides it, which would break the
+    // comparison (we'd be comparing virtual time against itself).
+    base::TimeTicks wall_clock_now =
+        base::subtle::TimeTicksNowIgnoringOverride();
+    base::TimeDelta wall_clock_elapsed =
+        wall_clock_now - realtime_mode_wall_clock_base_;
+    base::TimeTicks max_virtual_time =
+        realtime_mode_virtual_time_base_ + wall_clock_elapsed;
+
+    // Only advance if the wake up time is within our allowed virtual time
+    if (wakeup->time <= max_virtual_time) {
+      if (MaybeAdvanceVirtualTime(wakeup->time)) {
+        task_starvation_count_ = 0;
+        return true;
+      }
+    }
+    // Wake up is in the future - don't fast forward, scheduler will idle
+    return false;
+  }
+
+  // Standard advance mode - fast forward to wake up time
   if (MaybeAdvanceVirtualTime(wakeup->time)) {
     task_starvation_count_ = 0;
     return true;
@@ -75,6 +100,23 @@ void AutoAdvancingVirtualTimeDomain::SetVirtualTimeFence(
   virtual_time_fence_ = virtual_time_fence;
   if (!requested_next_virtual_time_.is_null())
     MaybeAdvanceVirtualTime(requested_next_virtual_time_);
+}
+
+void AutoAdvancingVirtualTimeDomain::SetRealtimeMode(bool enabled) {
+  if (realtime_mode_enabled_ == enabled)
+    return;
+
+  realtime_mode_enabled_ = enabled;
+  if (enabled) {
+    // Record the current wall clock and virtual time as the base.
+    // IMPORTANT: Use TimeTicksNowIgnoringOverride to get actual wall-clock time.
+    // Regular TimeTicks::Now() would return the overridden virtual time since
+    // ProcessTimeOverrideCoordinator overrides it.
+    realtime_mode_wall_clock_base_ =
+        base::subtle::TimeTicksNowIgnoringOverride();
+    realtime_mode_virtual_time_base_ = NowTicks();
+  }
+  NotifyPolicyChanged();
 }
 
 bool AutoAdvancingVirtualTimeDomain::MaybeAdvanceVirtualTime(
@@ -110,6 +152,14 @@ void AutoAdvancingVirtualTimeDomain::DidProcessTask(
     const base::PendingTask& pending_task) {
   if (max_task_starvation_count_ == 0 ||
       ++task_starvation_count_ < max_task_starvation_count_) {
+    return;
+  }
+
+  // In realtime mode, don't allow task starvation to force time jumps.
+  // The MaybeFastForwardToWakeUp method handles realtime advancement properly
+  // by checking against wall clock elapsed time.
+  if (realtime_mode_enabled_) {
+    task_starvation_count_ = 0;
     return;
   }
 
