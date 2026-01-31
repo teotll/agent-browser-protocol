@@ -2428,9 +2428,9 @@ void AbpController::OnDebuggerResumed(const std::string& tab_id,
     return;
   }
 
-  // Step 2: Resume virtual time (advance policy)
+  // Step 2: Resume virtual time (realtime policy for smooth animations)
   base::Value::Dict params;
-  params.Set("policy", "advance");
+  params.Set("policy", "realtime");
 
   client->SendCommand(
       "Emulation.setVirtualTimePolicy", params,
@@ -2443,7 +2443,7 @@ void AbpController::OnVirtualTimeResumed(const std::string& tab_id,
                                          bool success,
                                          const std::string& result) {
   if (!success) {
-    LOG(WARNING) << "ABP: setVirtualTimePolicy(advance) failed: " << result;
+    LOG(WARNING) << "ABP: setVirtualTimePolicy(realtime) failed: " << result;
   }
 
   auto it = tab_states_.find(tab_id);
