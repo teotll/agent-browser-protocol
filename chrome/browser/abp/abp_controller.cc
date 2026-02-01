@@ -463,7 +463,7 @@ void AbpController::CenterCursorInTab(const std::string& tab_id,
     return;
   }
 
-  // Get viewport size
+  // Get viewport size.
   gfx::Size viewport_size = rwhv->GetVisibleViewportSize();
   double center_x = viewport_size.width() / 2.0;
   double center_y = viewport_size.height() / 2.0;
@@ -472,73 +472,14 @@ void AbpController::CenterCursorInTab(const std::string& tab_id,
             << ") in viewport " << viewport_size.width() << "x"
             << viewport_size.height();
 
-  // Update internal virtual cursor state - this is what matters for screenshots
+  // Update internal virtual cursor state.
   UpdateVirtualCursorState(tab_id, center_x, center_y);
 
-  // Enable and set virtual cursor via Mojo for on-screen rendering
+  // Enable and set virtual cursor via Mojo for on-screen rendering.
   SetVirtualCursorEnabledViaMojo(wc, true);
   SetVirtualCursorViaMojo(wc, center_x, center_y, true);
 
-  // Call callback immediately - internal state is updated
-  // CDP commands below are fire-and-forget for visual updates
   std::move(callback).Run();
-
-  AbpCdpClient* client = GetOrCreateCdpClient(wc);
-  if (!client) {
-    LOG(WARNING) << "ABP: Failed to create CDP client for cursor centering";
-    return;
-  }
-
-  // Enable the Overlay domain first (required for setVirtualCursor)
-  base::Value::Dict empty_params;
-  client->SendCommand(
-      "Overlay.enable", empty_params,
-      base::BindOnce(
-          [](base::WeakPtr<AbpController> controller, AbpCdpClient* client,
-             double x, double y, bool success, const std::string& result) {
-            if (!controller || !client) {
-              return;
-            }
-
-            // Now set the virtual cursor position via CDP overlay
-            base::Value::Dict cursor_config;
-            cursor_config.Set("x", x);
-            cursor_config.Set("y", y);
-            cursor_config.Set("visible", true);
-
-            base::Value::Dict cursor_params;
-            cursor_params.Set("cursorConfig", std::move(cursor_config));
-
-            client->SendCommand(
-                "Overlay.setVirtualCursor", std::move(cursor_params),
-                base::BindOnce(
-                    [](AbpCdpClient* client, double x, double y, bool success,
-                       const std::string& result) {
-                      if (!client) {
-                        return;
-                      }
-
-                      // Also send mouseMoved event for page interaction
-                      base::Value::Dict cdp_params;
-                      cdp_params.Set("type", "mouseMoved");
-                      cdp_params.Set("x", x);
-                      cdp_params.Set("y", y);
-
-                      client->SendCommand(
-                          "Input.dispatchMouseEvent", std::move(cdp_params),
-                          base::BindOnce([](bool success,
-                                            const std::string& result) {
-                            if (success) {
-                              LOG(INFO) << "ABP: Cursor centered successfully";
-                            } else {
-                              LOG(WARNING)
-                                  << "ABP: Failed to center cursor: " << result;
-                            }
-                          }));
-                    },
-                    client, x, y));
-          },
-          weak_factory_.GetWeakPtr(), client, center_x, center_y));
 }
 
 bool AbpController::IsBrowserReady() {
