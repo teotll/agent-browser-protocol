@@ -1,8 +1,8 @@
 # Virtual Cursor Implementation Plan - IMPLEMENTED
 
-**Status: FULLY IMPLEMENTED**
+**Status: FULLY IMPLEMENTED (Mojo-Only)**
 
-The virtual cursor is implemented using:
+The virtual cursor is implemented using **only** the Mojo IPC path:
 - Mojo IPC interface (`VirtualCursor.mojom`) for browser-renderer communication
 - Compositor-layer rendering via `VirtualCursorLayer` in CC
 - State tracking in `AbpController::virtual_cursor_states_`
@@ -12,6 +12,21 @@ Files implemented:
 - `third_party/blink/public/mojom/abp/virtual_cursor.mojom`
 - `third_party/blink/renderer/core/abp/virtual_cursor_layer.h/cc`
 - Virtual cursor state tracking in `abp_controller.h/cc`
+
+---
+
+## Important: Do Not Use CDP for Cursor
+
+The Mojo-based virtual cursor system is the correct approach for ABP.
+Do NOT add CDP `Overlay.setVirtualCursor` calls back into ABP code.
+
+**Reasons:**
+1. CDP cursor relies on DevTools/Inspector overlay internals
+2. Mojo path is cleaner and doesn't require DevTools to be attached
+3. Single source of truth simplifies debugging
+4. No dependency on inspector overlay state or lifecycle
+
+**Note:** The CDP cursor code still exists in Blink (`InspectorOverlayAgent`, `VirtualCursorTool`) for DevTools use - we're just not using it in ABP.
 
 ---
 
@@ -119,9 +134,9 @@ Implement a virtual cursor that combines centralized state management in the bro
 │                                                                         │
 │  ┌───────────────────────────────────────────────────────────────────┐ │
 │  │  Blink (hit-testing only, async)                                  │ │
-│  │  - VirtualCursorTool::DetectCursorStyle()                         │ │
-│  │  - Returns cursor type for element at position                     │ │
-│  │  - Triggered via CDP, results sent back to AbpController          │ │
+│  │  - Cursor style detection via Mojo                                │ │
+│  │  - Returns cursor type for element at position                    │ │
+│  │  - Results sent back to AbpController via Mojo IPC                │ │
 │  └───────────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -174,21 +189,20 @@ Implement a virtual cursor that combines centralized state management in the bro
    │ render_widget_host_->SetVirtualCursorPosition(      │
    │     100, 200, true);                                │
    │                                                     │
-   │ // Request cursor style detection (async CDP)       │
-   │ SendCDP("Overlay.setVirtualCursor", {x, y});        │
+   │ // Request cursor style detection (Mojo, async)     │
+   │ DetectCursorStyleAsync(tab_id, x, y);               │
    └─────────────────────────────────────────────────────┘
 
-5. Parallel Paths:
+5. Mojo Path (unified):
 
-   A) Compositor Path (immediate)
+   A) Position Update (immediate)
       RenderWidgetHostImpl → Mojo → VirtualCursorLayerManager
       → cursor_layer_->SetTransform(translate(100, 200))
       → LayerTreeHost::SetNeedsCommit()
       → Frame composited with cursor at new position
 
-   B) CDP Path (async, for cursor style)
-      DevToolsAgentHost → InspectorOverlayAgent
-      → VirtualCursorTool::DetectCursorStyle()
+   B) Cursor Style Detection (async, via Mojo)
+      AbpController → Mojo → Renderer hit-testing
       → Returns "hand" (e.g., hovering over link)
       → AbpController updates cursor_state_.cursor_type
       → Mojo → VirtualCursorLayerManager::SetCursorType()
@@ -454,16 +468,15 @@ class VirtualCursorLayer : public cc::PictureLayer,
 };
 ```
 
-### 5. VirtualCursorTool (Blink - Existing, Modified)
+### 5. VirtualCursorTool (Blink - Not Used by ABP)
 
 **Location:** `third_party/blink/renderer/core/inspector/virtual_cursor_tool.cc`
 
-**Responsibilities (unchanged):**
-- Perform hit-testing at cursor position
-- Detect CSS cursor style from elements
-- Report detected cursor type back via CDP response
+**Note:** This component exists for DevTools use but is **NOT used by ABP**.
+ABP uses the Mojo-based cursor system exclusively.
 
-**Note:** This component is only used for cursor style detection, not rendering.
+The VirtualCursorTool and related CDP cursor code (`InspectorOverlayAgent::setVirtualCursor`)
+remain in the codebase for DevTools functionality, but ABP should never call them.
 
 ---
 
@@ -643,28 +656,32 @@ interface VirtualCursorClient {
 
 ### Phase 6: Cursor Style Detection
 
-**Goal:** Async cursor style detection via existing CDP path
+**Goal:** Async cursor style detection via Mojo path
 
 **Tasks:**
-1. Keep existing VirtualCursorTool for hit-testing
+1. Implement cursor style detection via Mojo IPC (not CDP)
 2. Trigger detection after position update (async)
 3. Update cursor type in compositor layer when detection completes
 4. Handle detection failures gracefully (keep current type)
 
 **Files to modify:**
-- `chrome/browser/abp/abp_controller.cc` (CDP integration)
+- `chrome/browser/abp/abp_controller.cc` (Mojo integration)
 
 ### Phase 7: Cleanup & Optimization
 
-**Goal:** Remove old implementation, optimize performance
+**Goal:** Remove old implementation, optimize performance, consolidate to Mojo-only
 
 **Tasks:**
 1. Remove JavaScript cursor injection code
 2. Remove cursor painting from screenshot capture
 3. Remove 200ms delay in screenshot flow
 4. **Remove AbpMouseTracker** (tracks real system mouse, not needed with input pipeline integration)
-5. Profile and optimize layer update performance
-6. Verify no Blink repaints on cursor position changes
+5. **Remove all CDP cursor calls from ABP** (use Mojo path exclusively)
+6. Profile and optimize layer update performance
+7. Verify no Blink repaints on cursor position changes
+
+**IMPORTANT:** Do NOT remove CDP cursor code from Blink (`InspectorOverlayAgent`, `VirtualCursorTool`).
+This code is still used by DevTools. Only remove CDP cursor usage from ABP code.
 
 **Files to delete:**
 - `chrome/browser/abp/abp_mouse_tracker.h`
@@ -672,9 +689,8 @@ interface VirtualCursorClient {
 - `chrome/browser/abp/abp_mouse_tracker_mac.mm`
 
 **Files to modify:**
-- `chrome/browser/abp/abp_controller.cc` (remove AbpMouseTracker usage)
+- `chrome/browser/abp/abp_controller.cc` (remove AbpMouseTracker usage, remove CDP cursor calls)
 - `chrome/browser/abp/BUILD.gn` (remove AbpMouseTracker from build)
-- `third_party/blink/renderer/core/inspector/inspector_overlay_agent.cc`
 
 ---
 
