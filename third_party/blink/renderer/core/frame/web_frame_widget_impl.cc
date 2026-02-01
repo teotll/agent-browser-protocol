@@ -920,6 +920,11 @@ void WebFrameWidgetImpl::SetEnabled(bool enabled) {
 
     virtual_cursor_overlay_ = MakeGarbageCollected<FrameOverlay>(
         frame, std::move(delegate));
+
+    // Schedule a repaint so the cursor is immediately visible.
+    if (frame->GetPage()) {
+      frame->GetPage()->GetChromeClient().ScheduleAnimation(frame->View());
+    }
   } else {
     if (virtual_cursor_overlay_) {
       virtual_cursor_overlay_->Destroy();
