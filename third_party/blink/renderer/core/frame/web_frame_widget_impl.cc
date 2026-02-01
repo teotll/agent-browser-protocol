@@ -867,12 +867,16 @@ void WebFrameWidgetImpl::SetPosition(float x, float y, bool visible) {
 
 void WebFrameWidgetImpl::SetCursorType(ui::mojom::CursorType cursor_type) {
   virtual_cursor_type_ = cursor_type;
-  // TODO(ABP): Update the cursor shape in the compositor layer
+  if (virtual_cursor_manager_) {
+    virtual_cursor_manager_->SetCursorType(cursor_type);
+  }
 }
 
 void WebFrameWidgetImpl::SetVisible(bool visible) {
   virtual_cursor_visible_ = visible;
-  // TODO(ABP): Update cursor layer visibility
+  if (virtual_cursor_manager_) {
+    virtual_cursor_manager_->SetVisible(visible);
+  }
 }
 
 void WebFrameWidgetImpl::SetEnabled(bool enabled) {
