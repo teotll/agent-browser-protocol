@@ -1058,6 +1058,9 @@ void AbpController::CreateTab(const base::Value::Dict& params,
     tab.Set("id", host->GetId());
     tab.Set("url", wc->GetVisibleURL().spec());
 
+    // Center the virtual cursor in the new tab.
+    CenterCursorInTab(host->GetId(), base::DoNothing());
+
     // Record successful action
     if (history_controller_) {
       int64_t duration_ms =
