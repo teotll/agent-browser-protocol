@@ -1323,8 +1323,9 @@ class CORE_EXPORT WebFrameWidgetImpl
   ui::mojom::CursorType virtual_cursor_type_ = ui::mojom::CursorType::kPointer;
 
   // Virtual cursor overlay for FrameOverlay-based rendering.
+  // The delegate is owned by the FrameOverlay, we keep a raw pointer for updates.
   Member<FrameOverlay> virtual_cursor_overlay_;
-  std::unique_ptr<VirtualCursorOverlayDelegate> virtual_cursor_delegate_;
+  VirtualCursorOverlayDelegate* virtual_cursor_delegate_ = nullptr;
 };
 
 }  // namespace blink

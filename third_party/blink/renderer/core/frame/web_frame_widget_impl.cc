@@ -169,7 +169,8 @@
 #include "ui/base/mojom/window_show_state.mojom-blink.h"
 #include "ui/gfx/geometry/mojom/geometry.mojom-forward.h"
 #include "ui/gfx/geometry/point_conversions.h"
-#include "content/renderer/virtual_cursor_layer_manager.h"
+#include "third_party/blink/renderer/core/frame/frame_overlay.h"
+#include "third_party/blink/renderer/core/frame/virtual_cursor_overlay_delegate.h"
 
 #if BUILDFLAG(IS_WIN)
 #include "components/stylus_handwriting/win/features.h"
@@ -856,33 +857,75 @@ void WebFrameWidgetImpl::SetPosition(float x, float y, bool visible) {
   virtual_cursor_y_ = y;
   virtual_cursor_visible_ = visible;
 
-  if (virtual_cursor_manager_) {
-    virtual_cursor_manager_->SetPosition(x, y, visible);
+  if (virtual_cursor_delegate_) {
+    virtual_cursor_delegate_->SetPosition(x, y);
+    virtual_cursor_delegate_->SetVisible(visible);
 
     // Hit-test and update cursor type.
     ui::mojom::CursorType cursor_type = DetectCursorStyleAtPosition(x, y);
-    virtual_cursor_manager_->SetCursorType(cursor_type);
+    virtual_cursor_delegate_->SetCursorType(cursor_type);
+
+    // Schedule a repaint.
+    LocalFrame* frame = local_root_->GetFrame();
+    if (frame && frame->GetPage()) {
+      frame->GetPage()->GetChromeClient().ScheduleAnimation(frame->View());
+    }
   }
 }
 
 void WebFrameWidgetImpl::SetCursorType(ui::mojom::CursorType cursor_type) {
   virtual_cursor_type_ = cursor_type;
-  if (virtual_cursor_manager_) {
-    virtual_cursor_manager_->SetCursorType(cursor_type);
+  if (virtual_cursor_delegate_) {
+    virtual_cursor_delegate_->SetCursorType(cursor_type);
+
+    // Schedule a repaint.
+    LocalFrame* frame = local_root_->GetFrame();
+    if (frame && frame->GetPage()) {
+      frame->GetPage()->GetChromeClient().ScheduleAnimation(frame->View());
+    }
   }
 }
 
 void WebFrameWidgetImpl::SetVisible(bool visible) {
   virtual_cursor_visible_ = visible;
-  if (virtual_cursor_manager_) {
-    virtual_cursor_manager_->SetVisible(visible);
+  if (virtual_cursor_delegate_) {
+    virtual_cursor_delegate_->SetVisible(visible);
+
+    // Schedule a repaint.
+    LocalFrame* frame = local_root_->GetFrame();
+    if (frame && frame->GetPage()) {
+      frame->GetPage()->GetChromeClient().ScheduleAnimation(frame->View());
+    }
   }
 }
 
 void WebFrameWidgetImpl::SetEnabled(bool enabled) {
+  if (virtual_cursor_enabled_ == enabled) {
+    return;
+  }
   virtual_cursor_enabled_ = enabled;
-  if (virtual_cursor_manager_) {
-    virtual_cursor_manager_->SetEnabled(enabled);
+
+  LocalFrame* frame = local_root_->GetFrame();
+  if (!frame) {
+    return;
+  }
+
+  if (enabled) {
+    // Create the delegate and store a raw pointer before moving into FrameOverlay.
+    auto delegate = std::make_unique<VirtualCursorOverlayDelegate>();
+    virtual_cursor_delegate_ = delegate.get();
+    virtual_cursor_delegate_->SetPosition(virtual_cursor_x_, virtual_cursor_y_);
+    virtual_cursor_delegate_->SetVisible(virtual_cursor_visible_);
+    virtual_cursor_delegate_->SetCursorType(virtual_cursor_type_);
+
+    virtual_cursor_overlay_ = MakeGarbageCollected<FrameOverlay>(
+        frame, std::move(delegate));
+  } else {
+    if (virtual_cursor_overlay_) {
+      virtual_cursor_overlay_->Destroy();
+      virtual_cursor_overlay_ = nullptr;
+    }
+    virtual_cursor_delegate_ = nullptr;
   }
 }
 
@@ -1650,6 +1693,7 @@ void WebFrameWidgetImpl::Trace(Visitor* visitor) const {
   visitor->Trace(device_emulator_);
   visitor->Trace(animation_frame_timing_monitor_);
   visitor->Trace(virtual_cursor_receiver_);
+  visitor->Trace(virtual_cursor_overlay_);
 }
 
 void WebFrameWidgetImpl::SetNeedsRecalculateRasterScales() {
@@ -2649,9 +2693,6 @@ void WebFrameWidgetImpl::InitializeCompositingInternal(
   // sense to move LinkHighlight from Page to WidgetBase so initialization is
   // per-widget. See also: https://crbug.com/1344531.
   GetPage()->DidInitializeCompositing(*AnimationHost());
-
-  // Create virtual cursor layer manager for ABP.
-  virtual_cursor_manager_ = std::make_unique<content::VirtualCursorLayerManager>();
 }
 
 void WebFrameWidgetImpl::InitializeNonCompositing(
@@ -3510,11 +3551,6 @@ void WebFrameWidgetImpl::SetRootLayer(scoped_refptr<cc::Layer> layer) {
   }
 
   bool root_layer_exists = !!layer;
-
-  // Hook for virtual cursor - notify manager of root layer change.
-  if (virtual_cursor_manager_) {
-    virtual_cursor_manager_->SetRootLayer(layer.get());
-  }
 
   if (widget_base_->WillBeDestroyed()) {
     CHECK(!layer);
