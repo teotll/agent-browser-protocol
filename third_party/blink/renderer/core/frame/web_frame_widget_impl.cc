@@ -855,7 +855,14 @@ void WebFrameWidgetImpl::SetPosition(float x, float y, bool visible) {
   virtual_cursor_x_ = x;
   virtual_cursor_y_ = y;
   virtual_cursor_visible_ = visible;
-  // TODO(ABP): Update the compositor layer position
+
+  if (virtual_cursor_manager_) {
+    virtual_cursor_manager_->SetPosition(x, y, visible);
+
+    // Hit-test and update cursor type.
+    ui::mojom::CursorType cursor_type = DetectCursorStyleAtPosition(x, y);
+    virtual_cursor_manager_->SetCursorType(cursor_type);
+  }
 }
 
 void WebFrameWidgetImpl::SetCursorType(ui::mojom::CursorType cursor_type) {
