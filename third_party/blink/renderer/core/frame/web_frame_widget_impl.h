@@ -57,6 +57,7 @@
 #include "third_party/blink/public/mojom/page/virtual_cursor.mojom-blink.h"
 #include "third_party/blink/public/mojom/page/widget.mojom-blink.h"
 #include "ui/base/cursor/mojom/cursor_type.mojom.h"
+#include "content/renderer/virtual_cursor_layer_manager.h"
 #include "third_party/blink/public/mojom/scroll/scroll_into_view_params.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/cross_variant_mojo_util.h"
 #include "third_party/blink/public/platform/web_drag_data.h"
@@ -1307,6 +1308,9 @@ class CORE_EXPORT WebFrameWidgetImpl
   bool throttling_frame_rate_ = false;
 
   // Virtual cursor support for ABP (Agent Browser Protocol).
+  // Detects cursor style at given position via hit-testing.
+  ui::mojom::CursorType DetectCursorStyleAtPosition(float x, float y);
+
   // Receiver for the VirtualCursor Mojo interface.
   HeapMojoAssociatedReceiver<mojom::blink::VirtualCursor, WebFrameWidgetImpl>
       virtual_cursor_receiver_{this, nullptr};
@@ -1317,6 +1321,9 @@ class CORE_EXPORT WebFrameWidgetImpl
   bool virtual_cursor_visible_ = false;
   bool virtual_cursor_enabled_ = false;
   ui::mojom::CursorType virtual_cursor_type_ = ui::mojom::CursorType::kPointer;
+
+  // Virtual cursor layer manager for compositor-based rendering.
+  std::unique_ptr<content::VirtualCursorLayerManager> virtual_cursor_manager_;
 };
 
 }  // namespace blink
