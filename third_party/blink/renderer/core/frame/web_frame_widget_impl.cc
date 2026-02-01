@@ -115,11 +115,13 @@
 #include "third_party/blink/renderer/core/input/touch_action_util.h"
 #include "third_party/blink/renderer/core/layout/hit_test_location.h"
 #include "third_party/blink/renderer/core/layout/hit_test_request.h"
+#include "third_party/blink/renderer/core/layout/hit_test_result.h"
 #include "third_party/blink/renderer/core/layout/layout_box.h"
 #include "third_party/blink/renderer/core/layout/layout_embedded_content.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/layout/layout_shift_tracker.h"
 #include "third_party/blink/renderer/core/layout/layout_text.h"
+#include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/loader/interactive_detector.h"
 #include "third_party/blink/renderer/core/page/context_menu_controller.h"
@@ -161,6 +163,7 @@
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/perfetto/include/perfetto/tracing/track.h"
+#include "ui/base/cursor/cursor.h"
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom-blink.h"
 #include "ui/base/mojom/menu_source_type.mojom-blink-forward.h"
 #include "ui/base/mojom/window_show_state.mojom-blink.h"
@@ -870,6 +873,37 @@ void WebFrameWidgetImpl::SetEnabled(bool enabled) {
   if (virtual_cursor_manager_) {
     virtual_cursor_manager_->SetEnabled(enabled);
   }
+}
+
+ui::mojom::CursorType WebFrameWidgetImpl::DetectCursorStyleAtPosition(
+    float x, float y) {
+  LocalFrame* frame = local_root_->GetFrame();
+  if (!frame || !frame->View() || !frame->ContentLayoutObject()) {
+    return ui::mojom::CursorType::kPointer;
+  }
+
+  // Create hit test request.
+  HitTestRequest::HitTestRequestType hit_type =
+      HitTestRequest::kReadOnly | HitTestRequest::kActive |
+      HitTestRequest::kAllowChildFrameContent;
+  HitTestRequest request(hit_type);
+
+  // Perform hit-test at the cursor position.
+  HitTestLocation location(PhysicalOffset::FromPointFRound(gfx::PointF(x, y)));
+  HitTestResult result(request, location);
+
+  if (frame->ContentLayoutObject()) {
+    frame->ContentLayoutObject()->HitTest(location, result);
+  }
+
+  // Get cursor type from EventHandler.
+  std::optional<ui::Cursor> cursor =
+      frame->GetEventHandler().CursorForHitTest(location, result);
+
+  if (cursor.has_value()) {
+    return cursor->type();
+  }
+  return ui::mojom::CursorType::kPointer;
 }
 
 void WebFrameWidgetImpl::BindInputTargetClient(
