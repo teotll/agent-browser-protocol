@@ -3463,6 +3463,12 @@ void WebFrameWidgetImpl::SetRootLayer(scoped_refptr<cc::Layer> layer) {
   }
 
   bool root_layer_exists = !!layer;
+
+  // Hook for virtual cursor - notify manager of root layer change.
+  if (virtual_cursor_manager_) {
+    virtual_cursor_manager_->SetRootLayer(layer.get());
+  }
+
   if (widget_base_->WillBeDestroyed()) {
     CHECK(!layer);
   } else {
