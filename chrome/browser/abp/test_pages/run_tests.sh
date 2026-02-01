@@ -345,6 +345,62 @@ test_vtime_003() {
     [[ "$fired" = "false" ]]
 }
 
+# CURSOR-001: Move cursor to position and verify response
+test_cursor_001() {
+    local tab_id=$(get_tab_id)
+
+    # Navigate to grid test page
+    curl -s -X POST "$ABP_URL/api/v1/tabs/$tab_id/navigate" \
+        -H "Content-Type: application/json" \
+        -d '{"url":"'"$HTTP_URL"'/virtual-cursor-grid-test.html"}' > /dev/null
+
+    sleep 1
+
+    # Move cursor to cell (2,2) center at (350, 350)
+    local result=$(curl -s -X POST "$ABP_URL/api/v1/tabs/$tab_id/move" \
+        -H "Content-Type: application/json" \
+        -d '{"x":350,"y":350}')
+
+    local status=$(echo "$result" | jq -r '.status // empty')
+    local returned_x=$(echo "$result" | jq -r '.x // empty')
+    local returned_y=$(echo "$result" | jq -r '.y // empty')
+
+    [[ "$status" = "moved" && "$returned_x" = "350" && "$returned_y" = "350" ]]
+}
+
+# CURSOR-002: Verify cursor position maps to correct grid cell
+test_cursor_002() {
+    local tab_id=$(get_tab_id)
+
+    # Navigate to grid test page (may already be there from CURSOR-001)
+    curl -s -X POST "$ABP_URL/api/v1/tabs/$tab_id/navigate" \
+        -H "Content-Type: application/json" \
+        -d '{"url":"'"$HTTP_URL"'/virtual-cursor-grid-test.html"}' > /dev/null
+
+    sleep 1
+
+    # Move cursor to cell (0,0) center at (150, 150) - accounting for 100px grid offset
+    curl -s -X POST "$ABP_URL/api/v1/tabs/$tab_id/move" \
+        -H "Content-Type: application/json" \
+        -d '{"x":150,"y":150}' > /dev/null
+
+    sleep 0.3
+
+    # Verify position maps to cell (0,0) via JavaScript
+    local cell_check=$(curl -s -X POST "$ABP_URL/api/v1/tabs/$tab_id/execute" \
+        -H "Content-Type: application/json" \
+        -d '{"script":"JSON.stringify(window.gridTest.getCellAtPoint(150, 150))"}' | jq -r '.result.value // "null"')
+
+    if [[ "$cell_check" = "null" ]]; then
+        return 1
+    fi
+
+    local row=$(echo "$cell_check" | jq -r '.row')
+    local col=$(echo "$cell_check" | jq -r '.col')
+
+    [[ "$row" = "0" && "$col" = "0" ]]
+}
+
 # NAV-003: Navigate back and forward
 test_nav_003() {
     local tab_id=$(get_tab_id)
@@ -422,6 +478,12 @@ run_test "KEY-001 (Press Enter for form submit)" test_key_001
 run_test "EXEC-001 (Execute JavaScript)" test_exec_001
 run_test "SCREENSHOT-001 (Take screenshot)" test_screenshot_001
 run_test "NAV-003 (Back/Forward navigation)" test_nav_003
+
+# Virtual Cursor Tests
+echo ""
+echo "--- Virtual Cursor Tests ---"
+run_test "CURSOR-001 (Move cursor to position)" test_cursor_001
+run_test "CURSOR-002 (Cursor in grid cell)" test_cursor_002
 
 # Virtual Time Tests (if execution endpoint available)
 echo ""

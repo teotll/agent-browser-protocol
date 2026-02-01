@@ -3062,8 +3062,11 @@ void LocalFrameView::PaintTree(
 
       // Devtools overlays query the inspected page's paint data so this
       // update needs to be after other paintings.
-      if (auto* web_local_frame_impl = WebLocalFrameImpl::FromFrame(frame_))
+      if (auto* web_local_frame_impl = WebLocalFrameImpl::FromFrame(frame_)) {
         web_local_frame_impl->PaintDevToolsOverlays(graphics_context);
+        // Paint virtual cursor overlay on top of DevTools overlays.
+        web_local_frame_impl->PaintVirtualCursorOverlay(graphics_context);
+      }
 
       if (frame_->IsMainFrame())
         GetPage()->GetVisualViewport().Paint(graphics_context);

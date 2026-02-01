@@ -2564,6 +2564,11 @@ void WebLocalFrameImpl::PaintDevToolsOverlays(GraphicsContext& context) {
     dev_tools_agent_->PaintOverlays(context);
 }
 
+void WebLocalFrameImpl::PaintVirtualCursorOverlay(GraphicsContext& context) {
+  if (frame_widget_)
+    frame_widget_->PaintVirtualCursorOverlay(context);
+}
+
 void WebLocalFrameImpl::CreateFrameView() {
   TRACE_EVENT0("blink", "WebLocalFrameImpl::createFrameView");
 

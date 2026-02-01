@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cursor Style Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f5f5;
+        }
+
+        /* Grid with 100px offset, 150x100 cells */
+        .cursor-grid {
+            position: absolute;
+            left: 100px;
+            top: 100px;
+            display: grid;
+            grid-template-columns: repeat(4, 150px);
+            grid-template-rows: repeat(4, 100px);
+            gap: 0;
+            border: 2px solid #333;
+        }
+
+        .cursor-cell {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #ccc;
+            background: white;
+            transition: border-color 0.2s;
+        }
+
+        .cursor-cell:hover {
+            border-color: #007bff;
+            background: #f0f8ff;
+        }
+
+        .cursor-label {
+            font-size: 12px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 4px;
+        }
+
+        .cursor-value {
+            font-size: 10px;
+            color: #666;
+            font-family: monospace;
+        }
+
+        .cursor-coords {
+            font-size: 9px;
+            color: #999;
+            margin-top: 4px;
+        }
+
+        /* Cursor types for each cell */
+        .cursor-default { cursor: default; }
+        .cursor-pointer { cursor: pointer; }
+        .cursor-text { cursor: text; }
+        .cursor-crosshair { cursor: crosshair; }
+        .cursor-move { cursor: move; }
+        .cursor-not-allowed { cursor: not-allowed; }
+        .cursor-grab { cursor: grab; }
+        .cursor-grabbing { cursor: grabbing; }
+        .cursor-wait { cursor: wait; }
+        .cursor-progress { cursor: progress; }
+        .cursor-help { cursor: help; }
+        .cursor-cell-select { cursor: cell; }
+        .cursor-col-resize { cursor: col-resize; }
+        .cursor-row-resize { cursor: row-resize; }
+        .cursor-zoom-in { cursor: zoom-in; }
+        .cursor-zoom-out { cursor: zoom-out; }
+
+        /* Info panel */
+        .info-panel {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 13px;
+            min-width: 280px;
+        }
+
+        .info-row {
+            margin: 5px 0;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .info-label {
+            color: #aaa;
+        }
+
+        .info-value {
+            color: #4fc3f7;
+        }
+
+        /* Legend */
+        .legend {
+            position: absolute;
+            left: 100px;
+            top: 520px;
+            background: white;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .legend-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .legend-item {
+            margin: 3px 0;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <!-- Grid starting at (100, 100), cells are 150x100 -->
+    <!-- Cell centers: col*150 + 100 + 75, row*100 + 100 + 50 -->
+    <div class="cursor-grid">
+        <!-- Row 0: y_center = 150 -->
+        <div class="cursor-cell cursor-default" data-cursor="default" data-row="0" data-col="0">
+            <span class="cursor-label">Default</span>
+            <span class="cursor-value">default</span>
+            <span class="cursor-coords">(175, 150)</span>
+        </div>
+        <div class="cursor-cell cursor-pointer" data-cursor="pointer" data-row="0" data-col="1">
+            <span class="cursor-label">Pointer</span>
+            <span class="cursor-value">pointer</span>
+            <span class="cursor-coords">(325, 150)</span>
+        </div>
+        <div class="cursor-cell cursor-text" data-cursor="text" data-row="0" data-col="2">
+            <span class="cursor-label">Text</span>
+            <span class="cursor-value">text</span>
+            <span class="cursor-coords">(475, 150)</span>
+        </div>
+        <div class="cursor-cell cursor-crosshair" data-cursor="crosshair" data-row="0" data-col="3">
+            <span class="cursor-label">Crosshair</span>
+            <span class="cursor-value">crosshair</span>
+            <span class="cursor-coords">(625, 150)</span>
+        </div>
+
+        <!-- Row 1: y_center = 250 -->
+        <div class="cursor-cell cursor-move" data-cursor="move" data-row="1" data-col="0">
+            <span class="cursor-label">Move</span>
+            <span class="cursor-value">move</span>
+            <span class="cursor-coords">(175, 250)</span>
+        </div>
+        <div class="cursor-cell cursor-not-allowed" data-cursor="not-allowed" data-row="1" data-col="1">
+            <span class="cursor-label">Not Allowed</span>
+            <span class="cursor-value">not-allowed</span>
+            <span class="cursor-coords">(325, 250)</span>
+        </div>
+        <div class="cursor-cell cursor-grab" data-cursor="grab" data-row="1" data-col="2">
+            <span class="cursor-label">Grab</span>
+            <span class="cursor-value">grab</span>
+            <span class="cursor-coords">(475, 250)</span>
+        </div>
+        <div class="cursor-cell cursor-grabbing" data-cursor="grabbing" data-row="1" data-col="3">
+            <span class="cursor-label">Grabbing</span>
+            <span class="cursor-value">grabbing</span>
+            <span class="cursor-coords">(625, 250)</span>
+        </div>
+
+        <!-- Row 2: y_center = 350 -->
+        <div class="cursor-cell cursor-wait" data-cursor="wait" data-row="2" data-col="0">
+            <span class="cursor-label">Wait</span>
+            <span class="cursor-value">wait</span>
+            <span class="cursor-coords">(175, 350)</span>
+        </div>
+        <div class="cursor-cell cursor-progress" data-cursor="progress" data-row="2" data-col="1">
+            <span class="cursor-label">Progress</span>
+            <span class="cursor-value">progress</span>
+            <span class="cursor-coords">(325, 350)</span>
+        </div>
+        <div class="cursor-cell cursor-help" data-cursor="help" data-row="2" data-col="2">
+            <span class="cursor-label">Help</span>
+            <span class="cursor-value">help</span>
+            <span class="cursor-coords">(475, 350)</span>
+        </div>
+        <div class="cursor-cell cursor-cell-select" data-cursor="cell" data-row="2" data-col="3">
+            <span class="cursor-label">Cell</span>
+            <span class="cursor-value">cell</span>
+            <span class="cursor-coords">(625, 350)</span>
+        </div>
+
+        <!-- Row 3: y_center = 450 -->
+        <div class="cursor-cell cursor-col-resize" data-cursor="col-resize" data-row="3" data-col="0">
+            <span class="cursor-label">Col Resize</span>
+            <span class="cursor-value">col-resize</span>
+            <span class="cursor-coords">(175, 450)</span>
+        </div>
+        <div class="cursor-cell cursor-row-resize" data-cursor="row-resize" data-row="3" data-col="1">
+            <span class="cursor-label">Row Resize</span>
+            <span class="cursor-value">row-resize</span>
+            <span class="cursor-coords">(325, 450)</span>
+        </div>
+        <div class="cursor-cell cursor-zoom-in" data-cursor="zoom-in" data-row="3" data-col="2">
+            <span class="cursor-label">Zoom In</span>
+            <span class="cursor-value">zoom-in</span>
+            <span class="cursor-coords">(475, 450)</span>
+        </div>
+        <div class="cursor-cell cursor-zoom-out" data-cursor="zoom-out" data-row="3" data-col="3">
+            <span class="cursor-label">Zoom Out</span>
+            <span class="cursor-value">zoom-out</span>
+            <span class="cursor-coords">(625, 450)</span>
+        </div>
+    </div>
+
+    <!-- Info panel -->
+    <div class="info-panel">
+        <div style="margin-bottom: 10px; font-weight: bold;">Cursor Style Test</div>
+        <div class="info-row">
+            <span class="info-label">Grid Offset:</span>
+            <span class="info-value">(100, 100)</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Cell Size:</span>
+            <span class="info-value">150x100</span>
+        </div>
+        <hr style="margin: 10px 0; border-color: #444;">
+        <div class="info-row">
+            <span class="info-label">Mouse Position:</span>
+            <span class="info-value" id="mouse-pos">(-, -)</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Expected Cursor:</span>
+            <span class="info-value" id="expected-cursor">-</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Computed Cursor:</span>
+            <span class="info-value" id="computed-cursor">-</span>
+        </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="legend">
+        <div class="legend-title">Grid Layout (4x4)</div>
+        <div class="legend-item">Offset: (100, 100)</div>
+        <div class="legend-item">Cell: 150w x 100h</div>
+        <div class="legend-item">Center = (col*150+175, row*100+150)</div>
+    </div>
+
+    <script>
+        const GRID_OFFSET_X = 100;
+        const GRID_OFFSET_Y = 100;
+        const CELL_WIDTH = 150;
+        const CELL_HEIGHT = 100;
+        const COLS = 4;
+        const ROWS = 4;
+
+        // Cursor types in grid order (row-major)
+        const CURSOR_TYPES = [
+            // Row 0
+            'default', 'pointer', 'text', 'crosshair',
+            // Row 1
+            'move', 'not-allowed', 'grab', 'grabbing',
+            // Row 2
+            'wait', 'progress', 'help', 'cell',
+            // Row 3
+            'col-resize', 'row-resize', 'zoom-in', 'zoom-out'
+        ];
+
+        // Track mouse
+        document.addEventListener('mousemove', function(e) {
+            document.getElementById('mouse-pos').textContent = `(${e.clientX}, ${e.clientY})`;
+
+            const element = document.elementFromPoint(e.clientX, e.clientY);
+            if (element) {
+                const computed = window.getComputedStyle(element).cursor;
+                document.getElementById('computed-cursor').textContent = computed;
+
+                const expected = element.dataset.cursor ||
+                                 element.closest('[data-cursor]')?.dataset.cursor || '-';
+                document.getElementById('expected-cursor').textContent = expected;
+            }
+        });
+
+        // Expose test helpers
+        window.cursorStyleTest = {
+            GRID_OFFSET_X,
+            GRID_OFFSET_Y,
+            CELL_WIDTH,
+            CELL_HEIGHT,
+            COLS,
+            ROWS,
+
+            // Get center coordinates for a cell
+            getCellCenter: function(row, col) {
+                return {
+                    x: GRID_OFFSET_X + col * CELL_WIDTH + CELL_WIDTH / 2,
+                    y: GRID_OFFSET_Y + row * CELL_HEIGHT + CELL_HEIGHT / 2
+                };
+            },
+
+            // Get expected cursor for a cell
+            getCursorForCell: function(row, col) {
+                const index = row * COLS + col;
+                return CURSOR_TYPES[index] || null;
+            },
+
+            // Get all test targets with positions
+            getTestTargets: function() {
+                const targets = [];
+                for (let row = 0; row < ROWS; row++) {
+                    for (let col = 0; col < COLS; col++) {
+                        const center = this.getCellCenter(row, col);
+                        targets.push({
+                            row,
+                            col,
+                            cursor: this.getCursorForCell(row, col),
+                            x: center.x,
+                            y: center.y
+                        });
+                    }
+                }
+                return targets;
+            },
+
+            // Get computed cursor at position
+            getCursorAt: function(x, y) {
+                const element = document.elementFromPoint(x, y);
+                if (!element) return null;
+                return window.getComputedStyle(element).cursor;
+            }
+        };
+    </script>
+</body>
+</html>

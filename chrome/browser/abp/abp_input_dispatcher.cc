@@ -194,6 +194,7 @@ void AbpInputDispatcher::Move(const std::string& tab_id,
                                                         coord_y);
 
             // Enable and set virtual cursor via Mojo for on-screen rendering.
+            // The renderer will detect cursor type via hit-testing in SetPosition().
             content::WebContents* wc = ctx->web_contents();
             if (wc) {
               ctx->controller()->SetVirtualCursorEnabledViaMojo(wc, true);

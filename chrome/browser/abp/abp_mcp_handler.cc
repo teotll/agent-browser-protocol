@@ -1,15 +1,10 @@
 #include "chrome/browser/abp/abp_mcp_handler.h"
 
-#include <cinttypes>
-
 #include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
-#include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/stringprintf.h"
-#include "base/time/time.h"
 #include "chrome/browser/abp/abp_controller.h"
 #include "chrome/browser/abp/abp_tool_builder.h"
 
@@ -26,13 +21,6 @@ constexpr int kInvalidRequest = -32600;
 constexpr int kMethodNotFound = -32601;
 constexpr int kInvalidParams = -32602;
 // constexpr int kInternalError = -32603;  // Reserved for future use
-
-// Generate a random session ID
-std::string GenerateSessionId() {
-  uint64_t random1 = base::RandUint64();
-  uint64_t random2 = base::RandUint64();
-  return base::StringPrintf("%016" PRIx64 "%016" PRIx64, random1, random2);
-}
 
 // Get tool definitions for tools/list using ToolBuilder
 base::Value::List GetToolDefinitions() {
@@ -250,9 +238,6 @@ base::Value::List GetToolDefinitions() {
 
 }  // namespace
 
-McpSession::McpSession() = default;
-McpSession::~McpSession() = default;
-
 AbpMcpHandler::AbpMcpHandler(AbpController* controller)
     : controller_(controller) {}
 
@@ -272,12 +257,8 @@ void AbpMcpHandler::HandleRequest(
     return;
   }
 
-  // Handle DELETE request (session termination)
+  // Handle DELETE request - no-op since sessions are not supported
   if (method == "DELETE") {
-    auto it = headers.find("mcp-session-id");
-    if (it != headers.end()) {
-      sessions_.erase(it->second);
-    }
     std::move(callback).Run(204, "application/json", {}, "");
     return;
   }
@@ -331,29 +312,6 @@ void AbpMcpHandler::HandleRequest(
     params = &empty_params;
   }
 
-  // Session validation for non-initialize requests
-  // Per MCP spec: non-init requests without session ID should get 400
-  // Requests with invalid session ID should get 404
-  if (*rpc_method != "initialize") {
-    auto session_it = headers.find("mcp-session-id");
-    if (session_it == headers.end()) {
-      // Missing session ID - return 400 Bad Request
-      std::move(callback).Run(
-          400, "application/json", {},
-          R"({"jsonrpc":"2.0","error":{"code":-32600,"message":"Missing Mcp-Session-Id header"},"id":null})");
-      return;
-    }
-
-    // Check if session exists
-    if (sessions_.find(session_it->second) == sessions_.end()) {
-      // Invalid session ID - return 404 Not Found
-      std::move(callback).Run(
-          404, "application/json", {},
-          R"({"jsonrpc":"2.0","error":{"code":-32600,"message":"Session not found"},"id":null})");
-      return;
-    }
-  }
-
   // Route to appropriate handler
   if (*rpc_method == "initialize") {
     HandleInitialize(*params, request_id, std::move(callback));
@@ -378,7 +336,7 @@ void AbpMcpHandler::HandleRequest(
 void AbpMcpHandler::HandleInitialize(const base::Value::Dict& params,
                                      int request_id,
                                      ResponseWithHeadersCallback callback) {
-  // Extract client info
+  // Extract client info for logging
   std::string client_name = "unknown";
   std::string client_version = "unknown";
   if (const base::Value::Dict* client_info = params.FindDict("clientInfo")) {
@@ -390,11 +348,8 @@ void AbpMcpHandler::HandleInitialize(const base::Value::Dict& params,
     }
   }
 
-  // Create session
-  std::string session_id = CreateSession(client_name, client_version);
-
-  LOG(INFO) << "ABP MCP: New session " << session_id << " for client "
-            << client_name << " v" << client_version;
+  LOG(INFO) << "ABP MCP: Initialize from client " << client_name << " v"
+            << client_version;
 
   // Build response
   base::Value::Dict result;
@@ -419,12 +374,7 @@ void AbpMcpHandler::HandleInitialize(const base::Value::Dict& params,
   std::string response_json;
   base::JSONWriter::Write(base::Value(std::move(response)), &response_json);
 
-  // Return session ID in Mcp-Session-Id header per MCP spec
-  std::map<std::string, std::string> response_headers;
-  response_headers["Mcp-Session-Id"] = session_id;
-
-  std::move(callback).Run(200, "application/json", std::move(response_headers),
-                          response_json);
+  std::move(callback).Run(200, "application/json", {}, response_json);
 }
 
 void AbpMcpHandler::HandleToolsList(int request_id,
@@ -1215,52 +1165,6 @@ void AbpMcpHandler::SendJsonRpcError(int request_id,
 
 void AbpMcpHandler::SendAccepted(ResponseWithHeadersCallback callback) {
   std::move(callback).Run(202, "application/json", {}, "");
-}
-
-std::string AbpMcpHandler::CreateSession(const std::string& client_name,
-                                         const std::string& client_version) {
-  // Cleanup expired sessions first
-  CleanupExpiredSessions();
-
-  auto session = std::make_unique<McpSession>();
-  session->id = GenerateSessionId();
-  session->client_name = client_name;
-  session->client_version = client_version;
-  session->created_at_ms = base::Time::Now().InMillisecondsSinceUnixEpoch();
-  session->last_activity_ms = session->created_at_ms;
-  session->initialized = true;
-
-  std::string id = session->id;
-  sessions_[id] = std::move(session);
-  return id;
-}
-
-McpSession* AbpMcpHandler::GetSession(const std::string& session_id) {
-  auto it = sessions_.find(session_id);
-  if (it == sessions_.end()) {
-    return nullptr;
-  }
-
-  // Update last activity
-  it->second->last_activity_ms =
-      base::Time::Now().InMillisecondsSinceUnixEpoch();
-  return it->second.get();
-}
-
-void AbpMcpHandler::CleanupExpiredSessions() {
-  int64_t now_ms = base::Time::Now().InMillisecondsSinceUnixEpoch();
-
-  std::vector<std::string> expired;
-  for (const auto& pair : sessions_) {
-    if (now_ms - pair.second->last_activity_ms > kSessionTimeoutMs) {
-      expired.push_back(pair.first);
-    }
-  }
-
-  for (const auto& id : expired) {
-    LOG(INFO) << "ABP MCP: Cleaning up expired session " << id;
-    sessions_.erase(id);
-  }
 }
 
 }  // namespace abp

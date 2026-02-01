@@ -499,6 +499,8 @@ class CORE_EXPORT WebLocalFrameImpl final
   void UpdateDevToolsOverlaysPrePaint();
   void PaintDevToolsOverlays(GraphicsContext&);
 
+  void PaintVirtualCursorOverlay(GraphicsContext&);
+
   void CreateFrameView();
 
   // Sometimes Blink makes Page/Frame for internal purposes like for SVGImage

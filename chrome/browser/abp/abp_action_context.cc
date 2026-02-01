@@ -188,10 +188,12 @@ void AbpActionContext::DoWaitUntil() {
   }
 
   // Without execution control, use the standard wait mechanism
+  // Pass the configured min_wait_time (longer for navigation, shorter for clicks)
   controller_->WaitForActionComplete(
       tab_id_,
       base::BindOnce(&AbpActionContext::OnWaitUntilComplete,
-                     weak_factory_.GetWeakPtr()));
+                     weak_factory_.GetWeakPtr()),
+      options_.min_wait_time);
 }
 
 void AbpActionContext::OnWaitUntilComplete() {

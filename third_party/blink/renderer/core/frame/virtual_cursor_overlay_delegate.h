@@ -28,6 +28,9 @@ class CORE_EXPORT VirtualCursorOverlayDelegate final
   // Set cursor type (pointer, hand, text, etc.).
   void SetCursorType(ui::mojom::blink::CursorType cursor_type);
 
+  // Set device scale factor for DPI scaling.
+  void SetDeviceScaleFactor(float scale);
+
   // FrameOverlay::Delegate implementation.
   void PaintFrameOverlay(const FrameOverlay& frame_overlay,
                          GraphicsContext& graphics_context,
@@ -37,6 +40,7 @@ class CORE_EXPORT VirtualCursorOverlayDelegate final
   float x_ = 0;
   float y_ = 0;
   bool visible_ = false;
+  float device_scale_factor_ = 1.0f;
   ui::mojom::blink::CursorType cursor_type_ =
       ui::mojom::blink::CursorType::kPointer;
 };

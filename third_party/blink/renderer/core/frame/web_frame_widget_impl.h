@@ -503,6 +503,9 @@ class CORE_EXPORT WebFrameWidgetImpl
   void SetVisible(bool visible) override;
   void SetEnabled(bool enabled) override;
 
+  // Paint the virtual cursor overlay.
+  void PaintVirtualCursorOverlay(GraphicsContext& context);
+
   // Sets the display mode, which comes from the top-level browsing context and
   // is applied to all widgets.
   void SetDisplayMode(mojom::blink::DisplayMode);

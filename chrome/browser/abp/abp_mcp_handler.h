@@ -2,7 +2,6 @@
 #define CHROME_BROWSER_ABP_ABP_MCP_HANDLER_H_
 
 #include <map>
-#include <memory>
 #include <string>
 
 #include "base/memory/raw_ptr.h"
@@ -13,21 +12,6 @@
 namespace abp {
 
 class AbpController;
-
-// MCP session state
-struct McpSession {
-  McpSession();
-  ~McpSession();
-  McpSession(const McpSession&) = delete;
-  McpSession& operator=(const McpSession&) = delete;
-
-  std::string id;
-  std::string client_name;
-  std::string client_version;
-  int64_t created_at_ms = 0;
-  int64_t last_activity_ms = 0;
-  bool initialized = false;
-};
 
 // Handles MCP Streamable HTTP protocol on /mcp endpoint.
 // Implements JSON-RPC 2.0 over HTTP with optional SSE streaming.
@@ -170,20 +154,8 @@ class AbpMcpHandler {
                             const std::string& content_type,
                             std::string body);
 
-  // Session management
-  std::string CreateSession(const std::string& client_name,
-                            const std::string& client_version);
-  McpSession* GetSession(const std::string& session_id);
-  void CleanupExpiredSessions();
-
   // Controller reference (not owned)
   raw_ptr<AbpController> controller_;
-
-  // Active sessions
-  std::map<std::string, std::unique_ptr<McpSession>> sessions_;
-
-  // Session timeout in milliseconds (30 minutes)
-  static constexpr int64_t kSessionTimeoutMs = 30 * 60 * 1000;
 
   base::WeakPtrFactory<AbpMcpHandler> weak_factory_{this};
 };

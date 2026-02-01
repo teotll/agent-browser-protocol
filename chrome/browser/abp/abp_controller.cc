@@ -451,16 +451,18 @@ void AbpController::CenterCursorInTab(const std::string& tab_id,
                                        base::OnceClosure callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
+  LOG(INFO) << "ABP DEBUG L1: CenterCursorInTab called for tab " << tab_id;
+
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
-    LOG(WARNING) << "ABP: Tab not found for cursor centering: " << tab_id;
+    LOG(WARNING) << "ABP DEBUG L1: CenterCursorInTab - WebContents null for tab " << tab_id;
     std::move(callback).Run();
     return;
   }
 
   content::RenderWidgetHostView* rwhv = wc->GetRenderWidgetHostView();
   if (!rwhv) {
-    LOG(WARNING) << "ABP: No RenderWidgetHostView for cursor centering";
+    LOG(WARNING) << "ABP DEBUG L1: CenterCursorInTab - RWHV null for tab " << tab_id;
     std::move(callback).Run();
     return;
   }
@@ -470,17 +472,21 @@ void AbpController::CenterCursorInTab(const std::string& tab_id,
   double center_x = viewport_size.width() / 2.0;
   double center_y = viewport_size.height() / 2.0;
 
-  LOG(INFO) << "ABP: Centering cursor at (" << center_x << ", " << center_y
-            << ") in viewport " << viewport_size.width() << "x"
-            << viewport_size.height();
+  LOG(INFO) << "ABP DEBUG L1: CenterCursorInTab"
+            << " tab=" << tab_id
+            << " viewport=" << viewport_size.width() << "x" << viewport_size.height()
+            << " center=(" << center_x << ", " << center_y << ")";
 
   // Update internal virtual cursor state.
   UpdateVirtualCursorState(tab_id, center_x, center_y);
 
   // Enable and set virtual cursor via Mojo for on-screen rendering.
+  LOG(INFO) << "ABP DEBUG L1: CenterCursorInTab - calling SetVirtualCursorEnabledViaMojo(true)";
   SetVirtualCursorEnabledViaMojo(wc, true);
+  LOG(INFO) << "ABP DEBUG L1: CenterCursorInTab - calling SetVirtualCursorViaMojo(" << center_x << ", " << center_y << ", true)";
   SetVirtualCursorViaMojo(wc, center_x, center_y, true);
 
+  LOG(INFO) << "ABP DEBUG L1: CenterCursorInTab completed";
   std::move(callback).Run();
 }
 
@@ -493,11 +499,16 @@ bool AbpController::IsBrowserReady() {
     if (browser->tab_strip_model()->count() > 0) {
       content::WebContents* wc =
           browser->tab_strip_model()->GetActiveWebContents();
-      if (wc && wc->GetRenderWidgetHostView()) {
+      content::RenderWidgetHostView* rwhv = wc ? wc->GetRenderWidgetHostView() : nullptr;
+      LOG(INFO) << "ABP DEBUG L1: IsBrowserReady check"
+                << " wc=" << (wc ? "valid" : "null")
+                << " rwhv=" << (rwhv ? "valid" : "null");
+      if (rwhv) {
         return true;
       }
     }
   }
+  LOG(INFO) << "ABP DEBUG L1: IsBrowserReady - not ready yet";
   return false;
 }
 
@@ -1147,9 +1158,11 @@ void AbpController::Navigate(const std::string& tab_id,
   // Navigation is async and the page needs JS to run during loading.
   // If execution is paused, user should resume manually before navigate.
   // Center cursor after navigation so it's in the viewport center.
+  // Use longer min_wait_time (10s) to allow page to fully load.
   AbpActionContext::Options options;
   options.skip_execution_control = true;
   options.center_cursor_after = true;
+  options.min_wait_time = base::Seconds(10);
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "navigate", params, options,
@@ -1185,9 +1198,11 @@ void AbpController::Reload(const std::string& tab_id,
   // Use AbpActionContext with skip_execution_control=true
   // Reload is similar to Navigate - needs JS to run
   // Center cursor after reload so it's in the viewport center.
+  // Use longer min_wait_time (10s) to allow page to fully load.
   AbpActionContext::Options options;
   options.skip_execution_control = true;
   options.center_cursor_after = true;
+  options.min_wait_time = base::Seconds(10);
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "reload", params, options,
@@ -1222,9 +1237,11 @@ void AbpController::GoBack(const std::string& tab_id,
 
   // Use AbpActionContext with skip_execution_control=true
   // Center cursor after navigation so it's in the viewport center.
+  // Use longer min_wait_time (10s) to allow page to fully load.
   AbpActionContext::Options options;
   options.skip_execution_control = true;
   options.center_cursor_after = true;
+  options.min_wait_time = base::Seconds(10);
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "back", params, options,
@@ -1264,9 +1281,11 @@ void AbpController::GoForward(const std::string& tab_id,
 
   // Use AbpActionContext with skip_execution_control=true
   // Center cursor after navigation so it's in the viewport center.
+  // Use longer min_wait_time (10s) to allow page to fully load.
   AbpActionContext::Options options;
   options.skip_execution_control = true;
   options.center_cursor_after = true;
+  options.min_wait_time = base::Seconds(10);
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "forward", params, options,
@@ -1937,19 +1956,25 @@ void AbpController::SetVirtualCursorViaMojo(content::WebContents* wc,
                                              float y,
                                              bool visible) {
   if (!wc) {
+    LOG(WARNING) << "ABP DEBUG L1: SetVirtualCursorViaMojo - wc is null";
     return;
   }
 
   content::RenderWidgetHostView* rwhv = wc->GetRenderWidgetHostView();
   if (!rwhv) {
+    LOG(WARNING) << "ABP DEBUG L1: SetVirtualCursorViaMojo - rwhv is null";
     return;
   }
 
   content::RenderWidgetHost* rwh = rwhv->GetRenderWidgetHost();
   if (!rwh) {
+    LOG(WARNING) << "ABP DEBUG L1: SetVirtualCursorViaMojo - rwh is null";
     return;
   }
 
+  LOG(INFO) << "ABP DEBUG L1: SetVirtualCursorViaMojo"
+            << " x=" << x << " y=" << y << " visible=" << visible
+            << " rwh=valid";
   rwh->SetVirtualCursorPosition(x, y, visible);
 }
 
@@ -1975,19 +2000,25 @@ void AbpController::SetVirtualCursorTypeViaMojo(content::WebContents* wc,
 void AbpController::SetVirtualCursorEnabledViaMojo(content::WebContents* wc,
                                                     bool enabled) {
   if (!wc) {
+    LOG(WARNING) << "ABP DEBUG L1: SetVirtualCursorEnabledViaMojo - wc is null";
     return;
   }
 
   content::RenderWidgetHostView* rwhv = wc->GetRenderWidgetHostView();
   if (!rwhv) {
+    LOG(WARNING) << "ABP DEBUG L1: SetVirtualCursorEnabledViaMojo - rwhv is null";
     return;
   }
 
   content::RenderWidgetHost* rwh = rwhv->GetRenderWidgetHost();
   if (!rwh) {
+    LOG(WARNING) << "ABP DEBUG L1: SetVirtualCursorEnabledViaMojo - rwh is null";
     return;
   }
 
+  LOG(INFO) << "ABP DEBUG L1: SetVirtualCursorEnabledViaMojo"
+            << " enabled=" << enabled
+            << " rwh=valid";
   rwh->SetVirtualCursorEnabled(enabled);
 }
 
@@ -2395,8 +2426,8 @@ void AbpController::SetExecutionState(const std::string& tab_id,
 // =============================================================================
 
 // Constants for action_complete wait
+// Note: min_wait_time is now configurable per-action via WaitForActionComplete param
 namespace {
-constexpr base::TimeDelta kMinWaitTime = base::Milliseconds(500);
 constexpr base::TimeDelta kNetworkIdleTime = base::Milliseconds(500);
 constexpr base::TimeDelta kNetworkIdleCheckInterval = base::Milliseconds(100);
 constexpr base::TimeDelta kWaitTimeout = base::Seconds(30);
@@ -2404,7 +2435,8 @@ constexpr int kNetworkIdleMaxConnections = 2;  // networkidle2
 }  // namespace
 
 void AbpController::WaitForActionComplete(const std::string& tab_id,
-                                          base::OnceClosure on_complete) {
+                                          base::OnceClosure on_complete,
+                                          base::TimeDelta min_wait_time) {
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
     // Tab not found, call callback immediately
@@ -2425,6 +2457,7 @@ void AbpController::WaitForActionComplete(const std::string& tab_id,
   waiter->on_complete = std::move(on_complete);
   waiter->last_network_activity = base::TimeTicks::Now();
   waiter->timeout_time = base::TimeTicks::Now() + kWaitTimeout;
+  waiter->min_wait_time = min_wait_time;
 
   // For pages that are already loaded, set load events as fired
   // We'll still wait for network idle and min time
@@ -2446,12 +2479,13 @@ void AbpController::WaitForActionComplete(const std::string& tab_id,
   client->SendCommand("Page.enable", empty_params,
                       base::BindOnce([](bool, const std::string&) {}));
 
-  // Start minimum wait timer
+  // Start minimum wait timer (use configured min_wait_time)
+  base::TimeDelta actual_min_wait = waiter->min_wait_time;
   content::GetUIThreadTaskRunner({})->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&AbpController::OnMinWaitTimeElapsed,
                      weak_factory_.GetWeakPtr(), tab_id),
-      kMinWaitTime);
+      actual_min_wait);
 
   // Start network idle check timer
   content::GetUIThreadTaskRunner({})->PostDelayedTask(

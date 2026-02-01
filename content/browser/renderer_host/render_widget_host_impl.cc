@@ -761,33 +761,46 @@ void RenderWidgetHostImpl::BindFrameWidgetInterfaces(
       GetUIThreadTaskRunner({BrowserTaskType::kUserInput}));
 
   // Apply any pending virtual cursor state now that the widget is available.
+  LOG(INFO) << "ABP DEBUG L2: BindFrameWidgetInterfaces called"
+            << " pending_has_enabled=" << pending_virtual_cursor_state_.has_enabled
+            << " pending_has_position=" << pending_virtual_cursor_state_.has_position
+            << " pending_has_type=" << pending_virtual_cursor_state_.has_type;
+
   if (pending_virtual_cursor_state_.has_enabled ||
       pending_virtual_cursor_state_.has_position ||
       pending_virtual_cursor_state_.has_type) {
-    LOG(INFO) << "ABP: Applying pending virtual cursor state in BindFrameWidgetInterfaces"
-              << " enabled=" << pending_virtual_cursor_state_.has_enabled
-              << " position=" << pending_virtual_cursor_state_.has_position
-              << " type=" << pending_virtual_cursor_state_.has_type;
+    LOG(INFO) << "ABP DEBUG L2: Applying pending virtual cursor state"
+              << " enabled=" << pending_virtual_cursor_state_.enabled
+              << " position=(" << pending_virtual_cursor_state_.x
+              << ", " << pending_virtual_cursor_state_.y << ")"
+              << " visible=" << pending_virtual_cursor_state_.visible;
 
     // Bind the virtual cursor interface.
     blink_frame_widget_->BindVirtualCursor(
         virtual_cursor_remote_.BindNewEndpointAndPassReceiver());
+    LOG(INFO) << "ABP DEBUG L2: Bound virtual cursor interface in BindFrameWidgetInterfaces";
 
     // Apply pending state in order: enabled, position, type.
     if (pending_virtual_cursor_state_.has_enabled) {
+      LOG(INFO) << "ABP DEBUG L2: Sending SetEnabled(" << pending_virtual_cursor_state_.enabled << ") to renderer";
       virtual_cursor_remote_->SetEnabled(pending_virtual_cursor_state_.enabled);
     }
     if (pending_virtual_cursor_state_.has_position) {
+      LOG(INFO) << "ABP DEBUG L2: Sending SetPosition(" << pending_virtual_cursor_state_.x
+                << ", " << pending_virtual_cursor_state_.y
+                << ", " << pending_virtual_cursor_state_.visible << ") to renderer";
       virtual_cursor_remote_->SetPosition(pending_virtual_cursor_state_.x,
                                           pending_virtual_cursor_state_.y,
                                           pending_virtual_cursor_state_.visible);
     }
     if (pending_virtual_cursor_state_.has_type) {
+      LOG(INFO) << "ABP DEBUG L2: Sending SetCursorType to renderer";
       virtual_cursor_remote_->SetCursorType(
           pending_virtual_cursor_state_.cursor_type);
     }
+    LOG(INFO) << "ABP DEBUG L2: Pending state applied successfully";
   } else {
-    LOG(INFO) << "ABP: No pending virtual cursor state in BindFrameWidgetInterfaces";
+    LOG(INFO) << "ABP DEBUG L2: No pending virtual cursor state to apply";
   }
 }
 
@@ -2141,21 +2154,21 @@ void RenderWidgetHostImpl::SetVirtualCursorPosition(float x,
   pending_virtual_cursor_state_.y = y;
   pending_virtual_cursor_state_.visible = visible;
 
-  LOG(INFO) << "ABP: SetVirtualCursorPosition(" << x << ", " << y << ", " << visible << ")"
-            << " blink_frame_widget_=" << (blink_frame_widget_ ? "bound" : "null")
+  LOG(INFO) << "ABP DEBUG L2: SetVirtualCursorPosition(" << x << ", " << y << ", " << visible << ")"
+            << " blink_frame_widget_=" << (blink_frame_widget_.is_bound() ? "bound" : "unbound")
             << " virtual_cursor_remote_=" << (virtual_cursor_remote_.is_bound() ? "bound" : "unbound");
 
   if (!virtual_cursor_remote_.is_bound()) {
-    if (!blink_frame_widget_) {
-      LOG(INFO) << "ABP: SetVirtualCursorPosition - widget not ready, state stored for later";
+    if (!blink_frame_widget_.is_bound()) {
+      LOG(INFO) << "ABP DEBUG L2: SetVirtualCursorPosition - widget not bound, storing as pending";
       return;
     }
     blink_frame_widget_->BindVirtualCursor(
         virtual_cursor_remote_.BindNewEndpointAndPassReceiver());
-    LOG(INFO) << "ABP: SetVirtualCursorPosition - bound virtual cursor interface";
+    LOG(INFO) << "ABP DEBUG L2: SetVirtualCursorPosition - bound virtual cursor interface";
   }
   virtual_cursor_remote_->SetPosition(x, y, visible);
-  LOG(INFO) << "ABP: SetVirtualCursorPosition - sent SetPosition to renderer";
+  LOG(INFO) << "ABP DEBUG L2: SetVirtualCursorPosition - sent SetPosition to renderer";
 }
 
 void RenderWidgetHostImpl::SetVirtualCursorType(
@@ -2195,21 +2208,21 @@ void RenderWidgetHostImpl::SetVirtualCursorEnabled(bool enabled) {
   pending_virtual_cursor_state_.has_enabled = true;
   pending_virtual_cursor_state_.enabled = enabled;
 
-  LOG(INFO) << "ABP: SetVirtualCursorEnabled(" << enabled << ")"
-            << " blink_frame_widget_=" << (blink_frame_widget_ ? "bound" : "null")
+  LOG(INFO) << "ABP DEBUG L2: SetVirtualCursorEnabled(" << enabled << ")"
+            << " blink_frame_widget_=" << (blink_frame_widget_.is_bound() ? "bound" : "unbound")
             << " virtual_cursor_remote_=" << (virtual_cursor_remote_.is_bound() ? "bound" : "unbound");
 
   if (!virtual_cursor_remote_.is_bound()) {
-    if (!blink_frame_widget_) {
-      LOG(INFO) << "ABP: SetVirtualCursorEnabled - widget not ready, state stored for later";
+    if (!blink_frame_widget_.is_bound()) {
+      LOG(INFO) << "ABP DEBUG L2: SetVirtualCursorEnabled - widget not bound, storing as pending";
       return;
     }
     blink_frame_widget_->BindVirtualCursor(
         virtual_cursor_remote_.BindNewEndpointAndPassReceiver());
-    LOG(INFO) << "ABP: SetVirtualCursorEnabled - bound virtual cursor interface";
+    LOG(INFO) << "ABP DEBUG L2: SetVirtualCursorEnabled - bound virtual cursor interface";
   }
   virtual_cursor_remote_->SetEnabled(enabled);
-  LOG(INFO) << "ABP: SetVirtualCursorEnabled - sent SetEnabled(" << enabled << ") to renderer";
+  LOG(INFO) << "ABP DEBUG L2: SetVirtualCursorEnabled - sent SetEnabled(" << enabled << ") to renderer";
 }
 
 RenderProcessHostPriorityClient::Priority RenderWidgetHostImpl::GetPriority() {

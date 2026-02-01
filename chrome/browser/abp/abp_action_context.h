@@ -61,6 +61,11 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
     // If true, center the virtual cursor in the viewport after the action
     // completes. Use for navigation actions where cursor should reset to center.
     bool center_cursor_after = false;
+
+    // Minimum wait time before considering action complete.
+    // Use longer values (e.g., 10s) for navigation to allow page load.
+    // Default 500ms is suitable for quick actions like click/type.
+    base::TimeDelta min_wait_time = base::Milliseconds(500);
   };
 
   // Factory method - creates context and starts the action flow

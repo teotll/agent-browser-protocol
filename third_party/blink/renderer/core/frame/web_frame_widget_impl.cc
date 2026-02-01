@@ -847,36 +847,49 @@ void WebFrameWidgetImpl::BindWidgetCompositor(
 
 void WebFrameWidgetImpl::BindVirtualCursor(
     mojo::PendingAssociatedReceiver<mojom::blink::VirtualCursor> receiver) {
+  LOG(INFO) << "ABP DEBUG L3: BindVirtualCursor called";
   virtual_cursor_receiver_.Bind(
       std::move(receiver),
       local_root_->GetTaskRunner(TaskType::kInternalDefault));
+  LOG(INFO) << "ABP DEBUG L3: BindVirtualCursor - receiver bound="
+            << (virtual_cursor_receiver_.is_bound() ? "true" : "false");
 }
 
 void WebFrameWidgetImpl::SetPosition(float x, float y, bool visible) {
-  LOG(INFO) << "ABP: WebFrameWidgetImpl::SetPosition(" << x << ", " << y << ", " << visible << ")"
-            << " has_delegate=" << (virtual_cursor_delegate_ ? "yes" : "no")
-            << " enabled=" << virtual_cursor_enabled_;
+  LOG(INFO) << "ABP DEBUG L3: SetPosition(" << x << ", " << y << ", " << visible << ")"
+            << " delegate=" << (virtual_cursor_delegate_ ? "exists" : "null")
+            << " enabled=" << virtual_cursor_enabled_
+            << " overlay=" << (virtual_cursor_overlay_ ? "exists" : "null");
 
   virtual_cursor_x_ = x;
   virtual_cursor_y_ = y;
   virtual_cursor_visible_ = visible;
 
   if (virtual_cursor_delegate_) {
+    LOG(INFO) << "ABP DEBUG L3: SetPosition - updating delegate position and visibility";
     virtual_cursor_delegate_->SetPosition(x, y);
     virtual_cursor_delegate_->SetVisible(visible);
 
     // Hit-test and update cursor type.
     ui::mojom::CursorType cursor_type = DetectCursorStyleAtPosition(x, y);
+    LOG(INFO) << "ABP DEBUG L3: SetPosition - detected cursor type=" << static_cast<int>(cursor_type);
     virtual_cursor_delegate_->SetCursorType(cursor_type);
 
-    // Schedule a repaint.
+    // Invalidate the cached drawing and schedule a repaint.
+    if (virtual_cursor_overlay_) {
+      virtual_cursor_overlay_->UpdatePrePaint();
+      LOG(INFO) << "ABP DEBUG L3: SetPosition - invalidated overlay cache";
+    }
     LocalFrame* frame = local_root_->GetFrame();
     if (frame && frame->GetPage()) {
       frame->GetPage()->GetChromeClient().ScheduleAnimation(frame->View());
-      LOG(INFO) << "ABP: SetPosition - scheduled animation for repaint";
+      LOG(INFO) << "ABP DEBUG L3: SetPosition - scheduled animation for repaint";
+    } else {
+      LOG(WARNING) << "ABP DEBUG L3: SetPosition - FAILED to schedule animation (frame or page null)";
     }
   } else {
-    LOG(INFO) << "ABP: SetPosition - no delegate, storing position for later";
+    LOG(WARNING) << "ABP DEBUG L3: SetPosition - NO DELEGATE, cursor will not render!"
+                 << " (enabled=" << virtual_cursor_enabled_ << ")";
   }
 }
 
@@ -885,7 +898,10 @@ void WebFrameWidgetImpl::SetCursorType(ui::mojom::CursorType cursor_type) {
   if (virtual_cursor_delegate_) {
     virtual_cursor_delegate_->SetCursorType(cursor_type);
 
-    // Schedule a repaint.
+    // Invalidate the cached drawing and schedule a repaint.
+    if (virtual_cursor_overlay_) {
+      virtual_cursor_overlay_->UpdatePrePaint();
+    }
     LocalFrame* frame = local_root_->GetFrame();
     if (frame && frame->GetPage()) {
       frame->GetPage()->GetChromeClient().ScheduleAnimation(frame->View());
@@ -898,7 +914,10 @@ void WebFrameWidgetImpl::SetVisible(bool visible) {
   if (virtual_cursor_delegate_) {
     virtual_cursor_delegate_->SetVisible(visible);
 
-    // Schedule a repaint.
+    // Invalidate the cached drawing and schedule a repaint.
+    if (virtual_cursor_overlay_) {
+      virtual_cursor_overlay_->UpdatePrePaint();
+    }
     LocalFrame* frame = local_root_->GetFrame();
     if (frame && frame->GetPage()) {
       frame->GetPage()->GetChromeClient().ScheduleAnimation(frame->View());
@@ -907,25 +926,34 @@ void WebFrameWidgetImpl::SetVisible(bool visible) {
 }
 
 void WebFrameWidgetImpl::SetEnabled(bool enabled) {
-  LOG(INFO) << "ABP: WebFrameWidgetImpl::SetEnabled(" << enabled << ")"
-            << " current_enabled=" << virtual_cursor_enabled_;
+  LOG(INFO) << "ABP DEBUG L3: SetEnabled(" << enabled << ")"
+            << " current_enabled=" << virtual_cursor_enabled_
+            << " delegate=" << (virtual_cursor_delegate_ ? "exists" : "null")
+            << " overlay=" << (virtual_cursor_overlay_ ? "exists" : "null");
 
   if (virtual_cursor_enabled_ == enabled) {
-    LOG(INFO) << "ABP: SetEnabled - no change needed";
+    LOG(INFO) << "ABP DEBUG L3: SetEnabled - no change needed (already " << enabled << ")";
     return;
   }
   virtual_cursor_enabled_ = enabled;
 
   LocalFrame* frame = local_root_->GetFrame();
   if (!frame) {
-    LOG(WARNING) << "ABP: SetEnabled - no LocalFrame available";
+    LOG(WARNING) << "ABP DEBUG L3: SetEnabled - FAILED, no LocalFrame available";
     return;
   }
 
   if (enabled) {
     // Create the delegate and store a raw pointer before moving into FrameOverlay.
+    LOG(INFO) << "ABP DEBUG L3: SetEnabled - creating delegate and overlay";
     auto delegate = std::make_unique<VirtualCursorOverlayDelegate>();
     virtual_cursor_delegate_ = delegate.get();
+
+    // Set device scale factor for DPI scaling.
+    float device_scale_factor = widget_base_->GetScreenInfo().device_scale_factor;
+    virtual_cursor_delegate_->SetDeviceScaleFactor(device_scale_factor);
+    LOG(INFO) << "ABP DEBUG L3: SetEnabled - device_scale_factor=" << device_scale_factor;
+
     virtual_cursor_delegate_->SetPosition(virtual_cursor_x_, virtual_cursor_y_);
     virtual_cursor_delegate_->SetVisible(virtual_cursor_visible_);
     virtual_cursor_delegate_->SetCursorType(virtual_cursor_type_);
@@ -933,24 +961,33 @@ void WebFrameWidgetImpl::SetEnabled(bool enabled) {
     virtual_cursor_overlay_ = MakeGarbageCollected<FrameOverlay>(
         frame, std::move(delegate));
 
-    LOG(INFO) << "ABP: SetEnabled - created FrameOverlay at ("
-              << virtual_cursor_x_ << ", " << virtual_cursor_y_ << ")"
-              << " visible=" << virtual_cursor_visible_;
+    LOG(INFO) << "ABP DEBUG L3: SetEnabled - created FrameOverlay"
+              << " position=(" << virtual_cursor_x_ << ", " << virtual_cursor_y_ << ")"
+              << " visible=" << virtual_cursor_visible_
+              << " cursor_type=" << static_cast<int>(virtual_cursor_type_);
 
     // Schedule a repaint so the cursor is immediately visible.
     if (frame->GetPage()) {
       frame->GetPage()->GetChromeClient().ScheduleAnimation(frame->View());
-      LOG(INFO) << "ABP: SetEnabled - scheduled animation for repaint";
+      LOG(INFO) << "ABP DEBUG L3: SetEnabled - scheduled animation for repaint";
     } else {
-      LOG(WARNING) << "ABP: SetEnabled - no Page available for scheduling animation";
+      LOG(WARNING) << "ABP DEBUG L3: SetEnabled - FAILED to schedule animation (no Page)";
     }
   } else {
+    LOG(INFO) << "ABP DEBUG L3: SetEnabled(false) - destroying overlay";
     if (virtual_cursor_overlay_) {
       virtual_cursor_overlay_->Destroy();
       virtual_cursor_overlay_ = nullptr;
     }
     virtual_cursor_delegate_ = nullptr;
-    LOG(INFO) << "ABP: SetEnabled - destroyed overlay";
+    LOG(INFO) << "ABP DEBUG L3: SetEnabled - overlay destroyed";
+  }
+}
+
+void WebFrameWidgetImpl::PaintVirtualCursorOverlay(GraphicsContext& context) {
+  if (virtual_cursor_overlay_ && virtual_cursor_enabled_) {
+    LOG(INFO) << "ABP DEBUG L3: PaintVirtualCursorOverlay - painting overlay";
+    virtual_cursor_overlay_->Paint(context);
   }
 }
 
@@ -961,21 +998,29 @@ ui::mojom::CursorType WebFrameWidgetImpl::DetectCursorStyleAtPosition(
     return ui::mojom::CursorType::kPointer;
   }
 
-  // Create hit test request.
+  LocalFrameView* view = frame->View();
+
+  // Convert from root frame coordinates to content coordinates,
+  // same as Chrome does in EventHandler::GetMouseEventTarget.
+  PhysicalOffset document_point = PhysicalOffset::FromPointFRound(
+      view->ConvertFromRootFrame(gfx::PointF(x, y)));
+
+  // Create hit test request (same flags as Chrome uses for mouse move).
   HitTestRequest::HitTestRequestType hit_type =
       HitTestRequest::kReadOnly | HitTestRequest::kActive |
       HitTestRequest::kAllowChildFrameContent;
   HitTestRequest request(hit_type);
 
   // Perform hit-test at the cursor position.
-  HitTestLocation location(PhysicalOffset::FromPointFRound(gfx::PointF(x, y)));
+  HitTestLocation location(document_point);
   HitTestResult result(request, location);
 
   if (frame->ContentLayoutObject()) {
     frame->ContentLayoutObject()->HitTest(location, result);
   }
 
-  // Get cursor type from EventHandler.
+  // Get cursor type from EventHandler (same logic Chrome uses).
+  // CursorForHitTest is the public API that calls SelectCursor internally.
   std::optional<ui::Cursor> cursor =
       frame->GetEventHandler().CursorForHitTest(location, result);
 

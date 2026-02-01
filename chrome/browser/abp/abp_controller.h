@@ -178,8 +178,11 @@ class AbpController {
   void PauseExecution(const std::string& tab_id, base::OnceClosure then);
 
   // Wait for action_complete conditions before calling callback
+  // min_wait_time specifies the minimum time to wait before completing
+  // (default 500ms, use longer for navigation actions)
   void WaitForActionComplete(const std::string& tab_id,
-                             base::OnceClosure on_complete);
+                             base::OnceClosure on_complete,
+                             base::TimeDelta min_wait_time = base::Milliseconds(500));
 
   // Take screenshot for history (before or after action)
   // Uses direct C++ capture with CopyFromSurface
@@ -415,6 +418,9 @@ class AbpController {
 
     // Timeout
     base::TimeTicks timeout_time;
+
+    // Minimum wait time (configurable per action)
+    base::TimeDelta min_wait_time = base::Milliseconds(500);
 
     bool IsComplete() const {
       return load_fired && dom_content_loaded_fired &&
