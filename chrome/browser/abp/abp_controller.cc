@@ -1420,64 +1420,10 @@ void AbpController::Screenshot(const std::string& tab_id,
     return;
   }
 
-  // No markup - check if we need to set cursor for screenshot
-  if (options.mouse != "none") {
-    // Get stored cursor position or use viewport center
-    double cursor_x = 0;
-    double cursor_y = 0;
-    bool cursor_visible = false;
-
-    if (!host_id.empty()) {
-      auto it = tab_states_.find(host_id);
-      if (it != tab_states_.end() && it->second.cursor.active) {
-        cursor_x = it->second.cursor.x;
-        cursor_y = it->second.cursor.y;
-        cursor_visible = true;
-      }
-    }
-
-    // If no cursor state, use viewport center
-    if (!cursor_visible) {
-      content::RenderWidgetHostView* rwhv = wc->GetRenderWidgetHostView();
-      if (rwhv) {
-        gfx::Size viewport_size = rwhv->GetVisibleViewportSize();
-        cursor_x = viewport_size.width() / 2.0;
-        cursor_y = viewport_size.height() / 2.0;
-        cursor_visible = true;
-      }
-    }
-
-    if (cursor_visible) {
-      // Set the virtual cursor before taking the screenshot
-      base::Value::Dict cursor_config;
-      cursor_config.Set("x", cursor_x);
-      cursor_config.Set("y", cursor_y);
-      cursor_config.Set("visible", true);
-
-      base::Value::Dict cursor_params;
-      cursor_params.Set("cursorConfig", std::move(cursor_config));
-
-      // Chain: set cursor -> take screenshot with CopyFromSurface
-      client->SendCommand(
-          "Overlay.setVirtualCursor", cursor_params,
-          base::BindOnce(&AbpController::OnCursorSetForScreenshot,
-                         weak_factory_.GetWeakPtr(), tab_id, base::Value::Dict(),
-                         std::move(callback), options, wc));
-      return;
-    }
-  }
-
-  // CDP: Page.captureScreenshot (no cursor)
-  base::Value::Dict cdp_params;
-  cdp_params.Set("format", options.format);
-  if (options.format != "png") {
-    cdp_params.Set("quality", options.quality);
-  }
-
-  client->SendCommand(
-      "Page.captureScreenshot", cdp_params,
-      base::BindOnce(&AbpController::OnScreenshotResult,
-                     weak_factory_.GetWeakPtr(), std::move(callback), options));
+  // The Mojo virtual cursor is already positioned from previous input actions.
+  // CopyFromSurface captures the composited frame which includes the cursor overlay.
+  // No CDP Overlay.setVirtualCursor call needed - go directly to screenshot capture.
+  CaptureScreenshotWithCursor(tab_id, std::move(callback), options);
 }
 
 void AbpController::OnScreenshotResult(ResponseCallback callback,
@@ -1522,170 +1468,11 @@ void AbpController::OnMarkupInjected(const std::string& tab_id,
                                      const ScreenshotOptions& options,
                                      bool success,
                                      const std::string& result) {
-  // Markup overlay already injected by the JavaScript, now set cursor and take screenshot
-  content::WebContents* wc = FindWebContents(tab_id);
-  if (!wc) {
-    SendError(404, "Tab not found", std::move(callback));
-    return;
-  }
-
-  AbpCdpClient* client = GetOrCreateCdpClient(wc);
-  if (!client) {
-    SendError(500, "Failed to create CDP client", std::move(callback));
-    return;
-  }
-
-  // If mouse is enabled, set cursor position before taking screenshot
-  if (options.mouse != "none") {
-    // Get stored cursor position or use viewport center
-    // Must use GetOrCreateForTab to match what Click() uses
-    auto host = content::DevToolsAgentHost::GetOrCreateForTab(wc);
-    std::string host_id = host ? host->GetId() : "";
-
-    double cursor_x = 0;
-    double cursor_y = 0;
-    bool cursor_visible = false;
-
-    if (!host_id.empty()) {
-      auto it = tab_states_.find(host_id);
-      if (it != tab_states_.end() && it->second.cursor.active) {
-        cursor_x = it->second.cursor.x;
-        cursor_y = it->second.cursor.y;
-        cursor_visible = true;
-      }
-    }
-
-    // If no cursor state, use viewport center
-    if (!cursor_visible) {
-      content::RenderWidgetHostView* rwhv = wc->GetRenderWidgetHostView();
-      if (rwhv) {
-        gfx::Size viewport_size = rwhv->GetVisibleViewportSize();
-        cursor_x = viewport_size.width() / 2.0;
-        cursor_y = viewport_size.height() / 2.0;
-        cursor_visible = true;
-      }
-    }
-
-    if (cursor_visible) {
-      // Set the virtual cursor before taking the screenshot
-      base::Value::Dict cursor_config;
-      cursor_config.Set("x", cursor_x);
-      cursor_config.Set("y", cursor_y);
-      cursor_config.Set("visible", true);
-
-      base::Value::Dict cursor_params;
-      cursor_params.Set("cursorConfig", std::move(cursor_config));
-
-      // Store cursor position for mouse move event
-      double x_copy = cursor_x;
-      double y_copy = cursor_y;
-
-      // Chain: set cursor -> send mouse move -> take screenshot
-      client->SendCommand(
-          "Overlay.setVirtualCursor", cursor_params,
-          base::BindOnce(
-              [](base::WeakPtr<AbpController> controller, AbpCdpClient* client,
-                 const std::string& tab_id, double x, double y,
-                 ResponseCallback cb, ScreenshotOptions opts,
-                 content::WebContents* wc, bool success, const std::string& result) {
-                if (!controller || !client) {
-                  return;
-                }
-
-                // Also send mouseMoved event to trigger cursor detection
-                base::Value::Dict move_params;
-                move_params.Set("type", "mouseMoved");
-                move_params.Set("x", x);
-                move_params.Set("y", y);
-
-                client->SendCommand(
-                    "Input.dispatchMouseEvent", move_params,
-                    base::BindOnce(
-                        [](base::WeakPtr<AbpController> ctrl, const std::string& tid,
-                           ResponseCallback callback, ScreenshotOptions options,
-                           content::WebContents* web_contents, bool s, const std::string& r) {
-                          if (!ctrl) {
-                            return;
-                          }
-                          ctrl->OnCursorSetForScreenshot(tid, base::Value::Dict(),
-                                                         std::move(callback), options,
-                                                         web_contents, s, r);
-                        },
-                        controller, tab_id, std::move(cb), opts, wc));
-              },
-              weak_factory_.GetWeakPtr(), client, tab_id, x_copy, y_copy,
-              std::move(callback), options, wc));
-      return;
-    }
-  }
-
-  // Fall back to CDP screenshot (no cursor)
-  base::Value::Dict cdp_params;
-  cdp_params.Set("format", options.format);
-  if (options.format != "png") {
-    cdp_params.Set("quality", options.quality);
-  }
-
-  client->SendCommand(
-      "Page.captureScreenshot", cdp_params,
-      base::BindOnce(
-          [](base::WeakPtr<AbpController> controller, const std::string& tab_id,
-             ResponseCallback callback, ScreenshotOptions options, bool success,
-             const std::string& result) {
-            if (!controller) {
-              return;
-            }
-
-            // Clean up markup style
-            content::WebContents* wc = controller->FindWebContents(tab_id);
-            if (wc) {
-              AbpCdpClient* client = controller->GetOrCreateCdpClient(wc);
-              if (client) {
-                base::Value::Dict cleanup_params;
-                cleanup_params.Set("expression",
-                    "document.getElementById('abp-markup-style')?.remove()");
-                cleanup_params.Set("returnByValue", true);
-                client->SendCommand("Runtime.evaluate", cleanup_params,
-                                    base::BindOnce([](bool, const std::string&) {}));
-              }
-            }
-
-            if (!success) {
-              controller->SendError(500, result, std::move(callback));
-              return;
-            }
-
-            // Parse screenshot result
-            auto parsed = base::JSONReader::Read(result, base::JSON_PARSE_RFC);
-            if (!parsed || !parsed->is_dict()) {
-              controller->SendError(500, "Invalid CDP response", std::move(callback));
-              return;
-            }
-
-            const std::string* data = parsed->GetDict().FindString("data");
-            if (!data) {
-              controller->SendError(500, "No screenshot data", std::move(callback));
-              return;
-            }
-
-            // Build response (no marked_elements - just the screenshot)
-            std::string mime_type = "image/png";
-            if (options.format == "jpeg") {
-              mime_type = "image/jpeg";
-            } else if (options.format == "webp") {
-              mime_type = "image/webp";
-            }
-
-            base::Value::Dict response;
-            response.Set("data", *data);
-            response.Set("mimeType", mime_type);
-            response.Set("format", options.format);
-            response.Set("markup", options.markup);
-
-            controller->SendJson(200, base::Value(std::move(response)),
-                                 std::move(callback));
-          },
-          weak_factory_.GetWeakPtr(), tab_id, std::move(callback), options));
+  // Markup overlay already injected by the JavaScript.
+  // The Mojo virtual cursor is already positioned from previous input actions.
+  // CopyFromSurface captures the composited frame which includes the cursor overlay.
+  // No CDP Overlay.setVirtualCursor call needed - go directly to screenshot capture.
+  CaptureScreenshotWithCursor(tab_id, std::move(callback), options);
 }
 
 void AbpController::OnCursorSetForScreenshot(const std::string& tab_id,
@@ -1792,6 +1579,22 @@ void AbpController::OnCursorScreenshotCaptured(const std::string& tab_id,
 
   // Base64 encode the image data
   std::string base64_data = base::Base64Encode(*encoded);
+
+  // Clean up markup style if it was injected
+  if (options.markup != "none") {
+    content::WebContents* wc = FindWebContents(tab_id);
+    if (wc) {
+      AbpCdpClient* client = GetOrCreateCdpClient(wc);
+      if (client) {
+        base::Value::Dict cleanup_params;
+        cleanup_params.Set("expression",
+            "document.getElementById('abp-markup-style')?.remove()");
+        cleanup_params.Set("returnByValue", true);
+        client->SendCommand("Runtime.evaluate", cleanup_params,
+                            base::BindOnce([](bool, const std::string&) {}));
+      }
+    }
+  }
 
   base::Value::Dict response;
   response.Set("data", base64_data);
