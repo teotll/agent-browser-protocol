@@ -3096,6 +3096,7 @@ test("content_unittests") {
     "../renderer/service_worker/service_worker_subresource_loader_unittest.cc",
     "../renderer/skia_benchmarking_extension_unittest.cc",
     "../renderer/v8_value_converter_impl_unittest.cc",
+    "../renderer/virtual_cursor_layer_manager_unittest.cc",
     "../renderer/worker/worker_thread_registry_unittest.cc",
     "navigation_simulator_unittest.cc",
     "test_aggregation_service_impl_unittest.cc",

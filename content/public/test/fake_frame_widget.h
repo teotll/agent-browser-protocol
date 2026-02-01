@@ -11,6 +11,7 @@
 #include "mojo/public/cpp/bindings/pending_associated_receiver.h"
 #include "third_party/blink/public/mojom/drag/drag.mojom.h"
 #include "third_party/blink/public/mojom/frame/viewport_intersection_state.mojom.h"
+#include "third_party/blink/public/mojom/page/virtual_cursor.mojom.h"
 #include "third_party/blink/public/mojom/page/widget.mojom.h"
 #include "ui/base/ui_base_types.h"
 
@@ -90,6 +91,9 @@ class FakeFrameWidget : public blink::mojom::FrameWidget {
   void BindWidgetCompositor(
       mojo::PendingReceiver<blink::mojom::WidgetCompositor> receiver) override {
   }
+  void BindVirtualCursor(
+      mojo::PendingAssociatedReceiver<blink::mojom::VirtualCursor> receiver)
+      override {}
   void SetViewportIntersection(
       blink::mojom::ViewportIntersectionStatePtr intersection_state,
       const std::optional<blink::VisualProperties>& visual_properties) override;
