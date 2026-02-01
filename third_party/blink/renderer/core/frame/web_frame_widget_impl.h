@@ -57,7 +57,6 @@
 #include "third_party/blink/public/mojom/page/virtual_cursor.mojom-blink.h"
 #include "third_party/blink/public/mojom/page/widget.mojom-blink.h"
 #include "ui/base/cursor/mojom/cursor_type.mojom.h"
-#include "content/renderer/virtual_cursor_layer_manager.h"
 #include "third_party/blink/public/mojom/scroll/scroll_into_view_params.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/cross_variant_mojo_util.h"
 #include "third_party/blink/public/platform/web_drag_data.h"
@@ -68,6 +67,7 @@
 #include "third_party/blink/renderer/core/editing/forward.h"
 #include "third_party/blink/renderer/core/exported/web_page_popup_impl.h"
 #include "third_party/blink/renderer/core/frame/animation_frame_timing_monitor.h"
+#include "third_party/blink/renderer/core/frame/virtual_cursor_overlay_delegate.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/core/page/drag_controller.h"
 #include "third_party/blink/renderer/core/page/event_with_hit_test_results.h"
@@ -1322,8 +1322,9 @@ class CORE_EXPORT WebFrameWidgetImpl
   bool virtual_cursor_enabled_ = false;
   ui::mojom::CursorType virtual_cursor_type_ = ui::mojom::CursorType::kPointer;
 
-  // Virtual cursor layer manager for compositor-based rendering.
-  std::unique_ptr<content::VirtualCursorLayerManager> virtual_cursor_manager_;
+  // Virtual cursor overlay for FrameOverlay-based rendering.
+  Member<FrameOverlay> virtual_cursor_overlay_;
+  std::unique_ptr<VirtualCursorOverlayDelegate> virtual_cursor_delegate_;
 };
 
 }  // namespace blink
