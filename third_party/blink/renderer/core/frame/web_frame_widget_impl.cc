@@ -867,7 +867,9 @@ void WebFrameWidgetImpl::SetVisible(bool visible) {
 
 void WebFrameWidgetImpl::SetEnabled(bool enabled) {
   virtual_cursor_enabled_ = enabled;
-  // TODO(ABP): Create or destroy the cursor layer
+  if (virtual_cursor_manager_) {
+    virtual_cursor_manager_->SetEnabled(enabled);
+  }
 }
 
 void WebFrameWidgetImpl::BindInputTargetClient(
