@@ -166,6 +166,7 @@
 #include "ui/base/mojom/window_show_state.mojom-blink.h"
 #include "ui/gfx/geometry/mojom/geometry.mojom-forward.h"
 #include "ui/gfx/geometry/point_conversions.h"
+#include "content/renderer/virtual_cursor_layer_manager.h"
 
 #if BUILDFLAG(IS_WIN)
 #include "components/stylus_handwriting/win/features.h"
@@ -2601,6 +2602,9 @@ void WebFrameWidgetImpl::InitializeCompositingInternal(
   // sense to move LinkHighlight from Page to WidgetBase so initialization is
   // per-widget. See also: https://crbug.com/1344531.
   GetPage()->DidInitializeCompositing(*AnimationHost());
+
+  // Create virtual cursor layer manager for ABP.
+  virtual_cursor_manager_ = std::make_unique<content::VirtualCursorLayerManager>();
 }
 
 void WebFrameWidgetImpl::InitializeNonCompositing(
