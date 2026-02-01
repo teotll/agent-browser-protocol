@@ -224,6 +224,8 @@ blink_core_sources_frame = [
   "user_activation.h",
   "viewport_data.cc",
   "viewport_data.h",
+  "virtual_cursor_overlay_delegate.cc",
+  "virtual_cursor_overlay_delegate.h",
   "virtual_keyboard_overlay_changed_observer.cc",
   "virtual_keyboard_overlay_changed_observer.h",
   "visual_viewport.cc",
