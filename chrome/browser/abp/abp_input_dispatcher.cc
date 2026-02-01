@@ -54,25 +54,28 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
               return;
             }
 
-            // Set virtual cursor position via CDP overlay
-            base::Value::Dict cursor_config;
-            cursor_config.Set("x", coord_x);
-            cursor_config.Set("y", coord_y);
-            cursor_config.Set("visible", true);
-
-            base::Value::Dict cursor_params;
-            cursor_params.Set("cursorConfig", std::move(cursor_config));
-
             // Take a scoped_refptr to keep context alive through async calls
             scoped_refptr<AbpActionContext> ctx_ref(ctx);
 
+            // Send mousePressed
+            base::Value::Dict press_params;
+            press_params.Set("type", "mousePressed");
+            press_params.Set("x", coord_x);
+            press_params.Set("y", coord_y);
+            press_params.Set("button", "left");
+            press_params.Set("clickCount", 1);
+
             client->SendCommand(
-                "Overlay.setVirtualCursor", std::move(cursor_params),
+                "Input.dispatchMouseEvent", std::move(press_params),
                 base::BindOnce(
                     [](double x, double y,
                        scoped_refptr<AbpActionContext> action_ctx, bool success,
                        const std::string& result) {
-                      // Ignore cursor set result - proceed with click regardless
+                      if (!success) {
+                        action_ctx->OnActionError("CDP_ERROR", result);
+                        return;
+                      }
+
                       AbpCdpClient* cdp_client = action_ctx->client();
                       if (!cdp_client) {
                         action_ctx->OnActionError("CDP_ERROR",
@@ -80,62 +83,32 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
                         return;
                       }
 
-                      // Send mousePressed
-                      base::Value::Dict press_params;
-                      press_params.Set("type", "mousePressed");
-                      press_params.Set("x", x);
-                      press_params.Set("y", y);
-                      press_params.Set("button", "left");
-                      press_params.Set("clickCount", 1);
+                      // Send mouseReleased
+                      base::Value::Dict release_params;
+                      release_params.Set("type", "mouseReleased");
+                      release_params.Set("x", x);
+                      release_params.Set("y", y);
+                      release_params.Set("button", "left");
+                      release_params.Set("clickCount", 1);
 
                       cdp_client->SendCommand(
-                          "Input.dispatchMouseEvent", std::move(press_params),
+                          "Input.dispatchMouseEvent",
+                          std::move(release_params),
                           base::BindOnce(
-                              [](double rel_x, double rel_y,
-                                 scoped_refptr<AbpActionContext> ctx,
+                              [](scoped_refptr<AbpActionContext> c,
                                  bool success, const std::string& result) {
                                 if (!success) {
-                                  ctx->OnActionError("CDP_ERROR", result);
+                                  c->OnActionError("CDP_ERROR", result);
                                   return;
                                 }
 
-                                AbpCdpClient* client = ctx->client();
-                                if (!client) {
-                                  ctx->OnActionError("CDP_ERROR",
-                                                     "CDP client lost");
-                                  return;
-                                }
-
-                                // Send mouseReleased
-                                base::Value::Dict release_params;
-                                release_params.Set("type", "mouseReleased");
-                                release_params.Set("x", rel_x);
-                                release_params.Set("y", rel_y);
-                                release_params.Set("button", "left");
-                                release_params.Set("clickCount", 1);
-
-                                client->SendCommand(
-                                    "Input.dispatchMouseEvent",
-                                    std::move(release_params),
-                                    base::BindOnce(
-                                        [](scoped_refptr<AbpActionContext> c,
-                                           bool success,
-                                           const std::string& result) {
-                                          if (!success) {
-                                            c->OnActionError("CDP_ERROR",
-                                                             result);
-                                            return;
-                                          }
-
-                                          // Set result and signal action complete
-                                          base::Value::Dict res;
-                                          res.Set("status", "clicked");
-                                          c->SetResult(std::move(res));
-                                          c->OnActionDispatched();
-                                        },
-                                        ctx));
+                                // Set result and signal action complete
+                                base::Value::Dict res;
+                                res.Set("status", "clicked");
+                                c->SetResult(std::move(res));
+                                c->OnActionDispatched();
                               },
-                              x, y, action_ctx));
+                              action_ctx));
                     },
                     coord_x, coord_y, ctx_ref));
           },
