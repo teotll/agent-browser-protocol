@@ -198,7 +198,7 @@ void AbpInputDispatcher::Type(const std::string& tab_id,
 void AbpInputDispatcher::Move(const std::string& tab_id,
                               const base::Value::Dict& params,
                               ResponseCallback callback) {
-  // Validate params early
+  // Validate params early.
   auto x_opt = params.FindDouble("x");
   auto y_opt = params.FindDouble("y");
   if (!x_opt || !y_opt) {
@@ -210,17 +210,17 @@ void AbpInputDispatcher::Move(const std::string& tab_id,
   double move_x = *x_opt;
   double move_y = *y_opt;
 
-  // Use AbpActionContext for unified action flow
+  // Use AbpActionContext for unified action flow.
   AbpActionContext::Run(
       controller_, tab_id, "move", params,
-      // Action callback - performs the cursor move
+      // Action callback - performs the cursor move.
       base::BindOnce(
           [](double coord_x, double coord_y, AbpActionContext* ctx) {
-            // Update virtual cursor state via controller
+            // Update virtual cursor state via controller.
             ctx->controller()->UpdateVirtualCursorState(ctx->tab_id(), coord_x,
                                                         coord_y);
 
-            // Enable and set virtual cursor via Mojo for on-screen rendering
+            // Enable and set virtual cursor via Mojo for on-screen rendering.
             content::WebContents* wc = ctx->web_contents();
             if (wc) {
               ctx->controller()->SetVirtualCursorEnabledViaMojo(wc, true);
@@ -234,58 +234,33 @@ void AbpInputDispatcher::Move(const std::string& tab_id,
               return;
             }
 
-            // Set virtual cursor position via CDP overlay
-            base::Value::Dict cursor_config;
-            cursor_config.Set("x", coord_x);
-            cursor_config.Set("y", coord_y);
-            cursor_config.Set("visible", true);
-
-            base::Value::Dict cursor_params;
-            cursor_params.Set("cursorConfig", std::move(cursor_config));
-
-            // Take a scoped_refptr to keep context alive through async calls
+            // Take a scoped_refptr to keep context alive through async calls.
             scoped_refptr<AbpActionContext> ctx_ref(ctx);
 
+            // Send mouseMoved event for page interaction (hover states, etc.).
+            base::Value::Dict move_params;
+            move_params.Set("type", "mouseMoved");
+            move_params.Set("x", coord_x);
+            move_params.Set("y", coord_y);
+
             client->SendCommand(
-                "Overlay.setVirtualCursor", std::move(cursor_params),
+                "Input.dispatchMouseEvent", std::move(move_params),
                 base::BindOnce(
-                    [](double x, double y,
-                       scoped_refptr<AbpActionContext> action_ctx, bool success,
-                       const std::string& result) {
-                      // Ignore cursor set result - proceed regardless
-                      AbpCdpClient* cdp_client = action_ctx->client();
-                      if (!cdp_client) {
-                        action_ctx->OnActionError("CDP_ERROR",
-                                                  "CDP client lost");
+                    [](double final_x, double final_y,
+                       scoped_refptr<AbpActionContext> action_ctx,
+                       bool success, const std::string& result) {
+                      if (!success) {
+                        action_ctx->OnActionError("CDP_ERROR", result);
                         return;
                       }
 
-                      // Send mouseMoved event
-                      base::Value::Dict move_params;
-                      move_params.Set("type", "mouseMoved");
-                      move_params.Set("x", x);
-                      move_params.Set("y", y);
-
-                      cdp_client->SendCommand(
-                          "Input.dispatchMouseEvent", std::move(move_params),
-                          base::BindOnce(
-                              [](double final_x, double final_y,
-                                 scoped_refptr<AbpActionContext> ctx,
-                                 bool success, const std::string& result) {
-                                if (!success) {
-                                  ctx->OnActionError("CDP_ERROR", result);
-                                  return;
-                                }
-
-                                // Set result and signal action complete
-                                base::Value::Dict res;
-                                res.Set("status", "moved");
-                                res.Set("x", final_x);
-                                res.Set("y", final_y);
-                                ctx->SetResult(std::move(res));
-                                ctx->OnActionDispatched();
-                              },
-                              x, y, action_ctx));
+                      // Set result and signal action complete.
+                      base::Value::Dict res;
+                      res.Set("status", "moved");
+                      res.Set("x", final_x);
+                      res.Set("y", final_y);
+                      action_ctx->SetResult(std::move(res));
+                      action_ctx->OnActionDispatched();
                     },
                     coord_x, coord_y, ctx_ref));
           },
