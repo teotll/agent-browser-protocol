@@ -853,6 +853,10 @@ void WebFrameWidgetImpl::BindVirtualCursor(
 }
 
 void WebFrameWidgetImpl::SetPosition(float x, float y, bool visible) {
+  LOG(INFO) << "ABP: WebFrameWidgetImpl::SetPosition(" << x << ", " << y << ", " << visible << ")"
+            << " has_delegate=" << (virtual_cursor_delegate_ ? "yes" : "no")
+            << " enabled=" << virtual_cursor_enabled_;
+
   virtual_cursor_x_ = x;
   virtual_cursor_y_ = y;
   virtual_cursor_visible_ = visible;
@@ -869,7 +873,10 @@ void WebFrameWidgetImpl::SetPosition(float x, float y, bool visible) {
     LocalFrame* frame = local_root_->GetFrame();
     if (frame && frame->GetPage()) {
       frame->GetPage()->GetChromeClient().ScheduleAnimation(frame->View());
+      LOG(INFO) << "ABP: SetPosition - scheduled animation for repaint";
     }
+  } else {
+    LOG(INFO) << "ABP: SetPosition - no delegate, storing position for later";
   }
 }
 
@@ -900,13 +907,18 @@ void WebFrameWidgetImpl::SetVisible(bool visible) {
 }
 
 void WebFrameWidgetImpl::SetEnabled(bool enabled) {
+  LOG(INFO) << "ABP: WebFrameWidgetImpl::SetEnabled(" << enabled << ")"
+            << " current_enabled=" << virtual_cursor_enabled_;
+
   if (virtual_cursor_enabled_ == enabled) {
+    LOG(INFO) << "ABP: SetEnabled - no change needed";
     return;
   }
   virtual_cursor_enabled_ = enabled;
 
   LocalFrame* frame = local_root_->GetFrame();
   if (!frame) {
+    LOG(WARNING) << "ABP: SetEnabled - no LocalFrame available";
     return;
   }
 
@@ -921,9 +933,16 @@ void WebFrameWidgetImpl::SetEnabled(bool enabled) {
     virtual_cursor_overlay_ = MakeGarbageCollected<FrameOverlay>(
         frame, std::move(delegate));
 
+    LOG(INFO) << "ABP: SetEnabled - created FrameOverlay at ("
+              << virtual_cursor_x_ << ", " << virtual_cursor_y_ << ")"
+              << " visible=" << virtual_cursor_visible_;
+
     // Schedule a repaint so the cursor is immediately visible.
     if (frame->GetPage()) {
       frame->GetPage()->GetChromeClient().ScheduleAnimation(frame->View());
+      LOG(INFO) << "ABP: SetEnabled - scheduled animation for repaint";
+    } else {
+      LOG(WARNING) << "ABP: SetEnabled - no Page available for scheduling animation";
     }
   } else {
     if (virtual_cursor_overlay_) {
@@ -931,6 +950,7 @@ void WebFrameWidgetImpl::SetEnabled(bool enabled) {
       virtual_cursor_overlay_ = nullptr;
     }
     virtual_cursor_delegate_ = nullptr;
+    LOG(INFO) << "ABP: SetEnabled - destroyed overlay";
   }
 }
 

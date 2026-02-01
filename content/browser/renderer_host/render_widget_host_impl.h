@@ -1592,6 +1592,20 @@ class CONTENT_EXPORT RenderWidgetHostImpl
   // Used by ABP (Agent Browser Protocol) for AI agent browser control.
   mojo::AssociatedRemote<blink::mojom::VirtualCursor> virtual_cursor_remote_;
 
+  // Pending virtual cursor state - stored when SetVirtualCursor* is called
+  // before blink_frame_widget_ is bound, applied when widget becomes available.
+  struct PendingVirtualCursorState {
+    bool has_enabled = false;
+    bool enabled = false;
+    bool has_position = false;
+    float x = 0;
+    float y = 0;
+    bool visible = false;
+    bool has_type = false;
+    ui::mojom::CursorType cursor_type = ui::mojom::CursorType::kPointer;
+  };
+  PendingVirtualCursorState pending_virtual_cursor_state_;
+
   // Same-process cross-RenderFrameHost navigations may reuse the compositor
   // from the previous RenderFrameHost. While the speculative RenderWidgetHost
   // is created early, ownership of the FrameSinkId is transferred at commit.

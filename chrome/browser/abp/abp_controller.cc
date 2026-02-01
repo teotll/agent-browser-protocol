@@ -433,8 +433,10 @@ std::string AbpController::GetActiveTabId() {
       content::WebContents* wc =
           browser->tab_strip_model()->GetActiveWebContents();
       if (wc) {
+        // Use GetOrCreateFor() to match FindWebContents() which also uses it.
+        // Note: GetOrCreateForTab() returns a 'tab' target with a different ID.
         scoped_refptr<content::DevToolsAgentHost> host =
-            content::DevToolsAgentHost::GetOrCreateForTab(wc);
+            content::DevToolsAgentHost::GetOrCreateFor(wc);
         if (host) {
           return host->GetId();
         }
