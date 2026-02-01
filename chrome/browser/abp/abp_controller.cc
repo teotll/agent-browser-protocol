@@ -1471,27 +1471,7 @@ void AbpController::OnMarkupInjected(const std::string& tab_id,
   // Markup overlay already injected by the JavaScript.
   // The Mojo virtual cursor is already positioned from previous input actions.
   // CopyFromSurface captures the composited frame which includes the cursor overlay.
-  // No CDP Overlay.setVirtualCursor call needed - go directly to screenshot capture.
   CaptureScreenshotWithCursor(tab_id, std::move(callback), options);
-}
-
-void AbpController::OnCursorSetForScreenshot(const std::string& tab_id,
-                                              base::Value::Dict params,
-                                              ResponseCallback callback,
-                                              const ScreenshotOptions& options,
-                                              content::WebContents* wc,
-                                              bool success,
-                                              const std::string& result) {
-  // Cursor set (or failed, but we continue anyway)
-  // Now capture the screenshot using CopyFromSurface to include the overlay
-
-  // Delay to allow the overlay to repaint with the cursor
-  // The overlay needs time to process the cursor update and schedule a paint
-  base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
-      FROM_HERE,
-      base::BindOnce(&AbpController::CaptureScreenshotWithCursor,
-                     weak_factory_.GetWeakPtr(), tab_id, std::move(callback), options),
-      base::Milliseconds(200));
 }
 
 void AbpController::CaptureScreenshotWithCursor(const std::string& tab_id,

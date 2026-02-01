@@ -309,13 +309,6 @@ class AbpController {
                         const ScreenshotOptions& options,
                         bool success,
                         const std::string& result);
-  void OnCursorSetForScreenshot(const std::string& tab_id,
-                                base::Value::Dict params,
-                                ResponseCallback callback,
-                                const ScreenshotOptions& options,
-                                content::WebContents* wc,
-                                bool success,
-                                const std::string& result);
   void CaptureScreenshotWithCursor(const std::string& tab_id,
                                    ResponseCallback callback,
                                    const ScreenshotOptions& options);
