@@ -151,7 +151,7 @@ chrome/browser/abp/
 ├── abp_event_collector.h/cc    # Event collection during actions
 ├── abp_action_context.h/cc     # Action execution context
 ├── abp_download_observer.h/cc  # Download tracking
-├── abp_mouse_tracker.h/cc      # Mouse position tracking
+├── abp_input_dispatcher.h/cc   # Input action handling
 └── test_pages/                 # Integration test suite
     ├── run_tests.sh            # Test runner (10 tests)
     ├── *.html                  # Test pages

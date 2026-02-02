@@ -752,6 +752,9 @@ void RenderWidgetHostImpl::BindFrameWidgetInterfaces(
   blink_frame_widget_host_receiver_.reset();
   blink_frame_widget_.reset();
   widget_compositor_.reset();
+  // ABP: Reset virtual cursor remote when frame widget changes to avoid
+  // sending messages to a dead endpoint after navigation.
+  virtual_cursor_remote_.reset();
   GetRenderInputRouter()->ResetFrameWidgetInputInterfaces();
   blink_frame_widget_host_receiver_.Bind(
       std::move(frame_widget_host),

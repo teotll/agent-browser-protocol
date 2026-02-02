@@ -33,6 +33,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/navigation_controller.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
@@ -481,10 +482,16 @@ void AbpController::CenterCursorInTab(const std::string& tab_id,
   UpdateVirtualCursorState(tab_id, center_x, center_y);
 
   // Enable and set virtual cursor via Mojo for on-screen rendering.
-  LOG(INFO) << "ABP DEBUG L1: CenterCursorInTab - calling SetVirtualCursorEnabledViaMojo(true)";
-  SetVirtualCursorEnabledViaMojo(wc, true);
-  LOG(INFO) << "ABP DEBUG L1: CenterCursorInTab - calling SetVirtualCursorViaMojo(" << center_x << ", " << center_y << ", true)";
-  SetVirtualCursorViaMojo(wc, center_x, center_y, true);
+  // TEMPORARY: Check if RenderWidgetHost is ready before calling Mojo methods
+  content::RenderWidgetHost* rwh = rwhv->GetRenderWidgetHost();
+  if (rwh && rwh->GetProcess() && rwh->GetProcess()->IsInitializedAndNotDead()) {
+    LOG(INFO) << "ABP DEBUG L1: CenterCursorInTab - calling SetVirtualCursorEnabledViaMojo(true)";
+    SetVirtualCursorEnabledViaMojo(wc, true);
+    LOG(INFO) << "ABP DEBUG L1: CenterCursorInTab - calling SetVirtualCursorViaMojo(" << center_x << ", " << center_y << ", true)";
+    SetVirtualCursorViaMojo(wc, center_x, center_y, true);
+  } else {
+    LOG(WARNING) << "ABP DEBUG L1: CenterCursorInTab - skipping Mojo calls, RWH not ready";
+  }
 
   LOG(INFO) << "ABP DEBUG L1: CenterCursorInTab completed";
   std::move(callback).Run();
@@ -1972,6 +1979,12 @@ void AbpController::SetVirtualCursorViaMojo(content::WebContents* wc,
     return;
   }
 
+  // Check if the render process is alive before calling Mojo methods
+  if (!rwh->GetProcess() || !rwh->GetProcess()->IsInitializedAndNotDead()) {
+    LOG(WARNING) << "ABP DEBUG L1: SetVirtualCursorViaMojo - render process not ready";
+    return;
+  }
+
   LOG(INFO) << "ABP DEBUG L1: SetVirtualCursorViaMojo"
             << " x=" << x << " y=" << y << " visible=" << visible
             << " rwh=valid";
@@ -2013,6 +2026,12 @@ void AbpController::SetVirtualCursorEnabledViaMojo(content::WebContents* wc,
   content::RenderWidgetHost* rwh = rwhv->GetRenderWidgetHost();
   if (!rwh) {
     LOG(WARNING) << "ABP DEBUG L1: SetVirtualCursorEnabledViaMojo - rwh is null";
+    return;
+  }
+
+  // Check if the render process is alive before calling Mojo methods
+  if (!rwh->GetProcess() || !rwh->GetProcess()->IsInitializedAndNotDead()) {
+    LOG(WARNING) << "ABP DEBUG L1: SetVirtualCursorEnabledViaMojo - render process not ready";
     return;
   }
 
@@ -2466,6 +2485,9 @@ void AbpController::WaitForActionComplete(const std::string& tab_id,
     waiter->dom_content_loaded_fired = true;
   }
 
+  // Save min_wait_time BEFORE moving waiter to avoid use-after-move
+  base::TimeDelta actual_min_wait = waiter->min_wait_time;
+
   GetOrCreateTabState(tab_id).action_waiter = std::move(waiter);
 
   // Set up event listener for CDP events
@@ -2476,11 +2498,12 @@ void AbpController::WaitForActionComplete(const std::string& tab_id,
   base::Value::Dict empty_params;
   client->SendCommand("Network.enable", empty_params,
                       base::BindOnce([](bool, const std::string&) {}));
-  client->SendCommand("Page.enable", empty_params,
+  base::Value::Dict empty_params2;
+  client->SendCommand("Page.enable", empty_params2,
                       base::BindOnce([](bool, const std::string&) {}));
 
   // Start minimum wait timer (use configured min_wait_time)
-  base::TimeDelta actual_min_wait = waiter->min_wait_time;
+  // Note: actual_min_wait was saved earlier before waiter was moved
   content::GetUIThreadTaskRunner({})->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&AbpController::OnMinWaitTimeElapsed,
