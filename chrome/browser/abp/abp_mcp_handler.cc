@@ -44,42 +44,42 @@ base::Value::List GetToolDefinitions() {
 
   tools.Append(ToolBuilder("browser_close_tab")
                    .Description("Close a browser tab")
-                   .RequiredString("tab_id", "ID of tab to close")
+                   .OptionalString("tab_id", "ID of tab to close")
                    .Build());
 
   tools.Append(ToolBuilder("browser_get_tab_info")
                    .Description("Get detailed information about a tab")
-                   .RequiredString("tab_id", "ID of tab")
+                   .OptionalString("tab_id", "ID of tab")
                    .Build());
 
   // Navigation
   tools.Append(ToolBuilder("browser_navigate")
                    .Description("Navigate to a URL")
-                   .RequiredString("tab_id", "Target tab ID")
+                   .OptionalString("tab_id", "Target tab ID")
                    .RequiredString("url", "URL to navigate to")
                    .OptionalString("referrer", "Referrer URL")
                    .Build());
 
   tools.Append(ToolBuilder("browser_go_back")
                    .Description("Navigate back in history")
-                   .RequiredString("tab_id", "Target tab ID")
+                   .OptionalString("tab_id", "Target tab ID")
                    .Build());
 
   tools.Append(ToolBuilder("browser_go_forward")
                    .Description("Navigate forward in history")
-                   .RequiredString("tab_id", "Target tab ID")
+                   .OptionalString("tab_id", "Target tab ID")
                    .Build());
 
   tools.Append(ToolBuilder("browser_reload")
                    .Description("Reload the current page")
-                   .RequiredString("tab_id", "Target tab ID")
+                   .OptionalString("tab_id", "Target tab ID")
                    .OptionalBoolean("ignore_cache", "Force refresh ignoring cache")
                    .Build());
 
   // Input actions
   tools.Append(ToolBuilder("browser_click")
                    .Description("Click at coordinates on the page")
-                   .RequiredString("tab_id", "Target tab ID")
+                   .OptionalString("tab_id", "Target tab ID")
                    .RequiredNumber("x", "X coordinate")
                    .RequiredNumber("y", "Y coordinate")
                    .OptionalStringEnum("button", "Mouse button",
@@ -91,7 +91,7 @@ base::Value::List GetToolDefinitions() {
 
   tools.Append(ToolBuilder("browser_type")
                    .Description("Type text at current focus position")
-                   .RequiredString("tab_id", "Target tab ID")
+                   .OptionalString("tab_id", "Target tab ID")
                    .RequiredString("text", "Text to type")
                    .OptionalNumber("delay_ms", "Delay between keystrokes in ms")
                    .Build());
@@ -99,7 +99,7 @@ base::Value::List GetToolDefinitions() {
   tools.Append(
       ToolBuilder("browser_screenshot")
           .Description("Take a screenshot of the page")
-          .RequiredString("tab_id", "Target tab ID")
+          .OptionalString("tab_id", "Target tab ID")
           .OptionalString("markup",
                           "Element markup overlay: none, interactive, "
                           "clickable, typeable, inputs")
@@ -112,7 +112,7 @@ base::Value::List GetToolDefinitions() {
   tools.Append(
       ToolBuilder("browser_execute_javascript")
           .Description("Execute JavaScript in the page context")
-          .RequiredString("tab_id", "Target tab ID")
+          .OptionalString("tab_id", "Target tab ID")
           .RequiredString("expression", "JavaScript expression to evaluate")
           .OptionalBoolean("await_promise", "Wait for promise resolution")
           .OptionalNumber("timeout_ms", "Timeout for promise resolution in ms")
@@ -122,7 +122,7 @@ base::Value::List GetToolDefinitions() {
       ToolBuilder("browser_keyboard_press")
           .Description(
               "Press a key or key combination (e.g., Enter, Escape, Ctrl+C)")
-          .RequiredString("tab_id", "Target tab ID")
+          .OptionalString("tab_id", "Target tab ID")
           .RequiredString("key", "Key to press (e.g., Enter, Escape, a, F1, Tab)")
           .OptionalStringArrayEnum("modifiers", "Modifier keys to hold",
                                    {"Shift", "Control", "Alt", "Meta"})
@@ -130,7 +130,7 @@ base::Value::List GetToolDefinitions() {
 
   tools.Append(ToolBuilder("browser_scroll")
                    .Description("Scroll the page using mouse wheel")
-                   .RequiredString("tab_id", "Target tab ID")
+                   .OptionalString("tab_id", "Target tab ID")
                    .RequiredNumber("delta_y", "Vertical scroll amount")
                    .OptionalNumber("x", "X coordinate for scroll position")
                    .OptionalNumber("y", "Y coordinate for scroll position")
@@ -139,7 +139,7 @@ base::Value::List GetToolDefinitions() {
 
   tools.Append(ToolBuilder("browser_mouse_move")
                    .Description("Move mouse to coordinates (for hover effects)")
-                   .RequiredString("tab_id", "Target tab ID")
+                   .OptionalString("tab_id", "Target tab ID")
                    .RequiredNumber("x", "X coordinate")
                    .RequiredNumber("y", "Y coordinate")
                    .OptionalNumber("steps", "Intermediate steps for smooth movement")
@@ -148,30 +148,30 @@ base::Value::List GetToolDefinitions() {
   // Tab control
   tools.Append(ToolBuilder("browser_activate_tab")
                    .Description("Switch to a specific tab")
-                   .RequiredString("tab_id", "ID of tab to activate")
+                   .OptionalString("tab_id", "ID of tab to activate")
                    .Build());
 
   tools.Append(ToolBuilder("browser_stop_loading")
                    .Description("Stop page loading")
-                   .RequiredString("tab_id", "Target tab ID")
+                   .OptionalString("tab_id", "Target tab ID")
                    .Build());
 
   // Dialog handling
   tools.Append(
       ToolBuilder("browser_get_dialog")
           .Description("Check if a dialog (alert/confirm/prompt) is pending")
-          .RequiredString("tab_id", "Target tab ID")
+          .OptionalString("tab_id", "Target tab ID")
           .Build());
 
   tools.Append(ToolBuilder("browser_accept_dialog")
                    .Description("Accept (click OK on) a pending dialog")
-                   .RequiredString("tab_id", "Target tab ID")
+                   .OptionalString("tab_id", "Target tab ID")
                    .OptionalString("prompt_text", "Text to enter for prompt dialogs")
                    .Build());
 
   tools.Append(ToolBuilder("browser_dismiss_dialog")
                    .Description("Dismiss (click Cancel on) a pending dialog")
-                   .RequiredString("tab_id", "Target tab ID")
+                   .OptionalString("tab_id", "Target tab ID")
                    .Build());
 
   // Downloads
@@ -205,26 +205,33 @@ base::Value::List GetToolDefinitions() {
   // Keyboard hold/release
   tools.Append(ToolBuilder("browser_keyboard_down")
                    .Description("Press and hold a key")
-                   .RequiredString("tab_id", "Target tab ID")
+                   .OptionalString("tab_id", "Target tab ID")
                    .RequiredString("key", "Key to press down")
                    .Build());
 
   tools.Append(ToolBuilder("browser_keyboard_up")
                    .Description("Release a held key")
-                   .RequiredString("tab_id", "Target tab ID")
+                   .OptionalString("tab_id", "Target tab ID")
                    .RequiredString("key", "Key to release")
                    .Build());
 
   // Execution control
   tools.Append(ToolBuilder("browser_get_execution_state")
                    .Description("Get JavaScript execution state for a tab")
-                   .RequiredString("tab_id", "Target tab ID")
+                   .OptionalString("tab_id", "Target tab ID")
                    .Build());
 
   tools.Append(ToolBuilder("browser_set_execution_state")
                    .Description("Pause or resume JavaScript execution")
-                   .RequiredString("tab_id", "Target tab ID")
+                   .OptionalString("tab_id", "Target tab ID")
                    .RequiredBoolean("paused", "True to pause, false to resume")
+                   .Build());
+
+  // Text extraction
+  tools.Append(ToolBuilder("browser_get_text")
+                   .Description("Get the visible text content of the page")
+                   .OptionalString("tab_id", "Target tab ID")
+                   .OptionalString("selector", "CSS selector to scope text extraction")
                    .Build());
 
   // Browser control
@@ -242,6 +249,14 @@ AbpMcpHandler::AbpMcpHandler(AbpController* controller)
     : controller_(controller) {}
 
 AbpMcpHandler::~AbpMcpHandler() = default;
+
+std::string AbpMcpHandler::ResolveTabId(const base::Value::Dict& args) {
+  const std::string* tab_id = args.FindString("tab_id");
+  if (tab_id && !tab_id->empty()) {
+    return *tab_id;
+  }
+  return controller_->GetActiveTabId();
+}
 
 void AbpMcpHandler::HandleRequest(
     const std::string& method,
@@ -458,6 +473,8 @@ void AbpMcpHandler::HandleToolsCall(const base::Value::Dict& params,
     CallBrowserGetExecutionState(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_set_execution_state") {
     CallBrowserSetExecutionState(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_get_text") {
+    CallBrowserGetText(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_shutdown") {
     CallBrowserShutdown(*args, std::move(request_id), std::move(callback));
   } else {
@@ -501,15 +518,16 @@ void AbpMcpHandler::CallBrowserNewTab(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserCloseTab(const base::Value::Dict& args,
                                         base::Value request_id,
                                         ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
 
   controller_->HandleRequest(
-      "DELETE", "/api/v1/tabs/" + *tab_id, "",
+      "DELETE", "/api/v1/tabs/" + tab_id, "",
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -518,15 +536,16 @@ void AbpMcpHandler::CallBrowserCloseTab(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserGetTabInfo(const base::Value::Dict& args,
                                           base::Value request_id,
                                           ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
 
   controller_->HandleRequest(
-      "GET", "/api/v1/tabs/" + *tab_id, "",
+      "GET", "/api/v1/tabs/" + tab_id, "",
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -535,9 +554,10 @@ void AbpMcpHandler::CallBrowserGetTabInfo(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserNavigate(const base::Value::Dict& args,
                                         base::Value request_id,
                                         ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
@@ -550,7 +570,7 @@ void AbpMcpHandler::CallBrowserNavigate(const base::Value::Dict& args,
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/navigate", body,
+      "POST", "/api/v1/tabs/" + tab_id + "/navigate", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -559,15 +579,16 @@ void AbpMcpHandler::CallBrowserNavigate(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserGoBack(const base::Value::Dict& args,
                                       base::Value request_id,
                                       ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/back", "",
+      "POST", "/api/v1/tabs/" + tab_id + "/back", "",
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -576,15 +597,16 @@ void AbpMcpHandler::CallBrowserGoBack(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserGoForward(const base::Value::Dict& args,
                                          base::Value request_id,
                                          ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/forward", "",
+      "POST", "/api/v1/tabs/" + tab_id + "/forward", "",
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -593,9 +615,10 @@ void AbpMcpHandler::CallBrowserGoForward(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserReload(const base::Value::Dict& args,
                                       base::Value request_id,
                                       ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
@@ -608,7 +631,7 @@ void AbpMcpHandler::CallBrowserReload(const base::Value::Dict& args,
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/reload", body,
+      "POST", "/api/v1/tabs/" + tab_id + "/reload", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -617,9 +640,10 @@ void AbpMcpHandler::CallBrowserReload(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserClick(const base::Value::Dict& args,
                                      base::Value request_id,
                                      ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
@@ -632,7 +656,7 @@ void AbpMcpHandler::CallBrowserClick(const base::Value::Dict& args,
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/click", body,
+      "POST", "/api/v1/tabs/" + tab_id + "/click", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -641,9 +665,10 @@ void AbpMcpHandler::CallBrowserClick(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserType(const base::Value::Dict& args,
                                     base::Value request_id,
                                     ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
@@ -656,7 +681,7 @@ void AbpMcpHandler::CallBrowserType(const base::Value::Dict& args,
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/type", body,
+      "POST", "/api/v1/tabs/" + tab_id + "/type", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -665,9 +690,10 @@ void AbpMcpHandler::CallBrowserType(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserScreenshot(const base::Value::Dict& args,
                                           base::Value request_id,
                                           ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
@@ -696,7 +722,7 @@ void AbpMcpHandler::CallBrowserScreenshot(const base::Value::Dict& args,
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/screenshot", body,
+      "POST", "/api/v1/tabs/" + tab_id + "/screenshot", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -705,9 +731,10 @@ void AbpMcpHandler::CallBrowserScreenshot(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserExecuteJavascript(const base::Value::Dict& args,
                                                  base::Value request_id,
                                                  ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
@@ -728,7 +755,7 @@ void AbpMcpHandler::CallBrowserExecuteJavascript(const base::Value::Dict& args,
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/execute", body,
+      "POST", "/api/v1/tabs/" + tab_id + "/execute", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -737,9 +764,10 @@ void AbpMcpHandler::CallBrowserExecuteJavascript(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserKeyboardPress(const base::Value::Dict& args,
                                              base::Value request_id,
                                              ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
@@ -752,7 +780,7 @@ void AbpMcpHandler::CallBrowserKeyboardPress(const base::Value::Dict& args,
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/keyboard/press", body,
+      "POST", "/api/v1/tabs/" + tab_id + "/keyboard/press", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -761,9 +789,10 @@ void AbpMcpHandler::CallBrowserKeyboardPress(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserScroll(const base::Value::Dict& args,
                                       base::Value request_id,
                                       ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
@@ -776,7 +805,7 @@ void AbpMcpHandler::CallBrowserScroll(const base::Value::Dict& args,
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/scroll", body,
+      "POST", "/api/v1/tabs/" + tab_id + "/scroll", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -785,9 +814,10 @@ void AbpMcpHandler::CallBrowserScroll(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserMouseMove(const base::Value::Dict& args,
                                          base::Value request_id,
                                          ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
@@ -800,7 +830,7 @@ void AbpMcpHandler::CallBrowserMouseMove(const base::Value::Dict& args,
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/move", body,
+      "POST", "/api/v1/tabs/" + tab_id + "/move", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -809,15 +839,16 @@ void AbpMcpHandler::CallBrowserMouseMove(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserActivateTab(const base::Value::Dict& args,
                                            base::Value request_id,
                                            ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/activate", "",
+      "POST", "/api/v1/tabs/" + tab_id + "/activate", "",
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -826,15 +857,16 @@ void AbpMcpHandler::CallBrowserActivateTab(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserStopLoading(const base::Value::Dict& args,
                                            base::Value request_id,
                                            ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/stop", "",
+      "POST", "/api/v1/tabs/" + tab_id + "/stop", "",
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -843,15 +875,16 @@ void AbpMcpHandler::CallBrowserStopLoading(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserGetDialog(const base::Value::Dict& args,
                                          base::Value request_id,
                                          ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
 
   controller_->HandleRequest(
-      "GET", "/api/v1/tabs/" + *tab_id + "/dialog", "",
+      "GET", "/api/v1/tabs/" + tab_id + "/dialog", "",
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -860,9 +893,10 @@ void AbpMcpHandler::CallBrowserGetDialog(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserAcceptDialog(const base::Value::Dict& args,
                                             base::Value request_id,
                                             ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
@@ -875,7 +909,7 @@ void AbpMcpHandler::CallBrowserAcceptDialog(const base::Value::Dict& args,
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/dialog/accept", body,
+      "POST", "/api/v1/tabs/" + tab_id + "/dialog/accept", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -884,15 +918,16 @@ void AbpMcpHandler::CallBrowserAcceptDialog(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserDismissDialog(const base::Value::Dict& args,
                                              base::Value request_id,
                                              ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/dialog/dismiss", "",
+      "POST", "/api/v1/tabs/" + tab_id + "/dialog/dismiss", "",
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -988,9 +1023,10 @@ void AbpMcpHandler::CallBrowserProvideFiles(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserKeyboardDown(const base::Value::Dict& args,
                                             base::Value request_id,
                                             ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
@@ -1003,7 +1039,7 @@ void AbpMcpHandler::CallBrowserKeyboardDown(const base::Value::Dict& args,
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/keyboard/down", body,
+      "POST", "/api/v1/tabs/" + tab_id + "/keyboard/down", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -1012,9 +1048,10 @@ void AbpMcpHandler::CallBrowserKeyboardDown(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserKeyboardUp(const base::Value::Dict& args,
                                           base::Value request_id,
                                           ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
@@ -1027,7 +1064,7 @@ void AbpMcpHandler::CallBrowserKeyboardUp(const base::Value::Dict& args,
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/keyboard/up", body,
+      "POST", "/api/v1/tabs/" + tab_id + "/keyboard/up", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -1036,15 +1073,16 @@ void AbpMcpHandler::CallBrowserKeyboardUp(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserGetExecutionState(const base::Value::Dict& args,
                                                  base::Value request_id,
                                                  ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
 
   controller_->HandleRequest(
-      "GET", "/api/v1/tabs/" + *tab_id + "/execution", "",
+      "GET", "/api/v1/tabs/" + tab_id + "/execution", "",
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -1053,9 +1091,10 @@ void AbpMcpHandler::CallBrowserGetExecutionState(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserSetExecutionState(const base::Value::Dict& args,
                                                  base::Value request_id,
                                                  ResponseWithHeadersCallback callback) {
-  const std::string* tab_id = args.FindString("tab_id");
-  if (!tab_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing tab_id",
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
                      std::move(callback));
     return;
   }
@@ -1068,7 +1107,34 @@ void AbpMcpHandler::CallBrowserSetExecutionState(const base::Value::Dict& args,
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + *tab_id + "/execution", body,
+      "POST", "/api/v1/tabs/" + tab_id + "/execution", body,
+      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                     weak_factory_.GetWeakPtr(), std::move(request_id),
+                     std::move(callback)));
+}
+
+void AbpMcpHandler::CallBrowserGetText(const base::Value::Dict& args,
+                                       base::Value request_id,
+                                       ResponseWithHeadersCallback callback) {
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
+                     std::move(callback));
+    return;
+  }
+
+  // Forward selector param to REST API
+  base::Value::Dict body_dict;
+  if (const std::string* selector = args.FindString("selector")) {
+    body_dict.Set("selector", *selector);
+  }
+
+  std::string body;
+  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
+
+  controller_->HandleRequest(
+      "POST", "/api/v1/tabs/" + tab_id + "/text", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
@@ -1093,29 +1159,83 @@ void AbpMcpHandler::OnControllerResponse(base::Value request_id,
                                          int status,
                                          const std::string& content_type,
                                          std::string body) {
-  // Convert REST API response to MCP tool result
-  // Return the COMPLETE REST response, including screenshot, scroll, events,
-  // timing. MCP is a transport layer - don't strip data.
+  // Convert REST API response to MCP tool result.
+  // Extract screenshot data into native MCP image content blocks so the
+  // model can see pages directly, rather than embedding base64 in JSON text.
 
   base::Value::Dict result;
   base::Value::List content;
-  base::Value::Dict text_content;
-  text_content.Set("type", "text");
 
-  // Parse and pretty-print the REST response
   auto parsed = base::JSONReader::Read(body, base::JSON_PARSE_RFC);
   if (parsed && parsed->is_dict()) {
-    // Return the complete REST response, not just data field
+    base::Value::Dict& response_dict = parsed->GetDict();
+
+    // Extract screenshot image data if present.
+    // Two formats:
+    //   Action envelope: {"screenshot": {"data": "...", "format": "webp", ...}}
+    //   Screenshot endpoint: {"data": "...", "mimeType": "image/webp", ...}
+    std::string image_data;
+    std::string mime_type = "image/webp";
+
+    // Check action envelope format (click, navigate, type responses)
+    base::Value::Dict* screenshot_dict = response_dict.FindDict("screenshot");
+    if (screenshot_dict) {
+      std::string* data = screenshot_dict->FindString("data");
+      if (data && !data->empty()) {
+        image_data = std::move(*data);
+        screenshot_dict->Remove("data");
+
+        // Determine mime type from format field
+        const std::string* format = screenshot_dict->FindString("format");
+        if (format) {
+          if (*format == "png") {
+            mime_type = "image/png";
+          } else if (*format == "jpeg") {
+            mime_type = "image/jpeg";
+          }
+          // webp is the default
+        }
+      }
+    }
+
+    // Check direct screenshot endpoint format
+    if (image_data.empty()) {
+      std::string* data = response_dict.FindString("data");
+      const std::string* top_mime = response_dict.FindString("mimeType");
+      if (data && !data->empty()) {
+        image_data = std::move(*data);
+        response_dict.Remove("data");
+        if (top_mime) {
+          mime_type = *top_mime;
+        }
+      }
+    }
+
+    // Serialize the remaining JSON (without the large base64 data) as text
     std::string pretty_json;
     base::JSONWriter::WriteWithOptions(
         *parsed, base::JSONWriter::OPTIONS_PRETTY_PRINT, &pretty_json);
+    base::Value::Dict text_content;
+    text_content.Set("type", "text");
     text_content.Set("text", pretty_json);
+    content.Append(std::move(text_content));
+
+    // Add image content block if screenshot data was found
+    if (!image_data.empty()) {
+      base::Value::Dict image_content;
+      image_content.Set("type", "image");
+      image_content.Set("data", std::move(image_data));
+      image_content.Set("mimeType", mime_type);
+      content.Append(std::move(image_content));
+    }
   } else {
     // Not JSON, return as-is
+    base::Value::Dict text_content;
+    text_content.Set("type", "text");
     text_content.Set("text", body);
+    content.Append(std::move(text_content));
   }
 
-  content.Append(std::move(text_content));
   result.Set("content", std::move(content));
 
   // If the REST call failed, mark as error

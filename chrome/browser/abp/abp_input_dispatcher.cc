@@ -213,9 +213,7 @@ void AbpInputDispatcher::Move(const std::string& tab_id,
   double move_y = *y_opt;
 
   // Use AbpActionContext for unified action flow.
-  // Skip execution control for move since it causes 15s delays with CDP input
   AbpActionContext::Options options;
-  options.skip_execution_control = true;
   AbpActionContext::RunWithOptions(
       controller_, tab_id, "move", params, options,
       // Action callback - performs the cursor move.

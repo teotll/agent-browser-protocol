@@ -850,6 +850,8 @@ void AbpController::HandleRequest(const std::string& method,
         }
       } else if (action == "execute") {
         ExecuteScript(tab_id, params, std::move(callback));
+      } else if (action == "text") {
+        GetText(tab_id, params, std::move(callback));
       } else if (action == "click") {
         Click(tab_id, params, std::move(callback));
       } else if (action == "type") {
@@ -1168,13 +1170,9 @@ void AbpController::Navigate(const std::string& tab_id,
 
   std::string url_copy = gurl.spec();
 
-  // Use AbpActionContext with skip_execution_control=true
-  // Navigation is async and the page needs JS to run during loading.
-  // If execution is paused, user should resume manually before navigate.
   // Center cursor after navigation so it's in the viewport center.
   // Use longer min_wait_time (10s) to allow page to fully load.
   AbpActionContext::Options options;
-  options.skip_execution_control = true;
   options.center_cursor_after = true;
   options.min_wait_time = base::Seconds(10);
 
@@ -1209,12 +1207,9 @@ void AbpController::Reload(const std::string& tab_id,
                            ResponseCallback callback) {
   base::Value::Dict params;  // Empty params for reload
 
-  // Use AbpActionContext with skip_execution_control=true
-  // Reload is similar to Navigate - needs JS to run
   // Center cursor after reload so it's in the viewport center.
   // Use longer min_wait_time (10s) to allow page to fully load.
   AbpActionContext::Options options;
-  options.skip_execution_control = true;
   options.center_cursor_after = true;
   options.min_wait_time = base::Seconds(10);
 
@@ -1249,11 +1244,9 @@ void AbpController::GoBack(const std::string& tab_id,
 
   base::Value::Dict params;  // Empty params for back
 
-  // Use AbpActionContext with skip_execution_control=true
   // Center cursor after navigation so it's in the viewport center.
   // Use longer min_wait_time (10s) to allow page to fully load.
   AbpActionContext::Options options;
-  options.skip_execution_control = true;
   options.center_cursor_after = true;
   options.min_wait_time = base::Seconds(10);
 
@@ -1293,11 +1286,9 @@ void AbpController::GoForward(const std::string& tab_id,
 
   base::Value::Dict params;  // Empty params for forward
 
-  // Use AbpActionContext with skip_execution_control=true
   // Center cursor after navigation so it's in the viewport center.
   // Use longer min_wait_time (10s) to allow page to fully load.
   AbpActionContext::Options options;
-  options.skip_execution_control = true;
   options.center_cursor_after = true;
   options.min_wait_time = base::Seconds(10);
 
@@ -1689,6 +1680,93 @@ void AbpController::OnExecuteScriptResult(ResponseCallback callback,
   }
 }
 
+void AbpController::GetText(const std::string& tab_id,
+                            const base::Value::Dict& params,
+                            ResponseCallback callback) {
+  content::WebContents* wc = FindWebContents(tab_id);
+  if (!wc) {
+    SendError(404, "Tab not found", std::move(callback));
+    return;
+  }
+
+  AbpCdpClient* client = GetOrCreateCdpClient(wc);
+  if (!client) {
+    SendError(500, "Failed to create CDP client", std::move(callback));
+    return;
+  }
+
+  // Build JS expression based on whether a selector is provided
+  std::string expression;
+  const std::string* selector = params.FindString("selector");
+  if (selector && !selector->empty()) {
+    // Escape the selector for embedding in JS string
+    std::string escaped_selector = *selector;
+    base::ReplaceSubstringsAfterOffset(&escaped_selector, 0, "\\", "\\\\");
+    base::ReplaceSubstringsAfterOffset(&escaped_selector, 0, "'", "\\'");
+    base::ReplaceSubstringsAfterOffset(&escaped_selector, 0, "\n", "\\n");
+    base::ReplaceSubstringsAfterOffset(&escaped_selector, 0, "\r", "\\r");
+    expression = "(function() { var el = document.querySelector('" +
+                 escaped_selector +
+                 "'); return el ? el.innerText : null; })()";
+  } else {
+    expression = "document.body ? document.body.innerText : ''";
+  }
+
+  base::Value::Dict cdp_params;
+  cdp_params.Set("expression", expression);
+  cdp_params.Set("returnByValue", true);
+
+  client->SendCommand(
+      "Runtime.evaluate", cdp_params,
+      base::BindOnce(
+          [](ResponseCallback cb, base::WeakPtr<AbpController> controller,
+             bool success, const std::string& result) {
+            if (!controller) return;
+            if (!success) {
+              controller->SendError(500, result, std::move(cb));
+              return;
+            }
+
+            auto parsed = base::JSONReader::Read(result, base::JSON_PARSE_RFC);
+            if (!parsed || !parsed->is_dict()) {
+              controller->SendError(500, "Invalid CDP response", std::move(cb));
+              return;
+            }
+
+            const base::Value::Dict& dict = parsed->GetDict();
+
+            // Check for exception
+            const base::Value::Dict* exception = dict.FindDict("exceptionDetails");
+            if (exception) {
+              const base::Value::Dict* exc = exception->FindDict("exception");
+              const std::string* desc =
+                  exc ? exc->FindString("description") : nullptr;
+              controller->SendError(
+                  400, desc ? *desc : "Script exception", std::move(cb));
+              return;
+            }
+
+            // Get result value
+            const base::Value::Dict* cdp_result = dict.FindDict("result");
+            base::Value::Dict response;
+            if (cdp_result) {
+              const std::string* text = cdp_result->FindString("value");
+              if (text) {
+                response.Set("text", *text);
+              } else {
+                // Value might be null (selector not found)
+                response.Set("text", base::Value());
+              }
+            } else {
+              response.Set("text", "");
+            }
+
+            controller->SendJson(200, base::Value(std::move(response)),
+                                 std::move(cb));
+          },
+          std::move(callback), weak_factory_.GetWeakPtr()));
+}
+
 void AbpController::Click(const std::string& tab_id,
                           const base::Value::Dict& params,
                           ResponseCallback callback) {
@@ -1727,7 +1805,7 @@ void AbpController::Wait(const std::string& tab_id,
     return;
   }
 
-  // Use AbpActionContext WITHOUT skip_execution_control
+  // Use AbpActionContext with default options (resume + pause enabled)
   // This allows JavaScript to run during the wait period (for animations, etc.)
   // Flow: Resume V8 -> Wait -> Pause V8 -> Screenshot
   AbpActionContext::Run(
@@ -2561,9 +2639,19 @@ void AbpController::OnCdpEventForWait(const std::string& tab_id,
   // Track page load events
   if (method == "Page.loadEventFired") {
     waiter->load_fired = true;
+    // For time wait, start the deferred timer when load fires
+    if (waiter->wait_type == "time" && !waiter->time_wait_started &&
+        waiter->dom_content_loaded_fired) {
+      OnLoadFiredForTimeWait(tab_id);
+    }
     CheckActionCompleteConditions(tab_id);
   } else if (method == "Page.domContentEventFired") {
     waiter->dom_content_loaded_fired = true;
+    // For time wait, start the deferred timer when both load events fired
+    if (waiter->wait_type == "time" && !waiter->time_wait_started &&
+        waiter->load_fired) {
+      OnLoadFiredForTimeWait(tab_id);
+    }
     CheckActionCompleteConditions(tab_id);
   }
 }
@@ -2641,6 +2729,245 @@ void AbpController::CheckActionCompleteConditions(const std::string& tab_id) {
   if (completed_waiter->on_complete) {
     std::move(completed_waiter->on_complete).Run();
   }
+}
+
+void AbpController::WaitFor(const std::string& tab_id,
+                            const base::Value::Dict& wait_params,
+                            base::OnceClosure on_complete) {
+  const std::string* type = wait_params.FindString("type");
+  if (!type) {
+    // No type specified, fall through to immediate completion
+    std::move(on_complete).Run();
+    return;
+  }
+
+  content::WebContents* wc = FindWebContents(tab_id);
+  if (!wc) {
+    std::move(on_complete).Run();
+    return;
+  }
+
+  AbpCdpClient* client = GetOrCreateCdpClient(wc);
+  if (!client) {
+    std::move(on_complete).Run();
+    return;
+  }
+
+  auto waiter = std::make_unique<ActionCompleteWaiter>();
+  waiter->tab_id = tab_id;
+  waiter->action_start_time = base::TimeTicks::Now();
+  waiter->on_complete = std::move(on_complete);
+  waiter->timeout_time = base::TimeTicks::Now() + kWaitTimeout;
+  waiter->wait_type = *type;
+
+  if (*type == "text") {
+    const std::string* text = wait_params.FindString("text");
+    if (!text || text->empty()) {
+      std::move(waiter->on_complete).Run();
+      return;
+    }
+    waiter->wait_text = *text;
+  } else if (*type == "url") {
+    const std::string* pattern = wait_params.FindString("url");
+    if (!pattern || pattern->empty()) {
+      std::move(waiter->on_complete).Run();
+      return;
+    }
+    waiter->wait_url_pattern = *pattern;
+  } else if (*type == "time") {
+    auto ms = wait_params.FindInt("ms");
+    if (!ms || *ms <= 0) {
+      std::move(waiter->on_complete).Run();
+      return;
+    }
+    waiter->time_wait_ms = *ms;
+
+    // If page is already loaded, time wait starts immediately
+    if (!wc->IsLoading()) {
+      waiter->load_fired = true;
+      waiter->dom_content_loaded_fired = true;
+    }
+  } else if (*type == "network_idle") {
+    waiter->last_network_activity = base::TimeTicks::Now();
+  } else {
+    // Unknown type, complete immediately
+    std::move(waiter->on_complete).Run();
+    return;
+  }
+
+  GetOrCreateTabState(tab_id).action_waiter = std::move(waiter);
+
+  // Enable Network and Page domains for events
+  base::Value::Dict empty_params;
+  client->SendCommand("Network.enable", empty_params,
+                      base::BindOnce([](bool, const std::string&) {}));
+  base::Value::Dict empty_params2;
+  client->SendCommand("Page.enable", empty_params2,
+                      base::BindOnce([](bool, const std::string&) {}));
+
+  // Start type-specific polling
+  if (*type == "text") {
+    OnTextPollCheck(tab_id);
+  } else if (*type == "url") {
+    OnUrlPollCheck(tab_id);
+  } else if (*type == "network_idle") {
+    content::GetUIThreadTaskRunner({})->PostDelayedTask(
+        FROM_HERE,
+        base::BindOnce(&AbpController::OnNetworkIdleCheck,
+                       weak_factory_.GetWeakPtr(), tab_id),
+        kNetworkIdleCheckInterval);
+  } else if (*type == "time") {
+    // For time wait, check if page already loaded to start the timer
+    auto it = tab_states_.find(tab_id);
+    if (it != tab_states_.end() && it->second.action_waiter) {
+      ActionCompleteWaiter* w = it->second.action_waiter.get();
+      if (w->load_fired && w->dom_content_loaded_fired) {
+        OnLoadFiredForTimeWait(tab_id);
+      }
+    }
+  }
+
+  // Start timeout timer
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&AbpController::OnWaitTimeout,
+                     weak_factory_.GetWeakPtr(), tab_id),
+      kWaitTimeout);
+}
+
+void AbpController::OnTextPollCheck(const std::string& tab_id) {
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end() || !it->second.action_waiter) {
+    return;
+  }
+
+  ActionCompleteWaiter* waiter = it->second.action_waiter.get();
+  if (waiter->wait_type != "text" || waiter->text_found) {
+    return;
+  }
+
+  content::WebContents* wc = FindWebContents(tab_id);
+  if (!wc) {
+    return;
+  }
+
+  AbpCdpClient* client = GetOrCreateCdpClient(wc);
+  if (!client) {
+    return;
+  }
+
+  // Escape special characters in the search text for JS
+  std::string escaped_text = waiter->wait_text;
+  base::ReplaceSubstringsAfterOffset(&escaped_text, 0, "\\", "\\\\");
+  base::ReplaceSubstringsAfterOffset(&escaped_text, 0, "'", "\\'");
+  base::ReplaceSubstringsAfterOffset(&escaped_text, 0, "\n", "\\n");
+  base::ReplaceSubstringsAfterOffset(&escaped_text, 0, "\r", "\\r");
+
+  std::string expression =
+      "document.body && document.body.innerText.includes('" + escaped_text + "')";
+
+  base::Value::Dict cdp_params;
+  cdp_params.Set("expression", expression);
+  cdp_params.Set("returnByValue", true);
+
+  client->SendCommand(
+      "Runtime.evaluate", cdp_params,
+      base::BindOnce(&AbpController::OnTextPollResult,
+                     weak_factory_.GetWeakPtr(), tab_id));
+}
+
+void AbpController::OnTextPollResult(const std::string& tab_id,
+                                     bool success,
+                                     const std::string& result) {
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end() || !it->second.action_waiter) {
+    return;
+  }
+
+  ActionCompleteWaiter* waiter = it->second.action_waiter.get();
+
+  if (success) {
+    auto parsed = base::JSONReader::Read(result, base::JSON_PARSE_RFC);
+    if (parsed && parsed->is_dict()) {
+      const base::Value::Dict* cdp_result = parsed->GetDict().FindDict("result");
+      if (cdp_result) {
+        auto value = cdp_result->FindBool("value");
+        if (value && *value) {
+          waiter->text_found = true;
+          CheckActionCompleteConditions(tab_id);
+          return;
+        }
+      }
+    }
+  }
+
+  // Not found yet, poll again after 200ms
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&AbpController::OnTextPollCheck,
+                     weak_factory_.GetWeakPtr(), tab_id),
+      base::Milliseconds(200));
+}
+
+void AbpController::OnUrlPollCheck(const std::string& tab_id) {
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end() || !it->second.action_waiter) {
+    return;
+  }
+
+  ActionCompleteWaiter* waiter = it->second.action_waiter.get();
+  if (waiter->wait_type != "url" || waiter->url_matched) {
+    return;
+  }
+
+  content::WebContents* wc = FindWebContents(tab_id);
+  if (!wc) {
+    return;
+  }
+
+  std::string current_url = wc->GetVisibleURL().spec();
+  if (current_url.find(waiter->wait_url_pattern) != std::string::npos) {
+    waiter->url_matched = true;
+    CheckActionCompleteConditions(tab_id);
+    return;
+  }
+
+  // Not matched yet, poll again after 100ms
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&AbpController::OnUrlPollCheck,
+                     weak_factory_.GetWeakPtr(), tab_id),
+      base::Milliseconds(100));
+}
+
+void AbpController::OnLoadFiredForTimeWait(const std::string& tab_id) {
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end() || !it->second.action_waiter) {
+    return;
+  }
+
+  ActionCompleteWaiter* waiter = it->second.action_waiter.get();
+  if (waiter->time_wait_started) {
+    return;
+  }
+
+  waiter->time_wait_started = true;
+
+  // Start the deferred timer
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](base::WeakPtr<AbpController> controller, std::string tab_id) {
+            if (!controller) return;
+            auto it = controller->tab_states_.find(tab_id);
+            if (it == controller->tab_states_.end() || !it->second.action_waiter) {
+              return;
+            }
+            it->second.action_waiter->time_wait_elapsed = true;
+            controller->CheckActionCompleteConditions(tab_id);
+          },
+          weak_factory_.GetWeakPtr(), tab_id),
+      base::Milliseconds(waiter->time_wait_ms));
 }
 
 int64_t AbpController::GetVirtualTimeMs(const std::string& tab_id) {

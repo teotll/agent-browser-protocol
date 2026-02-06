@@ -184,6 +184,12 @@ class AbpController {
                              base::OnceClosure on_complete,
                              base::TimeDelta min_wait_time = base::Milliseconds(500));
 
+  // Wait for a specific condition before calling callback
+  // Supports wait types: "text", "url", "network_idle", "time"
+  void WaitFor(const std::string& tab_id,
+               const base::Value::Dict& wait_params,
+               base::OnceClosure on_complete);
+
   // Take screenshot for history (before or after action)
   // Uses direct C++ capture with CopyFromSurface
   // Note: Cursor is rendered by virtual cursor overlay and captured automatically
@@ -248,6 +254,9 @@ class AbpController {
   void ExecuteScript(const std::string& tab_id,
                      const base::Value::Dict& params,
                      ResponseCallback callback);
+  void GetText(const std::string& tab_id,
+               const base::Value::Dict& params,
+               ResponseCallback callback);
 
   // Input
   void Click(const std::string& tab_id,
@@ -395,7 +404,8 @@ class AbpController {
   };
 
   // Action complete wait state for after-screenshots
-  // Waits for: networkidle2 AND 500ms elapsed AND load AND DOMContentLoaded
+  // Default mode ("action_complete"): Waits for networkidle2 AND 500ms AND load AND DOMContentLoaded
+  // Extended modes: "text", "url", "network_idle", "time"
   struct ActionCompleteWaiter {
     ActionCompleteWaiter();
     ~ActionCompleteWaiter();
@@ -406,7 +416,10 @@ class AbpController {
     base::TimeTicks action_start_time;
     base::OnceClosure on_complete;
 
-    // Condition flags
+    // Wait type: "action_complete" (default), "text", "url", "network_idle", "time"
+    std::string wait_type = "action_complete";
+
+    // Condition flags for action_complete mode
     bool load_fired = false;
     bool dom_content_loaded_fired = false;
     bool network_idle = false;
@@ -422,9 +435,33 @@ class AbpController {
     // Minimum wait time (configurable per action)
     base::TimeDelta min_wait_time = base::Milliseconds(500);
 
+    // Text wait fields
+    std::string wait_text;
+    bool text_found = false;
+
+    // URL wait fields
+    std::string wait_url_pattern;
+    bool url_matched = false;
+
+    // Time wait fields (deferred: timer starts after page load)
+    int time_wait_ms = 0;
+    bool time_wait_started = false;
+    bool time_wait_elapsed = false;
+
     bool IsComplete() const {
-      return load_fired && dom_content_loaded_fired &&
-             network_idle && min_time_elapsed;
+      if (wait_type == "action_complete") {
+        return load_fired && dom_content_loaded_fired &&
+               network_idle && min_time_elapsed;
+      } else if (wait_type == "network_idle") {
+        return network_idle;
+      } else if (wait_type == "text") {
+        return text_found;
+      } else if (wait_type == "url") {
+        return url_matched;
+      } else if (wait_type == "time") {
+        return time_wait_elapsed;
+      }
+      return false;
     }
   };
 
@@ -539,6 +576,18 @@ class AbpController {
 
   // Timer callback for wait timeout
   void OnWaitTimeout(const std::string& tab_id);
+
+  // Polling for text wait condition
+  void OnTextPollCheck(const std::string& tab_id);
+  void OnTextPollResult(const std::string& tab_id,
+                        bool success,
+                        const std::string& result);
+
+  // Polling for URL wait condition
+  void OnUrlPollCheck(const std::string& tab_id);
+
+  // Deferred timer start for time wait (after page load)
+  void OnLoadFiredForTimeWait(const std::string& tab_id);
 
   // Dialog endpoint methods
   void GetDialog(const std::string& tab_id, ResponseCallback callback);

@@ -96,8 +96,8 @@ void AbpActionContext::StartEventCapture() {
 }
 
 void AbpActionContext::ResumeExecutionIfNeeded() {
-  // Check if execution control should be skipped for this action
-  if (options_.skip_execution_control) {
+  // Check if resume should be skipped for this action
+  if (options_.skip_resume) {
     OnExecutionResumed();
     return;
   }
@@ -163,8 +163,19 @@ void AbpActionContext::OnActionDispatched() {
     return;
   }
 
-  // Start wait_until handling
-  DoWaitUntil();
+  // Center cursor early (before wait) so it's visible during page load
+  if (options_.center_cursor_after) {
+    controller_->CenterCursorInTab(
+        tab_id_,
+        base::BindOnce([](base::WeakPtr<AbpActionContext> ctx) {
+                           if (ctx) {
+                             ctx->DoWaitUntil();
+                           }
+                       },
+                       weak_factory_.GetWeakPtr()));
+  } else {
+    DoWaitUntil();
+  }
 }
 
 void AbpActionContext::OnActionError(const std::string& error_code,
@@ -182,12 +193,13 @@ void AbpActionContext::SetResult(base::Value::Dict result) {
 }
 
 void AbpActionContext::DoWaitUntil() {
-  // If execution control is enabled (and not skipped for this action),
-  // we skip the WaitForActionComplete because we'll pause execution
-  // immediately (freezing the page state). Virtual time handles all timing.
-  if (!options_.skip_execution_control &&
-      controller_->IsExecutionControlEnabled()) {
-    OnWaitUntilComplete();
+  // Check if a custom wait_until condition is specified in params
+  const base::Value::Dict* wait_until = params_.FindDict("wait_until");
+  if (wait_until) {
+    controller_->WaitFor(
+        tab_id_, *wait_until,
+        base::BindOnce(&AbpActionContext::OnWaitUntilComplete,
+                       weak_factory_.GetWeakPtr()));
     return;
   }
 
@@ -204,14 +216,8 @@ void AbpActionContext::OnWaitUntilComplete() {
   VLOG(1) << "ABP ActionContext: OnWaitUntilComplete() action=" << action_type_;
   wait_completed_ms_ = base::Time::Now().InMillisecondsSinceUnixEpoch();
 
-  // Center cursor if requested (e.g., after navigation)
-  if (options_.center_cursor_after) {
-    controller_->CenterCursorInTab(
-        tab_id_, base::BindOnce(&AbpActionContext::OnCursorCentered,
-                                weak_factory_.GetWeakPtr()));
-  } else {
-    OnCursorCentered();
-  }
+  // Cursor centering already happened in OnActionDispatched (before wait).
+  OnCursorCentered();
 }
 
 void AbpActionContext::OnCursorCentered() {
@@ -241,8 +247,8 @@ void AbpActionContext::OnScrollPositionReceived(base::Value::Dict scroll_info) {
 }
 
 void AbpActionContext::PauseExecutionIfNeeded() {
-  // Check if execution control should be skipped for this action
-  if (options_.skip_execution_control) {
+  // Check if pause should be skipped for this action
+  if (options_.skip_pause) {
     OnExecutionPaused();
     return;
   }

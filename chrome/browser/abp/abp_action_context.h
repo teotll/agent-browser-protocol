@@ -54,9 +54,13 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
  public:
   // Options for running an action
   struct Options {
-    // If true, skip resume/pause execution control.
+    // If true, skip Debugger.resume at start.
     // Use for actions like Navigate that need JS to run during the action.
-    bool skip_execution_control = false;
+    bool skip_resume = false;
+
+    // If true, skip Debugger.pause at end.
+    // Leave false for most actions so the page freezes after completion.
+    bool skip_pause = false;
 
     // If true, center the virtual cursor in the viewport after the action
     // completes. Use for navigation actions where cursor should reset to center.

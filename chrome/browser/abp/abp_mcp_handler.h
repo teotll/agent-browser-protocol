@@ -133,9 +133,15 @@ class AbpMcpHandler {
   void CallBrowserSetExecutionState(const base::Value::Dict& args,
                                     base::Value request_id,
                                     ResponseWithHeadersCallback callback);
+  void CallBrowserGetText(const base::Value::Dict& args,
+                          base::Value request_id,
+                          ResponseWithHeadersCallback callback);
   void CallBrowserShutdown(const base::Value::Dict& args,
                            base::Value request_id,
                            ResponseWithHeadersCallback callback);
+
+  // Resolve tab_id from args, falling back to active tab
+  std::string ResolveTabId(const base::Value::Dict& args);
 
   // Response helpers
   void SendJsonRpcResult(base::Value request_id,
