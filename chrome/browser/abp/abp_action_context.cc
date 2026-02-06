@@ -57,6 +57,7 @@ AbpActionContext::~AbpActionContext() = default;
 
 void AbpActionContext::Start() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  VLOG(1) << "ABP ActionContext: Start() action=" << action_type_;
 
   // Hold a self-reference to prevent destruction during async operations
   prevent_destroy_ = this;
@@ -115,6 +116,7 @@ void AbpActionContext::ResumeExecutionIfNeeded() {
 }
 
 void AbpActionContext::OnExecutionResumed() {
+  VLOG(1) << "ABP ActionContext: OnExecutionResumed() action=" << action_type_;
   if (has_error_) {
     return;
   }
@@ -131,6 +133,7 @@ void AbpActionContext::CaptureBeforeScreenshot() {
 }
 
 void AbpActionContext::OnBeforeScreenshotCaptured(std::string screenshot_path) {
+  VLOG(1) << "ABP ActionContext: OnBeforeScreenshotCaptured() action=" << action_type_;
   screenshot_before_path_ = std::move(screenshot_path);
 
   if (has_error_) {
@@ -153,6 +156,7 @@ void AbpActionContext::ExecuteAction() {
 }
 
 void AbpActionContext::OnActionDispatched() {
+  VLOG(1) << "ABP ActionContext: OnActionDispatched() action=" << action_type_;
   action_end_ticks_ = base::TimeTicks::Now();
 
   if (has_error_) {
@@ -197,6 +201,7 @@ void AbpActionContext::DoWaitUntil() {
 }
 
 void AbpActionContext::OnWaitUntilComplete() {
+  VLOG(1) << "ABP ActionContext: OnWaitUntilComplete() action=" << action_type_;
   wait_completed_ms_ = base::Time::Now().InMillisecondsSinceUnixEpoch();
 
   // Center cursor if requested (e.g., after navigation)
@@ -228,6 +233,7 @@ void AbpActionContext::StopEventCaptureAndGetScrollPosition() {
 }
 
 void AbpActionContext::OnScrollPositionReceived(base::Value::Dict scroll_info) {
+  VLOG(1) << "ABP ActionContext: OnScrollPositionReceived() action=" << action_type_;
   scroll_info_ = std::move(scroll_info);
 
   // Pause execution (freezes V8 + virtual time)
@@ -253,6 +259,7 @@ void AbpActionContext::PauseExecutionIfNeeded() {
 }
 
 void AbpActionContext::OnExecutionPaused() {
+  VLOG(1) << "ABP ActionContext: OnExecutionPaused() action=" << action_type_;
   // Page is now frozen - capture screenshot
   CaptureAfterScreenshot();
 }
@@ -265,6 +272,7 @@ void AbpActionContext::CaptureAfterScreenshot() {
 }
 
 void AbpActionContext::OnAfterScreenshotCaptured(std::string screenshot_path) {
+  VLOG(1) << "ABP ActionContext: OnAfterScreenshotCaptured() action=" << action_type_;
   screenshot_after_path_ = std::move(screenshot_path);
 
   // Capture virtual time at end
@@ -284,6 +292,7 @@ void AbpActionContext::CaptureScreenshotBase64() {
 void AbpActionContext::OnScreenshotBase64Captured(std::string base64,
                                                    int width,
                                                    int height) {
+  VLOG(1) << "ABP ActionContext: OnScreenshotBase64Captured() action=" << action_type_;
   screenshot_base64_ = std::move(base64);
   screenshot_width_ = width;
   screenshot_height_ = height;
@@ -324,7 +333,9 @@ void AbpActionContext::BuildResponseEnvelope() {
 }
 
 void AbpActionContext::SendResponse() {
+  VLOG(1) << "ABP ActionContext: SendResponse() action=" << action_type_;
   if (!response_callback_) {
+    LOG(WARNING) << "ABP ActionContext: SendResponse() - NO CALLBACK!";
     return;
   }
 

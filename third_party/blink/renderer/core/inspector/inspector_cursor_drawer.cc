@@ -280,6 +280,278 @@ SkPath CreateHelpPath(float scale) {
   return builder.detach();
 }
 
+// Create grab cursor (open hand with spread fingers)
+SkPath CreateGrabPath(float scale) {
+  SkPathBuilder builder;
+  // Five fingers at top
+  // Index finger
+  builder.moveTo(6 * scale, 3 * scale);
+  builder.lineTo(8 * scale, 3 * scale);
+  builder.lineTo(8 * scale, 10 * scale);
+  builder.lineTo(6 * scale, 10 * scale);
+  builder.close();
+  // Middle finger
+  builder.moveTo(9 * scale, 2 * scale);
+  builder.lineTo(11 * scale, 2 * scale);
+  builder.lineTo(11 * scale, 10 * scale);
+  builder.lineTo(9 * scale, 10 * scale);
+  builder.close();
+  // Ring finger
+  builder.moveTo(12 * scale, 3 * scale);
+  builder.lineTo(14 * scale, 3 * scale);
+  builder.lineTo(14 * scale, 10 * scale);
+  builder.lineTo(12 * scale, 10 * scale);
+  builder.close();
+  // Pinky finger
+  builder.moveTo(15 * scale, 4 * scale);
+  builder.lineTo(17 * scale, 4 * scale);
+  builder.lineTo(17 * scale, 10 * scale);
+  builder.lineTo(15 * scale, 10 * scale);
+  builder.close();
+  // Palm body connecting fingers
+  builder.moveTo(4 * scale, 10 * scale);
+  builder.lineTo(19 * scale, 10 * scale);
+  builder.lineTo(19 * scale, 18 * scale);
+  builder.lineTo(17 * scale, 20 * scale);
+  builder.lineTo(5 * scale, 20 * scale);
+  builder.lineTo(3 * scale, 18 * scale);
+  builder.lineTo(3 * scale, 13 * scale);
+  builder.lineTo(4 * scale, 13 * scale);
+  builder.close();
+  // Thumb extending left
+  builder.moveTo(3 * scale, 13 * scale);
+  builder.lineTo(4 * scale, 10 * scale);
+  builder.lineTo(3 * scale, 10 * scale);
+  builder.lineTo(1 * scale, 12 * scale);
+  builder.lineTo(1 * scale, 14 * scale);
+  builder.close();
+  return builder.detach();
+}
+
+// Create grabbing cursor (closed/clenched hand)
+SkPath CreateGrabbingPath(float scale) {
+  SkPathBuilder builder;
+  // Curled fingers at top (shorter, horizontal bumps)
+  builder.moveTo(5 * scale, 7 * scale);
+  builder.lineTo(7 * scale, 5 * scale);
+  builder.lineTo(9 * scale, 5 * scale);
+  builder.lineTo(9 * scale, 7 * scale);
+  builder.lineTo(10 * scale, 5 * scale);
+  builder.lineTo(12 * scale, 5 * scale);
+  builder.lineTo(12 * scale, 7 * scale);
+  builder.lineTo(13 * scale, 5 * scale);
+  builder.lineTo(15 * scale, 5 * scale);
+  builder.lineTo(15 * scale, 7 * scale);
+  builder.lineTo(16 * scale, 6 * scale);
+  builder.lineTo(18 * scale, 6 * scale);
+  builder.lineTo(19 * scale, 8 * scale);
+  // Fist body
+  builder.lineTo(19 * scale, 17 * scale);
+  builder.lineTo(17 * scale, 20 * scale);
+  builder.lineTo(6 * scale, 20 * scale);
+  builder.lineTo(4 * scale, 17 * scale);
+  builder.lineTo(3 * scale, 14 * scale);
+  builder.lineTo(1 * scale, 12 * scale);
+  builder.lineTo(1 * scale, 10 * scale);
+  builder.lineTo(3 * scale, 9 * scale);
+  builder.lineTo(5 * scale, 9 * scale);
+  builder.close();
+  return builder.detach();
+}
+
+// Create cell cursor (thin plus/cross for spreadsheet selection)
+SkPath CreateCellPath(float scale) {
+  SkPathBuilder builder;
+  float center = 12 * scale;
+  float size = 9 * scale;
+  float half = 0.5f * scale;
+  // Vertical line
+  builder.moveTo(center - half, center - size);
+  builder.lineTo(center + half, center - size);
+  builder.lineTo(center + half, center + size);
+  builder.lineTo(center - half, center + size);
+  builder.close();
+  // Horizontal line
+  builder.moveTo(center - size, center - half);
+  builder.lineTo(center + size, center - half);
+  builder.lineTo(center + size, center + half);
+  builder.lineTo(center - size, center + half);
+  builder.close();
+  return builder.detach();
+}
+
+// Create zoom-in cursor (magnifying glass with + inside)
+SkPath CreateZoomInPath(float scale) {
+  SkPathBuilder builder;
+  float cx = 9 * scale;
+  float cy = 9 * scale;
+  float outer_r = 7 * scale;
+  float inner_r = 5.5f * scale;
+  // Lens ring
+  builder.addCircle(cx, cy, outer_r, SkPathDirection::kCW);
+  builder.addCircle(cx, cy, inner_r, SkPathDirection::kCCW);
+  // Handle (diagonal line from lens to bottom-right)
+  builder.moveTo(14 * scale, 13 * scale);
+  builder.lineTo(16 * scale, 13 * scale);
+  builder.lineTo(22 * scale, 19 * scale);
+  builder.lineTo(22 * scale, 22 * scale);
+  builder.lineTo(19 * scale, 22 * scale);
+  builder.lineTo(13 * scale, 16 * scale);
+  builder.lineTo(13 * scale, 14 * scale);
+  builder.close();
+  // Plus sign inside lens (horizontal)
+  builder.moveTo(cx - 3 * scale, cy - 0.5f * scale);
+  builder.lineTo(cx + 3 * scale, cy - 0.5f * scale);
+  builder.lineTo(cx + 3 * scale, cy + 0.5f * scale);
+  builder.lineTo(cx - 3 * scale, cy + 0.5f * scale);
+  builder.close();
+  // Plus sign inside lens (vertical)
+  builder.moveTo(cx - 0.5f * scale, cy - 3 * scale);
+  builder.lineTo(cx + 0.5f * scale, cy - 3 * scale);
+  builder.lineTo(cx + 0.5f * scale, cy + 3 * scale);
+  builder.lineTo(cx - 0.5f * scale, cy + 3 * scale);
+  builder.close();
+  return builder.detach();
+}
+
+// Create zoom-out cursor (magnifying glass with - inside)
+SkPath CreateZoomOutPath(float scale) {
+  SkPathBuilder builder;
+  float cx = 9 * scale;
+  float cy = 9 * scale;
+  float outer_r = 7 * scale;
+  float inner_r = 5.5f * scale;
+  // Lens ring
+  builder.addCircle(cx, cy, outer_r, SkPathDirection::kCW);
+  builder.addCircle(cx, cy, inner_r, SkPathDirection::kCCW);
+  // Handle
+  builder.moveTo(14 * scale, 13 * scale);
+  builder.lineTo(16 * scale, 13 * scale);
+  builder.lineTo(22 * scale, 19 * scale);
+  builder.lineTo(22 * scale, 22 * scale);
+  builder.lineTo(19 * scale, 22 * scale);
+  builder.lineTo(13 * scale, 16 * scale);
+  builder.lineTo(13 * scale, 14 * scale);
+  builder.close();
+  // Minus sign inside lens (horizontal only)
+  builder.moveTo(cx - 3 * scale, cy - 0.5f * scale);
+  builder.lineTo(cx + 3 * scale, cy - 0.5f * scale);
+  builder.lineTo(cx + 3 * scale, cy + 0.5f * scale);
+  builder.lineTo(cx - 3 * scale, cy + 0.5f * scale);
+  builder.close();
+  return builder.detach();
+}
+
+// Create context menu cursor (arrow with menu lines)
+SkPath CreateContextMenuPath(float scale) {
+  SkPath path = CreateArrowPath(scale);
+  SkPathBuilder builder;
+  builder.addPath(path);
+  // Three horizontal menu lines at bottom-right
+  float mx = 14 * scale;
+  float my = 14 * scale;
+  float line_w = 7 * scale;
+  float line_h = 1 * scale;
+  float spacing = 3 * scale;
+  for (int i = 0; i < 3; ++i) {
+    float y = my + i * spacing;
+    builder.moveTo(mx, y);
+    builder.lineTo(mx + line_w, y);
+    builder.lineTo(mx + line_w, y + line_h);
+    builder.lineTo(mx, y + line_h);
+    builder.close();
+  }
+  return builder.detach();
+}
+
+// Create alias cursor (arrow with curved shortcut arrow)
+SkPath CreateAliasPath(float scale) {
+  SkPath path = CreateArrowPath(scale);
+  SkPathBuilder builder;
+  builder.addPath(path);
+  // Small curved arrow badge at bottom-right
+  // Arrow shaft curving from right to up
+  builder.moveTo(20 * scale, 20 * scale);
+  builder.lineTo(14 * scale, 20 * scale);
+  builder.lineTo(14 * scale, 15 * scale);
+  builder.lineTo(16 * scale, 15 * scale);
+  builder.lineTo(16 * scale, 18 * scale);
+  builder.lineTo(20 * scale, 18 * scale);
+  builder.close();
+  // Arrowhead pointing up
+  builder.moveTo(12 * scale, 15 * scale);
+  builder.lineTo(15 * scale, 12 * scale);
+  builder.lineTo(18 * scale, 15 * scale);
+  builder.lineTo(16 * scale, 15 * scale);
+  builder.lineTo(15 * scale, 14 * scale);
+  builder.lineTo(14 * scale, 15 * scale);
+  builder.close();
+  return builder.detach();
+}
+
+// Create copy cursor (arrow with + badge)
+SkPath CreateCopyPath(float scale) {
+  SkPath path = CreateArrowPath(scale);
+  SkPathBuilder builder;
+  builder.addPath(path);
+  // Plus sign badge at bottom-right
+  float px = 17 * scale;
+  float py = 17 * scale;
+  // Horizontal bar
+  builder.moveTo(px - 3 * scale, py - 1 * scale);
+  builder.lineTo(px + 3 * scale, py - 1 * scale);
+  builder.lineTo(px + 3 * scale, py + 1 * scale);
+  builder.lineTo(px - 3 * scale, py + 1 * scale);
+  builder.close();
+  // Vertical bar
+  builder.moveTo(px - 1 * scale, py - 3 * scale);
+  builder.lineTo(px + 1 * scale, py - 3 * scale);
+  builder.lineTo(px + 1 * scale, py + 3 * scale);
+  builder.lineTo(px - 1 * scale, py + 3 * scale);
+  builder.close();
+  return builder.detach();
+}
+
+// Create vertical text cursor (horizontal I-beam, rotated 90 degrees)
+SkPath CreateVerticalTextPath(float scale) {
+  SkPathBuilder builder;
+  // Left serif
+  builder.moveTo(2 * scale, 6 * scale);
+  builder.lineTo(4 * scale, 6 * scale);
+  builder.lineTo(4 * scale, 7 * scale);
+  builder.lineTo(11 * scale, 7 * scale);
+  builder.lineTo(11 * scale, 6 * scale);
+  builder.lineTo(13 * scale, 6 * scale);
+  builder.lineTo(13 * scale, 10 * scale);
+  builder.lineTo(11 * scale, 10 * scale);
+  builder.lineTo(11 * scale, 9 * scale);
+  builder.lineTo(4 * scale, 9 * scale);
+  builder.lineTo(4 * scale, 10 * scale);
+  builder.lineTo(2 * scale, 10 * scale);
+  builder.close();
+  // Right serif
+  builder.moveTo(14 * scale, 6 * scale);
+  builder.lineTo(16 * scale, 6 * scale);
+  builder.lineTo(16 * scale, 7 * scale);
+  builder.lineTo(20 * scale, 7 * scale);
+  builder.lineTo(20 * scale, 6 * scale);
+  builder.lineTo(22 * scale, 6 * scale);
+  builder.lineTo(22 * scale, 10 * scale);
+  builder.lineTo(20 * scale, 10 * scale);
+  builder.lineTo(20 * scale, 9 * scale);
+  builder.lineTo(16 * scale, 9 * scale);
+  builder.lineTo(16 * scale, 10 * scale);
+  builder.lineTo(14 * scale, 10 * scale);
+  builder.close();
+  // Center bar connecting the two serifs
+  builder.moveTo(11 * scale, 7 * scale);
+  builder.lineTo(14 * scale, 7 * scale);
+  builder.lineTo(14 * scale, 9 * scale);
+  builder.lineTo(11 * scale, 9 * scale);
+  builder.close();
+  return builder.detach();
+}
+
 void DrawCursorPath(cc::PaintCanvas* canvas,
                     const SkPath& path,
                     const gfx::PointF& position,
@@ -387,6 +659,42 @@ void InspectorCursorDrawer::DrawCursor(
 
     case ui::mojom::blink::CursorType::kHelp:
       path = CreateHelpPath(scale);
+      break;
+
+    case ui::mojom::blink::CursorType::kGrab:
+      path = CreateGrabPath(scale);
+      break;
+
+    case ui::mojom::blink::CursorType::kGrabbing:
+      path = CreateGrabbingPath(scale);
+      break;
+
+    case ui::mojom::blink::CursorType::kCell:
+      path = CreateCellPath(scale);
+      break;
+
+    case ui::mojom::blink::CursorType::kZoomIn:
+      path = CreateZoomInPath(scale);
+      break;
+
+    case ui::mojom::blink::CursorType::kZoomOut:
+      path = CreateZoomOutPath(scale);
+      break;
+
+    case ui::mojom::blink::CursorType::kContextMenu:
+      path = CreateContextMenuPath(scale);
+      break;
+
+    case ui::mojom::blink::CursorType::kAlias:
+      path = CreateAliasPath(scale);
+      break;
+
+    case ui::mojom::blink::CursorType::kCopy:
+      path = CreateCopyPath(scale);
+      break;
+
+    case ui::mojom::blink::CursorType::kVerticalText:
+      path = CreateVerticalTextPath(scale);
       break;
 
     // For other cursor types, fall back to arrow
@@ -557,6 +865,30 @@ gfx::PointF InspectorCursorDrawer::GetCursorHotspot(
     case ui::mojom::blink::CursorType::kHelp:
       // Arrow tip with question mark offset
       return gfx::PointF(1.0f, 1.0f);
+
+    case ui::mojom::blink::CursorType::kGrab:
+    case ui::mojom::blink::CursorType::kGrabbing:
+      // Center of palm
+      return gfx::PointF(10.0f, 10.0f);
+
+    case ui::mojom::blink::CursorType::kCell:
+      // Center of plus
+      return gfx::PointF(12.0f, 12.0f);
+
+    case ui::mojom::blink::CursorType::kZoomIn:
+    case ui::mojom::blink::CursorType::kZoomOut:
+      // Center of lens circle
+      return gfx::PointF(9.0f, 9.0f);
+
+    case ui::mojom::blink::CursorType::kContextMenu:
+    case ui::mojom::blink::CursorType::kAlias:
+    case ui::mojom::blink::CursorType::kCopy:
+      // Arrow tip (same as pointer)
+      return gfx::PointF(1.0f, 1.0f);
+
+    case ui::mojom::blink::CursorType::kVerticalText:
+      // Center of horizontal I-beam
+      return gfx::PointF(12.0f, 8.0f);
 
     default:
       // Default to arrow hotspot

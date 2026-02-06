@@ -29,13 +29,39 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
   double click_x = *x_opt;
   double click_y = *y_opt;
 
+  // Read optional button (default: "left")
+  const std::string* button_param = params.FindString("button");
+  std::string button = (button_param && (*button_param == "right" ||
+                                          *button_param == "middle"))
+                            ? *button_param
+                            : "left";
+
+  // Read optional clickCount (default: 1)
+  int click_count = params.FindInt("click_count").value_or(1);
+  if (click_count < 1) click_count = 1;
+  if (click_count > 3) click_count = 3;
+
+  // Read optional modifiers
+  int mod_flags = 0;
+  const base::Value::List* mod_list = params.FindList("modifiers");
+  if (mod_list) {
+    std::vector<std::string> modifiers;
+    for (const auto& mod : *mod_list) {
+      if (mod.is_string()) {
+        modifiers.push_back(mod.GetString());
+      }
+    }
+    mod_flags = ModifiersToFlags(modifiers);
+  }
+
   // Use AbpActionContext for unified action flow:
   // Resume -> BeforeScreenshot -> Action -> Wait -> Pause -> AfterScreenshot -> Response
   AbpActionContext::Run(
       controller_, tab_id, "click", params,
       // Action callback - performs the actual click
       base::BindOnce(
-          [](double coord_x, double coord_y, AbpActionContext* ctx) {
+          [](double coord_x, double coord_y, std::string btn, int count,
+             int modifiers, AbpActionContext* ctx) {
             // Update virtual cursor state via controller
             ctx->controller()->UpdateVirtualCursorState(ctx->tab_id(), coord_x,
                                                         coord_y);
@@ -62,13 +88,15 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
             press_params.Set("type", "mousePressed");
             press_params.Set("x", coord_x);
             press_params.Set("y", coord_y);
-            press_params.Set("button", "left");
-            press_params.Set("clickCount", 1);
+            press_params.Set("button", btn);
+            press_params.Set("clickCount", count);
+            press_params.Set("modifiers", modifiers);
 
             client->SendCommand(
                 "Input.dispatchMouseEvent", std::move(press_params),
                 base::BindOnce(
-                    [](double x, double y,
+                    [](double x, double y, std::string button, int click_count,
+                       int mods,
                        scoped_refptr<AbpActionContext> action_ctx, bool success,
                        const std::string& result) {
                       if (!success) {
@@ -88,8 +116,9 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
                       release_params.Set("type", "mouseReleased");
                       release_params.Set("x", x);
                       release_params.Set("y", y);
-                      release_params.Set("button", "left");
-                      release_params.Set("clickCount", 1);
+                      release_params.Set("button", button);
+                      release_params.Set("clickCount", click_count);
+                      release_params.Set("modifiers", mods);
 
                       cdp_client->SendCommand(
                           "Input.dispatchMouseEvent",
@@ -110,9 +139,9 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
                               },
                               action_ctx));
                     },
-                    coord_x, coord_y, ctx_ref));
+                    coord_x, coord_y, btn, count, modifiers, ctx_ref));
           },
-          click_x, click_y),
+          click_x, click_y, std::move(button), click_count, mod_flags),
       std::move(callback));
 }
 
@@ -184,8 +213,11 @@ void AbpInputDispatcher::Move(const std::string& tab_id,
   double move_y = *y_opt;
 
   // Use AbpActionContext for unified action flow.
-  AbpActionContext::Run(
-      controller_, tab_id, "move", params,
+  // Skip execution control for move since it causes 15s delays with CDP input
+  AbpActionContext::Options options;
+  options.skip_execution_control = true;
+  AbpActionContext::RunWithOptions(
+      controller_, tab_id, "move", params, options,
       // Action callback - performs the cursor move.
       base::BindOnce(
           [](double coord_x, double coord_y, AbpActionContext* ctx) {
@@ -217,12 +249,16 @@ void AbpInputDispatcher::Move(const std::string& tab_id,
             move_params.Set("x", coord_x);
             move_params.Set("y", coord_y);
 
+            VLOG(1) << "ABP Move: Sending Input.dispatchMouseEvent ("
+                         << coord_x << ", " << coord_y << ")";
             client->SendCommand(
                 "Input.dispatchMouseEvent", std::move(move_params),
                 base::BindOnce(
                     [](double final_x, double final_y,
                        scoped_refptr<AbpActionContext> action_ctx,
                        bool success, const std::string& result) {
+                      VLOG(1) << "ABP Move: Input.dispatchMouseEvent callback, success="
+                                   << success;
                       if (!success) {
                         action_ctx->OnActionError("CDP_ERROR", result);
                         return;
@@ -421,7 +457,9 @@ void AbpInputDispatcher::KeyPress(const std::string& tab_id,
               // This is a bit complex - we need to chain multiple CDP calls
               // Let's do it step by step using a state machine approach
 
-              // First, press all modifier keys down
+              // State machine for chaining modifier key presses/releases.
+              // Uses static methods with unique_ptr ownership transfer
+              // through each async callback for automatic cleanup.
               struct ShortcutState {
                 std::vector<std::string> modifiers;
                 KeyInfo main_key;
@@ -430,10 +468,12 @@ void AbpInputDispatcher::KeyPress(const std::string& tab_id,
                 raw_ptr<AbpCdpClient> client;
                 scoped_refptr<AbpActionContext> ctx;
 
-                void PressNextModifier() {
-                  if (mod_index < modifiers.size()) {
-                    KeyInfo mod_info = GetKeyInfo(modifiers[mod_index]);
-                    mod_index++;
+                static void PressNextModifier(
+                    std::unique_ptr<ShortcutState> state) {
+                  if (state->mod_index < state->modifiers.size()) {
+                    KeyInfo mod_info =
+                        GetKeyInfo(state->modifiers[state->mod_index]);
+                    state->mod_index++;
 
                     base::Value::Dict params;
                     params.Set("type", "keyDown");
@@ -445,93 +485,97 @@ void AbpInputDispatcher::KeyPress(const std::string& tab_id,
                                mod_info.native_virtual_key);
                     // Modifiers accumulate as we press them
                     int current_mods = 0;
-                    for (size_t i = 0; i < mod_index; i++) {
-                      KeyInfo ki = GetKeyInfo(modifiers[i]);
+                    for (size_t i = 0; i < state->mod_index; i++) {
+                      KeyInfo ki = GetKeyInfo(state->modifiers[i]);
                       current_mods |= ki.modifier_flag;
                     }
                     params.Set("modifiers", current_mods);
 
-                    client->SendCommand(
+                    AbpCdpClient* c = state->client;
+                    c->SendCommand(
                         "Input.dispatchKeyEvent", std::move(params),
                         base::BindOnce(
-                            [](ShortcutState* state, bool success,
+                            [](std::unique_ptr<ShortcutState> s, bool success,
                                const std::string& result) {
                               if (!success) {
-                                state->ctx->OnActionError("CDP_ERROR", result);
-                                delete state;
+                                s->ctx->OnActionError("CDP_ERROR", result);
                                 return;
                               }
-                              state->PressNextModifier();
+                              PressNextModifier(std::move(s));
                             },
-                            base::Unretained(this)));
+                            std::move(state)));
                   } else {
                     // All modifiers pressed, now press the main key
-                    PressMainKey();
+                    PressMainKey(std::move(state));
                   }
                 }
 
-                void PressMainKey() {
+                static void PressMainKey(
+                    std::unique_ptr<ShortcutState> state) {
                   base::Value::Dict params;
                   params.Set("type", "keyDown");
-                  params.Set("key", main_key.key);
-                  params.Set("code", main_key.code);
+                  params.Set("key", state->main_key.key);
+                  params.Set("code", state->main_key.code);
                   params.Set("windowsVirtualKeyCode",
-                             main_key.windows_virtual_key);
+                             state->main_key.windows_virtual_key);
                   params.Set("nativeVirtualKeyCode",
-                             main_key.native_virtual_key);
-                  params.Set("modifiers", mod_flags);
+                             state->main_key.native_virtual_key);
+                  params.Set("modifiers", state->mod_flags);
 
-                  client->SendCommand(
+                  AbpCdpClient* c = state->client;
+                  c->SendCommand(
                       "Input.dispatchKeyEvent", std::move(params),
                       base::BindOnce(
-                          [](ShortcutState* state, bool success,
+                          [](std::unique_ptr<ShortcutState> s, bool success,
                              const std::string& result) {
                             if (!success) {
-                              state->ctx->OnActionError("CDP_ERROR", result);
-                              delete state;
+                              s->ctx->OnActionError("CDP_ERROR", result);
                               return;
                             }
-                            state->ReleaseMainKey();
+                            ReleaseMainKey(std::move(s));
                           },
-                          base::Unretained(this)));
+                          std::move(state)));
                 }
 
-                void ReleaseMainKey() {
+                static void ReleaseMainKey(
+                    std::unique_ptr<ShortcutState> state) {
                   base::Value::Dict params;
                   params.Set("type", "keyUp");
-                  params.Set("key", main_key.key);
-                  params.Set("code", main_key.code);
+                  params.Set("key", state->main_key.key);
+                  params.Set("code", state->main_key.code);
                   params.Set("windowsVirtualKeyCode",
-                             main_key.windows_virtual_key);
+                             state->main_key.windows_virtual_key);
                   params.Set("nativeVirtualKeyCode",
-                             main_key.native_virtual_key);
-                  params.Set("modifiers", mod_flags);
+                             state->main_key.native_virtual_key);
+                  params.Set("modifiers", state->mod_flags);
 
-                  client->SendCommand(
+                  AbpCdpClient* c = state->client;
+                  c->SendCommand(
                       "Input.dispatchKeyEvent", std::move(params),
                       base::BindOnce(
-                          [](ShortcutState* state, bool success,
+                          [](std::unique_ptr<ShortcutState> s, bool success,
                              const std::string& result) {
                             if (!success) {
-                              state->ctx->OnActionError("CDP_ERROR", result);
-                              delete state;
+                              s->ctx->OnActionError("CDP_ERROR", result);
                               return;
                             }
-                            state->mod_index = state->modifiers.size();
-                            state->ReleaseNextModifier();
+                            s->mod_index = s->modifiers.size();
+                            ReleaseNextModifier(std::move(s));
                           },
-                          base::Unretained(this)));
+                          std::move(state)));
                 }
 
-                void ReleaseNextModifier() {
-                  if (mod_index > 0) {
-                    mod_index--;
-                    KeyInfo mod_info = GetKeyInfo(modifiers[mod_index]);
+                static void ReleaseNextModifier(
+                    std::unique_ptr<ShortcutState> state) {
+                  if (state->mod_index > 0) {
+                    state->mod_index--;
+                    KeyInfo mod_info =
+                        GetKeyInfo(state->modifiers[state->mod_index]);
 
                     // Calculate remaining modifiers
                     int remaining_mods = 0;
-                    for (size_t i = 0; i < mod_index; i++) {
-                      KeyInfo ki = GetKeyInfo(modifiers[i]);
+                    for (size_t i = 0; i < state->mod_index; i++) {
+                      KeyInfo ki = GetKeyInfo(state->modifiers[i]);
                       remaining_mods |= ki.modifier_flag;
                     }
 
@@ -545,43 +589,42 @@ void AbpInputDispatcher::KeyPress(const std::string& tab_id,
                                mod_info.native_virtual_key);
                     params.Set("modifiers", remaining_mods);
 
-                    client->SendCommand(
+                    AbpCdpClient* c = state->client;
+                    c->SendCommand(
                         "Input.dispatchKeyEvent", std::move(params),
                         base::BindOnce(
-                            [](ShortcutState* state, bool success,
+                            [](std::unique_ptr<ShortcutState> s, bool success,
                                const std::string& result) {
                               if (!success) {
-                                state->ctx->OnActionError("CDP_ERROR", result);
-                                delete state;
+                                s->ctx->OnActionError("CDP_ERROR", result);
                                 return;
                               }
-                              state->ReleaseNextModifier();
+                              ReleaseNextModifier(std::move(s));
                             },
-                            base::Unretained(this)));
+                            std::move(state)));
                   } else {
                     // All done!
                     base::Value::Dict res;
                     res.Set("status", "pressed");
-                    res.Set("key", main_key.key);
+                    res.Set("key", state->main_key.key);
                     base::Value::List mod_list;
-                    for (const auto& m : modifiers) {
+                    for (const auto& m : state->modifiers) {
                       mod_list.Append(m);
                     }
                     res.Set("modifiers", std::move(mod_list));
-                    ctx->SetResult(std::move(res));
-                    ctx->OnActionDispatched();
-                    delete this;
+                    state->ctx->SetResult(std::move(res));
+                    state->ctx->OnActionDispatched();
                   }
                 }
               };
 
-              auto* state = new ShortcutState();
+              auto state = std::make_unique<ShortcutState>();
               state->modifiers = std::move(mods);
               state->main_key = key_info;
               state->mod_flags = mod_flags;
               state->client = client;
               state->ctx = ctx_ref;
-              state->PressNextModifier();
+              ShortcutState::PressNextModifier(std::move(state));
             }
           },
           std::move(key_copy), std::move(modifiers)),

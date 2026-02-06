@@ -38,117 +38,117 @@ class AbpMcpHandler {
  private:
   // JSON-RPC method handlers
   void HandleInitialize(const base::Value::Dict& params,
-                        int request_id,
+                        base::Value request_id,
                         ResponseWithHeadersCallback callback);
-  void HandleToolsList(int request_id, ResponseWithHeadersCallback callback);
+  void HandleToolsList(base::Value request_id, ResponseWithHeadersCallback callback);
   void HandleToolsCall(const base::Value::Dict& params,
-                       int request_id,
+                       base::Value request_id,
                        ResponseWithHeadersCallback callback);
 
   // Tool implementations (delegate to AbpController)
   void CallBrowserGetStatus(const base::Value::Dict& args,
-                            int request_id,
+                            base::Value request_id,
                             ResponseWithHeadersCallback callback);
   void CallBrowserListTabs(const base::Value::Dict& args,
-                           int request_id,
+                           base::Value request_id,
                            ResponseWithHeadersCallback callback);
   void CallBrowserNewTab(const base::Value::Dict& args,
-                         int request_id,
+                         base::Value request_id,
                          ResponseWithHeadersCallback callback);
   void CallBrowserCloseTab(const base::Value::Dict& args,
-                           int request_id,
+                           base::Value request_id,
                            ResponseWithHeadersCallback callback);
   void CallBrowserGetTabInfo(const base::Value::Dict& args,
-                             int request_id,
+                             base::Value request_id,
                              ResponseWithHeadersCallback callback);
   void CallBrowserNavigate(const base::Value::Dict& args,
-                           int request_id,
+                           base::Value request_id,
                            ResponseWithHeadersCallback callback);
   void CallBrowserGoBack(const base::Value::Dict& args,
-                         int request_id,
+                         base::Value request_id,
                          ResponseWithHeadersCallback callback);
   void CallBrowserGoForward(const base::Value::Dict& args,
-                            int request_id,
+                            base::Value request_id,
                             ResponseWithHeadersCallback callback);
   void CallBrowserReload(const base::Value::Dict& args,
-                         int request_id,
+                         base::Value request_id,
                          ResponseWithHeadersCallback callback);
   void CallBrowserClick(const base::Value::Dict& args,
-                        int request_id,
+                        base::Value request_id,
                         ResponseWithHeadersCallback callback);
   void CallBrowserType(const base::Value::Dict& args,
-                       int request_id,
+                       base::Value request_id,
                        ResponseWithHeadersCallback callback);
   void CallBrowserScreenshot(const base::Value::Dict& args,
-                             int request_id,
+                             base::Value request_id,
                              ResponseWithHeadersCallback callback);
   void CallBrowserExecuteJavascript(const base::Value::Dict& args,
-                                    int request_id,
+                                    base::Value request_id,
                                     ResponseWithHeadersCallback callback);
   void CallBrowserKeyboardPress(const base::Value::Dict& args,
-                                int request_id,
+                                base::Value request_id,
                                 ResponseWithHeadersCallback callback);
   void CallBrowserScroll(const base::Value::Dict& args,
-                         int request_id,
+                         base::Value request_id,
                          ResponseWithHeadersCallback callback);
   void CallBrowserMouseMove(const base::Value::Dict& args,
-                            int request_id,
+                            base::Value request_id,
                             ResponseWithHeadersCallback callback);
   void CallBrowserActivateTab(const base::Value::Dict& args,
-                              int request_id,
+                              base::Value request_id,
                               ResponseWithHeadersCallback callback);
   void CallBrowserStopLoading(const base::Value::Dict& args,
-                              int request_id,
+                              base::Value request_id,
                               ResponseWithHeadersCallback callback);
   void CallBrowserGetDialog(const base::Value::Dict& args,
-                            int request_id,
+                            base::Value request_id,
                             ResponseWithHeadersCallback callback);
   void CallBrowserAcceptDialog(const base::Value::Dict& args,
-                               int request_id,
+                               base::Value request_id,
                                ResponseWithHeadersCallback callback);
   void CallBrowserDismissDialog(const base::Value::Dict& args,
-                                int request_id,
+                                base::Value request_id,
                                 ResponseWithHeadersCallback callback);
   void CallBrowserListDownloads(const base::Value::Dict& args,
-                                int request_id,
+                                base::Value request_id,
                                 ResponseWithHeadersCallback callback);
   void CallBrowserGetDownload(const base::Value::Dict& args,
-                              int request_id,
+                              base::Value request_id,
                               ResponseWithHeadersCallback callback);
   void CallBrowserCancelDownload(const base::Value::Dict& args,
-                                 int request_id,
+                                 base::Value request_id,
                                  ResponseWithHeadersCallback callback);
   void CallBrowserProvideFiles(const base::Value::Dict& args,
-                               int request_id,
+                               base::Value request_id,
                                ResponseWithHeadersCallback callback);
   void CallBrowserKeyboardDown(const base::Value::Dict& args,
-                               int request_id,
+                               base::Value request_id,
                                ResponseWithHeadersCallback callback);
   void CallBrowserKeyboardUp(const base::Value::Dict& args,
-                             int request_id,
+                             base::Value request_id,
                              ResponseWithHeadersCallback callback);
   void CallBrowserGetExecutionState(const base::Value::Dict& args,
-                                    int request_id,
+                                    base::Value request_id,
                                     ResponseWithHeadersCallback callback);
   void CallBrowserSetExecutionState(const base::Value::Dict& args,
-                                    int request_id,
+                                    base::Value request_id,
                                     ResponseWithHeadersCallback callback);
   void CallBrowserShutdown(const base::Value::Dict& args,
-                           int request_id,
+                           base::Value request_id,
                            ResponseWithHeadersCallback callback);
 
   // Response helpers
-  void SendJsonRpcResult(int request_id,
+  void SendJsonRpcResult(base::Value request_id,
                          base::Value result,
                          ResponseWithHeadersCallback callback);
-  void SendJsonRpcError(int request_id,
+  void SendJsonRpcError(base::Value request_id,
                         int error_code,
                         const std::string& message,
                         ResponseWithHeadersCallback callback);
   void SendAccepted(ResponseWithHeadersCallback callback);
 
   // Callback adapter: converts AbpController response to MCP tool result
-  void OnControllerResponse(int request_id,
+  void OnControllerResponse(base::Value request_id,
                             ResponseWithHeadersCallback callback,
                             int status,
                             const std::string& content_type,

@@ -456,14 +456,14 @@ void AbpController::CenterCursorInTab(const std::string& tab_id,
 
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
-    LOG(WARNING) << "ABP DEBUG L1: CenterCursorInTab - WebContents null for tab " << tab_id;
+    VLOG(1) << "ABP DEBUG L1: CenterCursorInTab - WebContents null for tab " << tab_id;
     std::move(callback).Run();
     return;
   }
 
   content::RenderWidgetHostView* rwhv = wc->GetRenderWidgetHostView();
   if (!rwhv) {
-    LOG(WARNING) << "ABP DEBUG L1: CenterCursorInTab - RWHV null for tab " << tab_id;
+    VLOG(1) << "ABP DEBUG L1: CenterCursorInTab - RWHV null for tab " << tab_id;
     std::move(callback).Run();
     return;
   }
@@ -490,7 +490,7 @@ void AbpController::CenterCursorInTab(const std::string& tab_id,
     LOG(INFO) << "ABP DEBUG L1: CenterCursorInTab - calling SetVirtualCursorViaMojo(" << center_x << ", " << center_y << ", true)";
     SetVirtualCursorViaMojo(wc, center_x, center_y, true);
   } else {
-    LOG(WARNING) << "ABP DEBUG L1: CenterCursorInTab - skipping Mojo calls, RWH not ready";
+    VLOG(1) << "ABP DEBUG L1: CenterCursorInTab - skipping Mojo calls, RWH not ready";
   }
 
   LOG(INFO) << "ABP DEBUG L1: CenterCursorInTab completed";
@@ -575,7 +575,12 @@ void AbpController::CaptureScreenshotForHistory(
     int64_t timestamp,
     bool is_before,
     base::OnceCallback<void(std::string path)> callback) {
+  VLOG(1) << "ABP: CaptureScreenshotForHistory is_before=" << is_before
+               << " history_controller=" << (history_controller_ ? "yes" : "no")
+               << " screenshots_enabled="
+               << (history_controller_ ? (history_controller_->ScreenshotsEnabled() ? "yes" : "no") : "n/a");
   if (!history_controller_ || !history_controller_->ScreenshotsEnabled()) {
+    VLOG(1) << "ABP: CaptureScreenshotForHistory - skipping (disabled)";
     std::move(callback).Run("");
     return;
   }
@@ -608,7 +613,7 @@ void AbpController::CaptureScreenshotDirect(
   content::RenderWidgetHostView* rwhv =
       web_contents->GetRenderWidgetHostView();
   if (!rwhv) {
-    LOG(WARNING) << "ABP: No RenderWidgetHostView for screenshot";
+    VLOG(1) << "ABP: No RenderWidgetHostView for screenshot";
     std::move(callback).Run("");
     return;
   }
@@ -616,6 +621,7 @@ void AbpController::CaptureScreenshotDirect(
   // Capture the surface directly with 5 second timeout
   // Note: The virtual cursor is rendered by InspectorCursorDrawer in the
   // inspector overlay layer, which is included automatically in CopyFromSurface.
+  VLOG(1) << "ABP: CaptureScreenshotDirect - calling CopyFromSurface";
   rwhv->CopyFromSurface(
       gfx::Rect(),   // empty = full viewport
       gfx::Size(),   // empty = native resolution
@@ -631,16 +637,17 @@ void AbpController::OnSurfaceCopied(
     base::OnceCallback<void(std::string path)> callback,
     const content::CopyFromSurfaceResult& result) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  VLOG(1) << "ABP: OnSurfaceCopied - callback received";
 
   if (!result.has_value()) {
-    LOG(WARNING) << "ABP: CopyFromSurface failed: " << result.error();
+    VLOG(1) << "ABP: CopyFromSurface failed: " << result.error();
     std::move(callback).Run("");
     return;
   }
 
   const SkBitmap& bitmap = result->bitmap;
   if (bitmap.empty()) {
-    LOG(WARNING) << "ABP: CopyFromSurface returned empty bitmap";
+    VLOG(1) << "ABP: CopyFromSurface returned empty bitmap";
     std::move(callback).Run("");
     return;
   }
@@ -1338,8 +1345,8 @@ void AbpController::Screenshot(const std::string& tab_id,
   ScreenshotOptions options;
 
   // Get the DevToolsAgentHost ID for cursor state lookup
-  // Must use GetOrCreateForTab to match what Click() uses
-  auto host = content::DevToolsAgentHost::GetOrCreateForTab(wc);
+  // Use GetOrCreateFor to match FindWebContents/GetOrCreateCdpClient
+  auto host = content::DevToolsAgentHost::GetOrCreateFor(wc);
   std::string host_id = host ? host->GetId() : "";
 
   // Get screenshot sub-object if present
@@ -1533,7 +1540,7 @@ void AbpController::OnCursorScreenshotCaptured(const std::string& tab_id,
   // If CopyFromSurface failed, fall back to CDP Page.captureScreenshot
   // (the cursor won't be visible but the screenshot will work)
   if (!result.has_value() || result->bitmap.empty()) {
-    LOG(WARNING) << "ABP: CopyFromSurface failed (empty=" << (result.has_value() ? result->bitmap.empty() : true) << "), falling back to CDP screenshot";
+    VLOG(1) << "ABP: CopyFromSurface failed (empty=" << (result.has_value() ? result->bitmap.empty() : true) << "), falling back to CDP screenshot";
 
     content::WebContents* wc = FindWebContents(tab_id);
     if (!wc) {
@@ -1882,7 +1889,8 @@ AbpCdpClient* AbpController::GetOrCreateCdpClient(content::WebContents* wc) {
   auto client = std::make_unique<AbpCdpClient>(host);
   AbpCdpClient* raw_ptr = client.get();
 
-  // Set up event listener to route CDP events to the event collector and handle dialogs
+  // Set up event listener to route CDP events to the event collector,
+  // handle dialogs, and forward to action-complete wait logic if active.
   std::string tab_id = id;
   raw_ptr->SetEventListener(base::BindRepeating(
       [](base::WeakPtr<AbpController> controller, std::string tab,
@@ -1905,6 +1913,8 @@ AbpCdpClient* AbpController::GetOrCreateCdpClient(content::WebContents* wc) {
         } else if (method == "Page.javascriptDialogClosed") {
           controller->OnDialogClosed(tab);
         }
+        // Forward to action-complete wait logic if a waiter is active
+        controller->OnCdpEventForWait(tab, method, params);
       },
       weak_factory_.GetWeakPtr(), tab_id));
 
@@ -1949,7 +1959,7 @@ void AbpController::UpdateVirtualCursorState(const std::string& tab_id,
   }
 
   scoped_refptr<content::DevToolsAgentHost> host =
-      content::DevToolsAgentHost::GetOrCreateForTab(wc);
+      content::DevToolsAgentHost::GetOrCreateFor(wc);
   if (host) {
     TabState& tab_state = GetOrCreateTabState(host->GetId());
     tab_state.cursor.active = true;
@@ -1963,25 +1973,25 @@ void AbpController::SetVirtualCursorViaMojo(content::WebContents* wc,
                                              float y,
                                              bool visible) {
   if (!wc) {
-    LOG(WARNING) << "ABP DEBUG L1: SetVirtualCursorViaMojo - wc is null";
+    VLOG(1) << "ABP DEBUG L1: SetVirtualCursorViaMojo - wc is null";
     return;
   }
 
   content::RenderWidgetHostView* rwhv = wc->GetRenderWidgetHostView();
   if (!rwhv) {
-    LOG(WARNING) << "ABP DEBUG L1: SetVirtualCursorViaMojo - rwhv is null";
+    VLOG(1) << "ABP DEBUG L1: SetVirtualCursorViaMojo - rwhv is null";
     return;
   }
 
   content::RenderWidgetHost* rwh = rwhv->GetRenderWidgetHost();
   if (!rwh) {
-    LOG(WARNING) << "ABP DEBUG L1: SetVirtualCursorViaMojo - rwh is null";
+    VLOG(1) << "ABP DEBUG L1: SetVirtualCursorViaMojo - rwh is null";
     return;
   }
 
   // Check if the render process is alive before calling Mojo methods
   if (!rwh->GetProcess() || !rwh->GetProcess()->IsInitializedAndNotDead()) {
-    LOG(WARNING) << "ABP DEBUG L1: SetVirtualCursorViaMojo - render process not ready";
+    VLOG(1) << "ABP DEBUG L1: SetVirtualCursorViaMojo - render process not ready";
     return;
   }
 
@@ -2013,25 +2023,25 @@ void AbpController::SetVirtualCursorTypeViaMojo(content::WebContents* wc,
 void AbpController::SetVirtualCursorEnabledViaMojo(content::WebContents* wc,
                                                     bool enabled) {
   if (!wc) {
-    LOG(WARNING) << "ABP DEBUG L1: SetVirtualCursorEnabledViaMojo - wc is null";
+    VLOG(1) << "ABP DEBUG L1: SetVirtualCursorEnabledViaMojo - wc is null";
     return;
   }
 
   content::RenderWidgetHostView* rwhv = wc->GetRenderWidgetHostView();
   if (!rwhv) {
-    LOG(WARNING) << "ABP DEBUG L1: SetVirtualCursorEnabledViaMojo - rwhv is null";
+    VLOG(1) << "ABP DEBUG L1: SetVirtualCursorEnabledViaMojo - rwhv is null";
     return;
   }
 
   content::RenderWidgetHost* rwh = rwhv->GetRenderWidgetHost();
   if (!rwh) {
-    LOG(WARNING) << "ABP DEBUG L1: SetVirtualCursorEnabledViaMojo - rwh is null";
+    VLOG(1) << "ABP DEBUG L1: SetVirtualCursorEnabledViaMojo - rwh is null";
     return;
   }
 
   // Check if the render process is alive before calling Mojo methods
   if (!rwh->GetProcess() || !rwh->GetProcess()->IsInitializedAndNotDead()) {
-    LOG(WARNING) << "ABP DEBUG L1: SetVirtualCursorEnabledViaMojo - render process not ready";
+    VLOG(1) << "ABP DEBUG L1: SetVirtualCursorEnabledViaMojo - render process not ready";
     return;
   }
 
@@ -2053,14 +2063,14 @@ void AbpController::EnableExecutionControl(
     base::OnceClosure then) {
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
-    LOG(WARNING) << "ABP: Tab not found for execution control: " << tab_id;
+    VLOG(1) << "ABP: Tab not found for execution control: " << tab_id;
     std::move(then).Run();
     return;
   }
 
   AbpCdpClient* client = GetOrCreateCdpClient(wc);
   if (!client) {
-    LOG(WARNING) << "ABP: Failed to create CDP client for execution control";
+    VLOG(1) << "ABP: Failed to create CDP client for execution control";
     std::move(then).Run();
     return;
   }
@@ -2088,7 +2098,7 @@ void AbpController::OnDebuggerEnabled(
     bool success,
     const std::string& result) {
   if (!success) {
-    LOG(WARNING) << "ABP: Debugger.enable failed: " << result;
+    VLOG(1) << "ABP: Debugger.enable failed: " << result;
     std::move(then).Run();
     return;
   }
@@ -2127,7 +2137,7 @@ void AbpController::OnVirtualTimeEnabled(
     bool success,
     const std::string& result) {
   if (!success) {
-    LOG(WARNING) << "ABP: setVirtualTimePolicy failed: " << result;
+    VLOG(1) << "ABP: setVirtualTimePolicy failed: " << result;
     std::move(then).Run();
     return;
   }
@@ -2231,7 +2241,7 @@ void AbpController::OnVirtualTimeResumed(const std::string& tab_id,
                                          bool success,
                                          const std::string& result) {
   if (!success) {
-    LOG(WARNING) << "ABP: setVirtualTimePolicy(realtime) failed: " << result;
+    VLOG(1) << "ABP: setVirtualTimePolicy(realtime) failed: " << result;
   }
 
   auto it = tab_states_.find(tab_id);
@@ -2239,7 +2249,7 @@ void AbpController::OnVirtualTimeResumed(const std::string& tab_id,
     it->second.execution.paused = false;
   }
 
-  LOG(INFO) << "ABP: Execution resumed for tab " << tab_id;
+  VLOG(1) << "ABP: Execution resumed for tab " << tab_id << " - calling then()";
   std::move(then).Run();
 }
 
@@ -2293,7 +2303,7 @@ void AbpController::OnVirtualTimePaused(const std::string& tab_id,
                                         bool success,
                                         const std::string& result) {
   if (!success) {
-    LOG(WARNING) << "ABP: setVirtualTimePolicy(pause) failed: " << result;
+    VLOG(1) << "ABP: setVirtualTimePolicy(pause) failed: " << result;
   }
 
   content::WebContents* wc = FindWebContents(tab_id);
@@ -2321,7 +2331,7 @@ void AbpController::OnDebuggerPaused(const std::string& tab_id,
                                      bool success,
                                      const std::string& result) {
   if (!success) {
-    LOG(WARNING) << "ABP: Debugger.pause failed: " << result;
+    VLOG(1) << "ABP: Debugger.pause failed: " << result;
   }
 
   auto it = tab_states_.find(tab_id);
@@ -2490,9 +2500,9 @@ void AbpController::WaitForActionComplete(const std::string& tab_id,
 
   GetOrCreateTabState(tab_id).action_waiter = std::move(waiter);
 
-  // Set up event listener for CDP events
-  client->SetEventListener(base::BindRepeating(
-      &AbpController::OnCdpEventForWait, weak_factory_.GetWeakPtr(), tab_id));
+  // The existing event listener (set up in GetOrCreateCdpClient) already
+  // forwards events to OnCdpEventForWait when a waiter is active.
+  // No need to replace the listener here.
 
   // Enable Network and Page domains for events
   base::Value::Dict empty_params;
@@ -2601,19 +2611,10 @@ void AbpController::OnWaitTimeout(const std::string& tab_id) {
     return;
   }
 
-  LOG(WARNING) << "ABP: action_complete wait timed out for tab " << tab_id;
+  VLOG(1) << "ABP: action_complete wait timed out for tab " << tab_id;
 
-  // Force complete
+  // Force complete - removing the waiter stops OnCdpEventForWait from processing events
   std::unique_ptr<ActionCompleteWaiter> waiter = std::move(it->second.action_waiter);
-
-  // Clear event listener
-  content::WebContents* wc = FindWebContents(tab_id);
-  if (wc) {
-    AbpCdpClient* client = GetOrCreateCdpClient(wc);
-    if (client) {
-      client->ClearEventListener();
-    }
-  }
 
   if (waiter->on_complete) {
     std::move(waiter->on_complete).Run();
@@ -2632,17 +2633,8 @@ void AbpController::CheckActionCompleteConditions(const std::string& tab_id) {
     return;
   }
 
-  // All conditions met!
+  // All conditions met - removing the waiter stops OnCdpEventForWait from processing events
   std::unique_ptr<ActionCompleteWaiter> completed_waiter = std::move(it->second.action_waiter);
-
-  // Clear event listener
-  content::WebContents* wc = FindWebContents(tab_id);
-  if (wc) {
-    AbpCdpClient* client = GetOrCreateCdpClient(wc);
-    if (client) {
-      client->ClearEventListener();
-    }
-  }
 
   LOG(INFO) << "ABP: action_complete conditions met for tab " << tab_id;
 
@@ -2777,17 +2769,21 @@ void AbpController::CaptureScreenshotBase64(
 
   // Get the view size
   gfx::Size view_size = view->GetViewBounds().size();
+  VLOG(1) << "ABP: CaptureScreenshotBase64 - calling CopyFromSurface";
 
-  // Use CopyFromSurface to capture the screen
+  // Use CopyFromSurface to capture the screen with 5 second timeout
   view->CopyFromSurface(
       gfx::Rect(),       // Empty rect = entire surface
       gfx::Size(),       // Empty size = native size
-      base::TimeDelta(), // No timeout
+      base::Seconds(5),  // 5 second timeout
       base::BindOnce(
           [](base::OnceCallback<void(std::string, int, int)> cb, gfx::Size size,
              const content::CopyFromSurfaceResult& result) {
+            VLOG(1) << "ABP: CaptureScreenshotBase64 - CopyFromSurface callback";
             // Check if the copy failed
             if (!result.has_value()) {
+              VLOG(1) << "ABP: CaptureScreenshotBase64 - CopyFromSurface failed: "
+                           << result.error();
               std::move(cb).Run(std::string(), 0, 0);
               return;
             }
@@ -3120,7 +3116,7 @@ void AbpController::BinaryScreenshot(const std::string& tab_id,
   view->CopyFromSurface(
       gfx::Rect(),       // Empty rect = entire surface
       gfx::Size(),       // Empty size = native size
-      base::TimeDelta(), // No timeout
+      base::Seconds(5),  // 5 second timeout to match other screenshot paths
       base::BindOnce(
           [](ResponseCallback cb,
              const content::CopyFromSurfaceResult& result) {
