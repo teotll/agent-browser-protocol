@@ -2,6 +2,7 @@
 
 #include "base/json/json_writer.h"
 #include "base/logging.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "chrome/browser/abp/abp_controller.h"
 #include "chrome/browser/abp/abp_event_collector.h"
@@ -96,6 +97,7 @@ void AbpActionContext::StartEventCapture() {
 }
 
 void AbpActionContext::ResumeExecutionIfNeeded() {
+  VLOG(1) << "ABP ActionContext: ResumeExecutionIfNeeded() action=" << action_type_;
   // Check if resume should be skipped for this action
   if (options_.skip_resume) {
     OnExecutionResumed();
@@ -231,7 +233,32 @@ void AbpActionContext::StopEventCaptureAndGetScrollPosition() {
     captured_events_ = controller_->event_collector()->StopCapturing();
   }
 
-  // Get scroll position
+  // Execution may have been paused externally during the wait phase
+  // (e.g., by the 5-second auto-pause timer).  GetScrollPosition uses
+  // Runtime.evaluate which requires JS to be running, so resume first.
+  // PauseExecutionIfNeeded() later in the flow will re-pause.
+  auto it = controller_->tab_states_.find(tab_id_);
+  bool externally_paused =
+      it != controller_->tab_states_.end() && it->second.execution.paused;
+  if (externally_paused && controller_->IsExecutionControlEnabled()) {
+    LOG(INFO) << "ABP ActionContext: Execution was paused externally during "
+              << "wait, resuming before GetScrollPosition";
+    controller_->ResumeExecution(
+        tab_id_,
+        base::BindOnce(
+            [](base::WeakPtr<AbpActionContext> ctx) {
+              if (!ctx) return;
+              ctx->controller_->GetScrollPosition(
+                  ctx->tab_id_,
+                  base::BindOnce(
+                      &AbpActionContext::OnScrollPositionReceived,
+                      ctx->weak_factory_.GetWeakPtr()));
+            },
+            weak_factory_.GetWeakPtr()));
+    return;
+  }
+
+  // Get scroll position (JS is already running)
   controller_->GetScrollPosition(
       tab_id_,
       base::BindOnce(&AbpActionContext::OnScrollPositionReceived,
@@ -242,7 +269,78 @@ void AbpActionContext::OnScrollPositionReceived(base::Value::Dict scroll_info) {
   VLOG(1) << "ABP ActionContext: OnScrollPositionReceived() action=" << action_type_;
   scroll_info_ = std::move(scroll_info);
 
-  // Pause execution (freezes V8 + virtual time)
+  // Capture screenshots BEFORE pausing execution.  The compositor only
+  // produces frames while virtual time is running; pausing virtual time
+  // freezes the compositor surface so any screenshot taken afterward
+  // reflects the state at the moment of the pause, not the action's result.
+  EnsureVirtualCursorVisible();
+}
+
+void AbpActionContext::FlushCompositorFrame() {
+  OnCompositorFrameFlushed();
+}
+
+void AbpActionContext::OnCompositorFrameFlushed() {
+  PauseExecutionIfNeeded();
+}
+
+void AbpActionContext::EnsureVirtualCursorVisible() {
+  // Re-enable and re-position the virtual cursor from last known state
+  // so it appears in every screenshot regardless of action type.
+  auto& tab_state = controller_->GetOrCreateTabState(tab_id_);
+  if (tab_state.cursor.active && web_contents_) {
+    controller_->SetVirtualCursorEnabledViaMojo(web_contents_, true);
+    controller_->SetVirtualCursorViaMojo(web_contents_, tab_state.cursor.x,
+                                          tab_state.cursor.y, true);
+  }
+  CaptureAfterScreenshot();
+}
+
+void AbpActionContext::CaptureAfterScreenshot() {
+  controller_->CaptureScreenshotForHistory(
+      tab_id_, start_time_ms_, false,
+      base::BindOnce(&AbpActionContext::OnAfterScreenshotCaptured,
+                     weak_factory_.GetWeakPtr()));
+}
+
+void AbpActionContext::OnAfterScreenshotCaptured(std::string screenshot_path) {
+  VLOG(1) << "ABP ActionContext: OnAfterScreenshotCaptured() action=" << action_type_;
+  screenshot_after_path_ = std::move(screenshot_path);
+
+  // Capture virtual time at end
+  virtual_time_at_end_ = controller_->GetVirtualTimeMs(tab_id_);
+
+  // Now capture base64 screenshot for response envelope
+  CaptureScreenshotBase64();
+}
+
+void AbpActionContext::CaptureScreenshotBase64() {
+  // When execution control is active, the compositor is unreliable due to
+  // virtual time pause/resume cycles — Page.captureScreenshot can hang
+  // indefinitely waiting for a BeginFrame that never arrives.
+  // Skip the response envelope screenshot; the standalone screenshot endpoint
+  // (which manages its own virtual time) still works.
+  if (controller_->IsExecutionControlEnabled()) {
+    OnScreenshotBase64Captured(std::string(), 0, 0);
+    return;
+  }
+
+  controller_->CaptureScreenshotBase64(
+      tab_id_,
+      base::BindOnce(&AbpActionContext::OnScreenshotBase64Captured,
+                     weak_factory_.GetWeakPtr()));
+}
+
+void AbpActionContext::OnScreenshotBase64Captured(std::string base64,
+                                                   int width,
+                                                   int height) {
+  VLOG(1) << "ABP ActionContext: OnScreenshotBase64Captured() action=" << action_type_
+           << " has_data=" << !base64.empty();
+  screenshot_base64_ = std::move(base64);
+  screenshot_width_ = width;
+  screenshot_height_ = height;
+
+  // Now pause execution (freezes V8 + virtual time)
   PauseExecutionIfNeeded();
 }
 
@@ -266,42 +364,6 @@ void AbpActionContext::PauseExecutionIfNeeded() {
 
 void AbpActionContext::OnExecutionPaused() {
   VLOG(1) << "ABP ActionContext: OnExecutionPaused() action=" << action_type_;
-  // Page is now frozen - capture screenshot
-  CaptureAfterScreenshot();
-}
-
-void AbpActionContext::CaptureAfterScreenshot() {
-  controller_->CaptureScreenshotForHistory(
-      tab_id_, start_time_ms_, false,
-      base::BindOnce(&AbpActionContext::OnAfterScreenshotCaptured,
-                     weak_factory_.GetWeakPtr()));
-}
-
-void AbpActionContext::OnAfterScreenshotCaptured(std::string screenshot_path) {
-  VLOG(1) << "ABP ActionContext: OnAfterScreenshotCaptured() action=" << action_type_;
-  screenshot_after_path_ = std::move(screenshot_path);
-
-  // Capture virtual time at end
-  virtual_time_at_end_ = controller_->GetVirtualTimeMs(tab_id_);
-
-  // Now capture base64 screenshot for response envelope
-  CaptureScreenshotBase64();
-}
-
-void AbpActionContext::CaptureScreenshotBase64() {
-  controller_->CaptureScreenshotBase64(
-      tab_id_,
-      base::BindOnce(&AbpActionContext::OnScreenshotBase64Captured,
-                     weak_factory_.GetWeakPtr()));
-}
-
-void AbpActionContext::OnScreenshotBase64Captured(std::string base64,
-                                                   int width,
-                                                   int height) {
-  VLOG(1) << "ABP ActionContext: OnScreenshotBase64Captured() action=" << action_type_;
-  screenshot_base64_ = std::move(base64);
-  screenshot_width_ = width;
-  screenshot_height_ = height;
 
   // Record to history
   RecordHistory(!has_error_, error_code_, error_message_);

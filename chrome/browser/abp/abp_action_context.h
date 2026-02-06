@@ -43,10 +43,11 @@ using ActionCallback = base::OnceCallback<void(AbpActionContext* ctx)>;
 //     -> [action calls OnActionDispatched()]
 //     -> WaitUntil() (handles wait_until from params)
 //     -> OnWaitUntilComplete()
+//     -> EnsureVirtualCursorVisible()
+//     -> CaptureAfterScreenshot() (compositor still running)
+//     -> CaptureScreenshotBase64()
 //     -> PauseExecutionIfNeeded() (virtual time pause + Debugger.pause)
 //     -> OnExecutionPaused()
-//     -> CaptureAfterScreenshot() (page is frozen)
-//     -> OnAfterScreenshotCaptured()
 //     -> RecordHistory()
 //     -> SendResponse()
 //
@@ -147,8 +148,11 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   void OnCursorCentered();
   void StopEventCaptureAndGetScrollPosition();
   void OnScrollPositionReceived(base::Value::Dict scroll_info);
+  void FlushCompositorFrame();
+  void OnCompositorFrameFlushed();
   void PauseExecutionIfNeeded();
   void OnExecutionPaused();
+  void EnsureVirtualCursorVisible();
   void CaptureAfterScreenshot();
   void OnAfterScreenshotCaptured(std::string screenshot_path);
   void CaptureScreenshotBase64();

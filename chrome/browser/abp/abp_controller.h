@@ -29,6 +29,7 @@ namespace abp {
 class AbpActionContext;
 class AbpDownloadObserver;
 class AbpEventCollector;
+class AbpEventObserver;
 class AbpHistoryController;
 class AbpInputDispatcher;
 
@@ -137,6 +138,10 @@ class AbpController {
   // Set download observer (called by AbpHttpServer)
   void SetDownloadObserver(AbpDownloadObserver* observer);
 
+  // Set event observer (called by AbpHttpServer, used to detach
+  // event clients before closing tabs)
+  void SetEventObserver(AbpEventObserver* observer);
+
   // Route incoming HTTP request to appropriate handler
   void HandleRequest(const std::string& method,
                      const std::string& path,
@@ -176,6 +181,9 @@ class AbpController {
 
   // Pause execution after action (virtual time pause + Debugger.pause)
   void PauseExecution(const std::string& tab_id, base::OnceClosure then);
+
+  // Pause execution on all open tabs (used at startup)
+  void PauseAllTabs();
 
   // Wait for action_complete conditions before calling callback
   // min_wait_time specifies the minimum time to wait before completing
@@ -451,7 +459,7 @@ class AbpController {
     bool IsComplete() const {
       if (wait_type == "action_complete") {
         return load_fired && dom_content_loaded_fired &&
-               network_idle && min_time_elapsed;
+               min_time_elapsed;
       } else if (wait_type == "network_idle") {
         return network_idle;
       } else if (wait_type == "text") {
@@ -608,6 +616,9 @@ class AbpController {
 
   // Download observer (not owned - owned by AbpHttpServer)
   raw_ptr<AbpDownloadObserver> download_observer_ = nullptr;
+
+  // Event observer (not owned - owned by AbpHttpServer)
+  raw_ptr<AbpEventObserver> event_observer_ = nullptr;
 
   // Event collector for capturing events during actions (owned)
   std::unique_ptr<AbpEventCollector> event_collector_;

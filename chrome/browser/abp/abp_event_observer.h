@@ -77,6 +77,10 @@ class AbpEventObserver : public content::DevToolsAgentHostObserver {
   // Stop observing
   void Stop();
 
+  // Detach event client for a specific tab (call before closing the tab
+  // to avoid use-after-free when DevToolsAgentHost fires AgentHostClosed)
+  void DetachTab(const std::string& tab_id);
+
  private:
   // DevToolsAgentHostObserver implementation
   void DevToolsAgentHostCreated(content::DevToolsAgentHost* host) override;

@@ -271,6 +271,11 @@ void AbpEventObserver::Stop() {
   LOG(INFO) << "ABP: Event observer stopped";
 }
 
+void AbpEventObserver::DetachTab(const std::string& tab_id) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  event_clients_.erase(tab_id);
+}
+
 void AbpEventObserver::DevToolsAgentHostCreated(
     content::DevToolsAgentHost* host) {
   if (host->GetType() == content::DevToolsAgentHost::kTypePage) {

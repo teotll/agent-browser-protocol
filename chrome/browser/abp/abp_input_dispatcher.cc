@@ -6,6 +6,7 @@
 
 #include "chrome/browser/abp/abp_action_context.h"
 #include "chrome/browser/abp/abp_controller.h"
+#include "base/strings/string_number_conversions.h"
 
 namespace abp {
 
@@ -279,9 +280,13 @@ void AbpInputDispatcher::Move(const std::string& tab_id,
 void AbpInputDispatcher::Scroll(const std::string& tab_id,
                                 const base::Value::Dict& params,
                                 ResponseCallback callback) {
-  // Get scroll coordinates (default to center of viewport if not specified)
-  double x = params.FindDouble("x").value_or(500);
-  double y = params.FindDouble("y").value_or(500);
+  // Default scroll coordinates to virtual cursor's last known position,
+  // simulating human behavior (scroll wheel fires where the mouse is).
+  auto& tab_state = controller_->GetOrCreateTabState(tab_id);
+  double default_x = tab_state.cursor.active ? tab_state.cursor.x : 500;
+  double default_y = tab_state.cursor.active ? tab_state.cursor.y : 500;
+  double x = params.FindDouble("x").value_or(default_x);
+  double y = params.FindDouble("y").value_or(default_y);
   double delta_x = params.FindDouble("delta_x").value_or(0);
   double delta_y = params.FindDouble("delta_y").value_or(0);
 
@@ -292,10 +297,15 @@ void AbpInputDispatcher::Scroll(const std::string& tab_id,
     return;
   }
 
-  // Use AbpActionContext for unified action flow
-  AbpActionContext::Run(
-      controller_, tab_id, "scroll", params,
-      // Action callback - performs the scroll
+  // Use AbpActionContext for consistent resume/pause/screenshot flow.
+  // Use window.scrollBy() via Runtime.evaluate instead of
+  // Input.dispatchMouseEvent(mouseWheel) which hangs when virtual time
+  // has been active (Chromium renderer ack issue).
+  AbpActionContext::Options options;
+  options.min_wait_time = base::Milliseconds(500);
+  AbpActionContext::RunWithOptions(
+      controller_, tab_id, "scroll", params, options,
+      // Action callback - performs the scroll via JS
       base::BindOnce(
           [](double scroll_x, double scroll_y, double dx, double dy,
              AbpActionContext* ctx) {
@@ -305,19 +315,21 @@ void AbpInputDispatcher::Scroll(const std::string& tab_id,
               return;
             }
 
-            // Take a scoped_refptr to keep context alive
             scoped_refptr<AbpActionContext> ctx_ref(ctx);
 
-            // Send mouseWheel event via CDP
-            base::Value::Dict wheel_params;
-            wheel_params.Set("type", "mouseWheel");
-            wheel_params.Set("x", scroll_x);
-            wheel_params.Set("y", scroll_y);
-            wheel_params.Set("deltaX", dx);
-            wheel_params.Set("deltaY", dy);
+            // Use Runtime.evaluate with window.scrollBy for reliable scrolling
+            std::string script =
+                "window.scrollBy(" + base::NumberToString(dx) + "," +
+                base::NumberToString(dy) +
+                "); JSON.stringify({scrollX: window.scrollX, scrollY: "
+                "window.scrollY})";
+
+            base::Value::Dict eval_params;
+            eval_params.Set("expression", script);
+            eval_params.Set("returnByValue", true);
 
             client->SendCommand(
-                "Input.dispatchMouseEvent", std::move(wheel_params),
+                "Runtime.evaluate", std::move(eval_params),
                 base::BindOnce(
                     [](double final_x, double final_y, double final_dx,
                        double final_dy,

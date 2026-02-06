@@ -66,6 +66,9 @@ class AbpHttpServer : public net::HttpServer::Delegate {
   // Poll for browser readiness and center cursor when ready
   void PollForReadyAndCenterCursor();
 
+  // Auto-pause all tabs after startup delay
+  void AutoPauseAllTabs();
+
   const int port_;
   bool cursor_centered_ = false;  // Track whether initial cursor centering is done
   std::unique_ptr<net::HttpServer> server_;  // IO thread only
