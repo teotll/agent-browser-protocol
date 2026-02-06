@@ -18,6 +18,7 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "chrome/browser/abp/abp_types.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/image/image.h"
 #include "ui/base/cursor/mojom/cursor_type.mojom-forward.h"
 
 namespace content {
@@ -240,6 +241,17 @@ class AbpController {
       const std::string& tab_id,
       base::OnceCallback<void(std::string base64, int width, int height)> callback);
 
+  // Temporarily resume virtual time so the compositor can produce a frame.
+  // The Debugger stays paused so no JS will run.
+  // Call RestoreVirtualTimePause() after the screenshot to re-freeze.
+  void EnsureCompositorActive(const std::string& tab_id,
+                               base::OnceClosure callback);
+
+  // Re-pause virtual time after a screenshot taken with EnsureCompositorActive.
+  // No-op if virtual time wasn't paused.
+  void RestoreVirtualTimePause(const std::string& tab_id,
+                                base::OnceClosure callback);
+
  private:
   // Tab operations
   void ListTabs(ResponseCallback callback);
@@ -332,6 +344,20 @@ class AbpController {
   void CaptureScreenshotWithCursor(const std::string& tab_id,
                                    ResponseCallback callback,
                                    const ScreenshotOptions& options);
+  void DoCaptureScreenshotWithCursor(const std::string& tab_id,
+                                     ResponseCallback callback,
+                                     const ScreenshotOptions& options);
+  void DoCaptureScreenshotFallback(const std::string& tab_id,
+                                   ResponseCallback callback,
+                                   const ScreenshotOptions& options);
+  void OnGrabViewSnapshotResult(ResponseCallback callback,
+                                const ScreenshotOptions& options,
+                                gfx::Image snapshot);
+  void OnCopyFromSurfaceResult(const std::string& tab_id,
+                               ResponseCallback callback,
+                               const ScreenshotOptions& options,
+                               int retry_count,
+                               const content::CopyFromSurfaceResult& result);
   void OnCursorScreenshotCaptured(const std::string& tab_id,
                                   ResponseCallback callback,
                                   const ScreenshotOptions& options,

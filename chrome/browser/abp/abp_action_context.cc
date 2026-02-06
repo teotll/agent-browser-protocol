@@ -1,13 +1,22 @@
 #include "chrome/browser/abp/abp_action_context.h"
 
+#include "base/base64.h"
+#include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
+#include "ui/gfx/codec/webp_codec.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
+#include "ui/gfx/image/image.h"
+#include "ui/snapshot/snapshot.h"
 #include "chrome/browser/abp/abp_controller.h"
 #include "chrome/browser/abp/abp_event_collector.h"
 #include "chrome/browser/abp/abp_history_controller.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/render_widget_host.h"
+#include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 
 namespace abp {
@@ -310,38 +319,86 @@ void AbpActionContext::OnAfterScreenshotCaptured(std::string screenshot_path) {
   // Capture virtual time at end
   virtual_time_at_end_ = controller_->GetVirtualTimeMs(tab_id_);
 
-  // Now capture base64 screenshot for response envelope
-  CaptureScreenshotBase64();
+  // Pause execution FIRST, then capture the base64 screenshot.
+  // CopyFromSurface needs a stable compositor buffer — pausing virtual time
+  // freezes the compositor surface, giving CopyFromSurface an immediate,
+  // fresh frame to grab.  When virtual time is in "realtime" mode, the
+  // compositor state can be disrupted and CopyFromSurface times out.
+  PauseExecutionIfNeeded();
 }
 
 void AbpActionContext::CaptureScreenshotBase64() {
-  // When execution control is active, the compositor is unreliable due to
-  // virtual time pause/resume cycles — Page.captureScreenshot can hang
-  // indefinitely waiting for a BeginFrame that never arrives.
-  // Skip the response envelope screenshot; the standalone screenshot endpoint
-  // (which manages its own virtual time) still works.
-  if (controller_->IsExecutionControlEnabled()) {
+  if (!web_contents_) {
     OnScreenshotBase64Captured(std::string(), 0, 0);
     return;
   }
 
-  controller_->CaptureScreenshotBase64(
-      tab_id_,
-      base::BindOnce(&AbpActionContext::OnScreenshotBase64Captured,
-                     weak_factory_.GetWeakPtr()));
+  gfx::NativeView native_view = web_contents_->GetContentNativeView();
+  if (!native_view) {
+    VLOG(1) << "ABP ActionContext: No native view, skipping screenshot";
+    OnScreenshotBase64Captured(std::string(), 0, 0);
+    return;
+  }
+
+  content::RenderWidgetHostView* view =
+      web_contents_->GetRenderWidgetHostView();
+  gfx::Rect source_rect;
+  if (view) {
+    source_rect = gfx::Rect(view->GetViewBounds().size());
+  }
+
+  // Use GrabViewSnapshot for OS-level capture of just the web content area.
+  // This works even when execution is paused (unlike CopyFromSurface/ForceRedraw
+  // which depend on the renderer compositor producing frames).
+  ui::GrabViewSnapshot(
+      native_view, source_rect,
+      base::BindOnce(
+          [](base::WeakPtr<AbpActionContext> ctx, gfx::Image snapshot) {
+            if (!ctx) return;
+
+            if (snapshot.IsEmpty()) {
+              VLOG(1) << "ABP ActionContext: GrabViewSnapshot returned empty";
+              ctx->OnScreenshotBase64Captured(std::string(), 0, 0);
+              return;
+            }
+
+            const SkBitmap& bitmap = *snapshot.ToSkBitmap();
+
+            auto encoded = gfx::WebpCodec::Encode(bitmap, 80);
+            if (!encoded || encoded->empty()) {
+              ctx->OnScreenshotBase64Captured(std::string(), 0, 0);
+              return;
+            }
+
+            std::string base64_data = base::Base64Encode(*encoded);
+            ctx->OnScreenshotBase64Captured(
+                std::move(base64_data),
+                snapshot.Width(), snapshot.Height());
+          },
+          weak_factory_.GetWeakPtr()));
 }
 
 void AbpActionContext::OnScreenshotBase64Captured(std::string base64,
                                                    int width,
                                                    int height) {
+  // Guard: the safety timeout and the real CDP callback both target this
+  // method.  Only the first arrival proceeds; the second is dropped.
+  if (screenshot_base64_captured_) {
+    return;
+  }
+  screenshot_base64_captured_ = true;
+
   VLOG(1) << "ABP ActionContext: OnScreenshotBase64Captured() action=" << action_type_
            << " has_data=" << !base64.empty();
   screenshot_base64_ = std::move(base64);
   screenshot_width_ = width;
   screenshot_height_ = height;
 
-  // Now pause execution (freezes V8 + virtual time)
-  PauseExecutionIfNeeded();
+  // Re-pause virtual time (it was temporarily resumed for the screenshot).
+  controller_->RestoreVirtualTimePause(
+      tab_id_,
+      base::BindOnce(&AbpActionContext::FinalizeResponse,
+                     weak_factory_.GetWeakPtr()));
 }
 
 void AbpActionContext::PauseExecutionIfNeeded() {
@@ -364,6 +421,25 @@ void AbpActionContext::PauseExecutionIfNeeded() {
 
 void AbpActionContext::OnExecutionPaused() {
   VLOG(1) << "ABP ActionContext: OnExecutionPaused() action=" << action_type_;
+
+  // On error, skip the screenshot and finalize immediately.
+  if (has_error_) {
+    FinalizeResponse();
+    return;
+  }
+
+  // Execution is now paused (Debugger.pause + virtual time "pause").
+  // The compositor is frozen because virtual time is paused — CopyFromSurface
+  // will time out with no fresh frame.  Temporarily resume virtual time so
+  // the compositor can produce a frame, then capture and re-pause.
+  controller_->EnsureCompositorActive(
+      tab_id_,
+      base::BindOnce(&AbpActionContext::CaptureScreenshotBase64,
+                     weak_factory_.GetWeakPtr()));
+}
+
+void AbpActionContext::FinalizeResponse() {
+  VLOG(1) << "ABP ActionContext: FinalizeResponse() action=" << action_type_;
 
   // Record to history
   RecordHistory(!has_error_, error_code_, error_message_);

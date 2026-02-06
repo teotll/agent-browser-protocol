@@ -160,6 +160,7 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   void RecordHistory(bool success,
                      const std::string& error_code,
                      const std::string& error_message);
+  void FinalizeResponse();
   void BuildResponseEnvelope();
   void SendResponse();
   void SendErrorResponse(int status,
@@ -198,6 +199,9 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   int screenshot_width_ = 0;
   int screenshot_height_ = 0;
   int64_t wait_completed_ms_ = 0;
+
+  // Screenshot base64 capture guard (safety timeout vs CDP response race)
+  bool screenshot_base64_captured_ = false;
 
   // Error state
   bool has_error_ = false;

@@ -5,7 +5,12 @@
 #include <memory>
 #include <string>
 
+#include "build/build_config.h"
 #include "net/server/http_server.h"
+
+#if BUILDFLAG(IS_MAC)
+#include <IOKit/pwr_mgt/IOPMLib.h>
+#endif
 
 namespace abp {
 
@@ -77,6 +82,10 @@ class AbpHttpServer : public net::HttpServer::Delegate {
   std::unique_ptr<AbpEventObserver> event_observer_;  // UI thread only
   std::unique_ptr<AbpDownloadObserver> download_observer_;  // UI thread only
   std::unique_ptr<AbpMcpHandler> mcp_handler_;  // UI thread only
+
+#if BUILDFLAG(IS_MAC)
+  IOPMAssertionID display_sleep_assertion_ = kIOPMNullAssertionID;
+#endif
 };
 
 }  // namespace abp

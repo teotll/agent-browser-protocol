@@ -43,11 +43,18 @@ source_set("abp") {
     "//skia",
     "//sql",
     "//ui/base",
+    "//components/viz/common",
     "//ui/gfx",
+    "//ui/gfx/codec",
     "//ui/gfx/geometry",
+    "//ui/snapshot",
   ]
 
   if (use_aura) {
     deps += [ "//ui/aura" ]
+  }
+
+  if (is_mac) {
+    frameworks = [ "IOKit.framework" ]
   }
 }

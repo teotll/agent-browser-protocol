@@ -2,6 +2,12 @@
 
 #include <optional>
 
+#include "build/build_config.h"
+
+#if BUILDFLAG(IS_MAC)
+#include <IOKit/pwr_mgt/IOPMLib.h>
+#endif
+
 #include "base/command_line.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
@@ -70,6 +76,14 @@ AbpHttpServer::~AbpHttpServer() {
   if (history_controller_) {
     history_controller_->Shutdown();
   }
+
+#if BUILDFLAG(IS_MAC)
+  // Release display sleep assertion
+  if (display_sleep_assertion_ != kIOPMNullAssertionID) {
+    IOPMAssertionRelease(display_sleep_assertion_);
+    display_sleep_assertion_ = kIOPMNullAssertionID;
+  }
+#endif
 }
 
 void AbpHttpServer::Start() {
@@ -104,6 +118,31 @@ void AbpHttpServer::Start() {
 
   // Create MCP handler
   mcp_handler_ = std::make_unique<AbpMcpHandler>(controller_.get());
+
+#if BUILDFLAG(IS_MAC)
+  // Wake the display and prevent it from sleeping while ABP is active.
+  // The renderer's compositor stops producing frames when the display is
+  // asleep, which causes all screenshot methods (CopyFromSurface,
+  // ForceRedraw, GrabWindowSnapshot) to hang or return empty results.
+
+  // First, wake the display if it's currently asleep
+  IOPMAssertionID wake_assertion = kIOPMNullAssertionID;
+  IOPMAssertionDeclareUserActivity(
+      CFSTR("Agent Browser Protocol waking display"),
+      kIOPMUserActiveLocal, &wake_assertion);
+
+  // Then prevent future display sleep
+  CFStringRef reason = CFSTR("Agent Browser Protocol active session");
+  IOReturn result = IOPMAssertionCreateWithName(
+      kIOPMAssertionTypePreventUserIdleDisplaySleep,
+      kIOPMAssertionLevelOn, reason, &display_sleep_assertion_);
+  if (result == kIOReturnSuccess) {
+    LOG(INFO) << "ABP: Display wake + sleep prevention enabled";
+  } else {
+    LOG(WARNING) << "ABP: Failed to prevent display sleep: " << result;
+    display_sleep_assertion_ = kIOPMNullAssertionID;
+  }
+#endif
 
   // Safe to use Unretained because AbpHttpServer is a singleton that lives
   // for the lifetime of the browser process.

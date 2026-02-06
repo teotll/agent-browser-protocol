@@ -36,6 +36,7 @@
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/render_process_host.h"
+#include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
@@ -45,6 +46,7 @@
 #include "ui/gfx/codec/webp_codec.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/snapshot/snapshot.h"
 
 namespace abp {
 
@@ -1578,25 +1580,289 @@ void AbpController::OnMarkupInjected(const std::string& tab_id,
 void AbpController::CaptureScreenshotWithCursor(const std::string& tab_id,
                                                  ResponseCallback callback,
                                                  const ScreenshotOptions& options) {
+  // Wrap callback to restore virtual time pause after the screenshot completes.
+  // RestoreVirtualTimePause is a no-op if virtual time isn't paused.
+  auto wrapped_cb = base::BindOnce(
+      [](base::WeakPtr<AbpController> ctrl, std::string tid,
+         ResponseCallback orig,
+         int status, const std::string& ct, std::string body) {
+        if (!ctrl) {
+          std::move(orig).Run(status, ct, std::move(body));
+          return;
+        }
+        ctrl->RestoreVirtualTimePause(
+            tid,
+            base::BindOnce(
+                [](ResponseCallback cb, int s, std::string ct, std::string b) {
+                  std::move(cb).Run(s, std::move(ct), std::move(b));
+                },
+                std::move(orig), status, std::string(ct), std::move(body)));
+      },
+      weak_factory_.GetWeakPtr(), tab_id, std::move(callback));
+
+  // Ensure compositor is active (temporarily resumes virtual time if paused).
+  EnsureCompositorActive(
+      tab_id,
+      base::BindOnce(&AbpController::DoCaptureScreenshotWithCursor,
+                     weak_factory_.GetWeakPtr(), tab_id,
+                     std::move(wrapped_cb), options));
+}
+
+void AbpController::DoCaptureScreenshotWithCursor(
+    const std::string& tab_id,
+    ResponseCallback callback,
+    const ScreenshotOptions& options) {
+  LOG(INFO) << "ABP: DoCaptureScreenshotWithCursor for tab " << tab_id;
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
     SendError(404, "Tab not found", std::move(callback));
     return;
   }
 
-  content::RenderWidgetHostView* rwhv = wc->GetRenderWidgetHostView();
-  if (!rwhv) {
-    SendError(500, "No RenderWidgetHostView for screenshot", std::move(callback));
+  content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
+  if (!view) {
+    SendError(500, "No render widget host view", std::move(callback));
     return;
   }
 
-  // Use CopyFromSurface which includes the inspector overlay (with cursor)
-  rwhv->CopyFromSurface(
-      gfx::Rect(),   // empty = full viewport
-      gfx::Size(),   // empty = native resolution
-      base::Seconds(5),  // timeout
-      base::BindOnce(&AbpController::OnCursorScreenshotCaptured,
-                     weak_factory_.GetWeakPtr(), tab_id, std::move(callback), options));
+  // Use RenderWidgetHostImpl::GetSnapshotFromBrowser which handles
+  // ForceRedraw + RequestRepaintOnNewSurface + CopyFromSurface with retries
+  // when kCDPScreenshotNewSurface is enabled.
+  auto* rwhi = static_cast<content::RenderWidgetHostImpl*>(
+      view->GetRenderWidgetHost());
+
+  // Short timeout (500ms) — when the renderer can respond, GetSnapshotFromBrowser
+  // completes in ~25ms. When execution is paused, the renderer's compositor
+  // can't respond, so we quickly fall back to GrabViewSnapshot (OS-level capture).
+  struct SnapState {
+    bool done = false;
+    ResponseCallback cb;
+    ScreenshotOptions opts;
+    std::string tab_id;
+  };
+  auto st = std::make_shared<SnapState>();
+  st->cb = std::move(callback);
+  st->opts = options;
+  st->tab_id = tab_id;
+
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](std::shared_ptr<SnapState> s,
+             base::WeakPtr<AbpController> ctrl) {
+            if (s->done) return;
+            s->done = true;
+            LOG(WARNING) << "ABP: GetSnapshotFromBrowser timeout, "
+                         << "falling back to GrabViewSnapshot";
+            if (ctrl) {
+              ctrl->DoCaptureScreenshotFallback(
+                  s->tab_id, std::move(s->cb), s->opts);
+            }
+          },
+          st, weak_factory_.GetWeakPtr()),
+      base::Milliseconds(500));
+
+  rwhi->GetSnapshotFromBrowser(
+      base::BindOnce(
+          [](std::shared_ptr<SnapState> s,
+             base::WeakPtr<AbpController> ctrl,
+             const gfx::Image& image) {
+            if (s->done) return;
+            s->done = true;
+            if (!ctrl) return;
+
+            if (image.IsEmpty()) {
+              LOG(WARNING) << "ABP: GetSnapshotFromBrowser returned empty";
+              ctrl->DoCaptureScreenshotFallback(
+                  s->tab_id, std::move(s->cb), s->opts);
+              return;
+            }
+
+            LOG(INFO) << "ABP: GetSnapshotFromBrowser succeeded: "
+                      << image.Width() << "x" << image.Height();
+            ctrl->OnGrabViewSnapshotResult(
+                std::move(s->cb), s->opts, image);
+          },
+          st, weak_factory_.GetWeakPtr()),
+      /*from_surface=*/true);
+}
+
+void AbpController::DoCaptureScreenshotFallback(
+    const std::string& tab_id,
+    ResponseCallback callback,
+    const ScreenshotOptions& options) {
+  content::WebContents* wc = FindWebContents(tab_id);
+  if (!wc) {
+    SendError(404, "Tab not found", std::move(callback));
+    return;
+  }
+
+  // Use GrabViewSnapshot to capture just the web content area (no browser
+  // chrome). This works even when execution is paused because it uses
+  // OS-level ScreenCaptureKit on macOS.
+  gfx::NativeView native_view = wc->GetContentNativeView();
+  content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
+
+  gfx::Rect source_rect;
+  if (view) {
+    gfx::Size view_size = view->GetViewBounds().size();
+    source_rect = gfx::Rect(view_size);
+    LOG(INFO) << "ABP: Screenshot fallback (GrabViewSnapshot) - view="
+              << view_size.width() << "x" << view_size.height();
+  }
+
+  if (!native_view) {
+    SendError(500, "No native view available", std::move(callback));
+    return;
+  }
+
+  ui::GrabViewSnapshot(
+      native_view, source_rect,
+      base::BindOnce(
+          [](base::WeakPtr<AbpController> ctrl,
+             ResponseCallback cb, ScreenshotOptions opts,
+             gfx::Image snapshot) {
+            if (!ctrl) return;
+            if (!snapshot.IsEmpty()) {
+              LOG(INFO) << "ABP: GrabViewSnapshot succeeded: "
+                        << snapshot.Width() << "x" << snapshot.Height();
+              ctrl->OnGrabViewSnapshotResult(std::move(cb), opts,
+                                             std::move(snapshot));
+              return;
+            }
+            LOG(WARNING) << "ABP: GrabViewSnapshot returned empty";
+            ctrl->SendError(
+                500, "Screenshot capture failed (display may be asleep)",
+                std::move(cb));
+          },
+          weak_factory_.GetWeakPtr(), std::move(callback), options));
+}
+
+void AbpController::OnGrabViewSnapshotResult(
+    ResponseCallback callback,
+    const ScreenshotOptions& options,
+    gfx::Image snapshot) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  if (snapshot.IsEmpty()) {
+    LOG(WARNING) << "ABP: GrabViewSnapshot returned empty image";
+    SendError(500, "Screenshot capture failed (empty image)",
+              std::move(callback));
+    return;
+  }
+
+  LOG(INFO) << "ABP: GrabViewSnapshot succeeded: " << snapshot.Width()
+            << "x" << snapshot.Height();
+
+  const SkBitmap& bitmap = *snapshot.ToSkBitmap();
+
+  // Encode the bitmap in the requested format
+  std::optional<std::vector<uint8_t>> encoded;
+  if (options.format == "jpeg") {
+    encoded = gfx::JPEGCodec::Encode(bitmap, options.quality);
+  } else if (options.format == "webp") {
+    encoded = gfx::WebpCodec::Encode(bitmap, options.quality);
+  } else {
+    encoded = gfx::PNGCodec::EncodeBGRASkBitmap(bitmap, false);
+  }
+
+  if (!encoded || encoded->empty()) {
+    SendError(500, "Failed to encode screenshot", std::move(callback));
+    return;
+  }
+
+  std::string base64_data = base::Base64Encode(*encoded);
+
+  std::string mime_type = "image/png";
+  if (options.format == "jpeg") mime_type = "image/jpeg";
+  else if (options.format == "webp") mime_type = "image/webp";
+
+  base::Value::Dict response;
+  response.Set("data", base64_data);
+  response.Set("mimeType", mime_type);
+  response.Set("format", options.format);
+  SendJson(200, base::Value(std::move(response)), std::move(callback));
+}
+
+void AbpController::OnCopyFromSurfaceResult(
+    const std::string& tab_id,
+    ResponseCallback callback,
+    const ScreenshotOptions& options,
+    int retry_count,
+    const content::CopyFromSurfaceResult& result) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  if (!result.has_value() || result->bitmap.empty()) {
+    LOG(INFO) << "ABP: CopyFromSurface returned empty (retry " << retry_count
+              << "), has_value=" << result.has_value();
+
+    // Retry up to 3 times with a small delay
+    if (retry_count < 3) {
+      content::WebContents* wc = FindWebContents(tab_id);
+      if (wc) {
+        content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
+        if (view) {
+          base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+              FROM_HERE,
+              base::BindOnce(
+                  [](base::WeakPtr<AbpController> ctrl, std::string tid,
+                     ResponseCallback cb, ScreenshotOptions opts,
+                     int retry) {
+                    if (!ctrl) return;
+                    auto* wc2 = ctrl->FindWebContents(tid);
+                    if (!wc2) return;
+                    auto* view2 = wc2->GetRenderWidgetHostView();
+                    if (!view2) return;
+                    view2->CopyFromSurface(
+                        gfx::Rect(), gfx::Size(), base::TimeDelta(),
+                        base::BindOnce(
+                            &AbpController::OnCopyFromSurfaceResult,
+                            ctrl, tid, std::move(cb), opts, retry));
+                  },
+                  weak_factory_.GetWeakPtr(), tab_id, std::move(callback),
+                  options, retry_count + 1),
+              base::Milliseconds(100));
+          return;
+        }
+      }
+    }
+
+    // All retries exhausted - return error
+    SendError(500, "Screenshot capture failed (CopyFromSurface returned empty)",
+              std::move(callback));
+    return;
+  }
+
+  LOG(INFO) << "ABP: CopyFromSurface succeeded: " << result->bitmap.width()
+            << "x" << result->bitmap.height();
+
+  // Encode the bitmap
+  std::optional<std::vector<uint8_t>> encoded;
+  if (options.format == "jpeg") {
+    encoded = gfx::JPEGCodec::Encode(result->bitmap, options.quality);
+  } else if (options.format == "webp") {
+    encoded = gfx::WebpCodec::Encode(result->bitmap, options.quality);
+  } else {
+    encoded = gfx::PNGCodec::EncodeBGRASkBitmap(result->bitmap, false);
+  }
+
+  if (!encoded || encoded->empty()) {
+    SendError(500, "Failed to encode screenshot", std::move(callback));
+    return;
+  }
+
+  // Base64 encode
+  std::string base64_data = base::Base64Encode(*encoded);
+
+  std::string mime_type = "image/png";
+  if (options.format == "jpeg") mime_type = "image/jpeg";
+  else if (options.format == "webp") mime_type = "image/webp";
+
+  base::Value::Dict response;
+  response.Set("data", base64_data);
+  response.Set("mimeType", mime_type);
+  response.Set("format", options.format);
+  SendJson(200, base::Value(std::move(response)), std::move(callback));
 }
 
 void AbpController::OnCursorScreenshotCaptured(const std::string& tab_id,
@@ -2563,6 +2829,56 @@ void AbpController::OnDebuggerPaused(const std::string& tab_id,
 
   LOG(INFO) << "ABP: Execution paused for tab " << tab_id;
   std::move(then).Run();
+}
+
+void AbpController::EnsureCompositorActive(const std::string& tab_id,
+                                            base::OnceClosure callback) {
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end() || !it->second.execution.paused ||
+      !it->second.execution.virtual_time_enabled) {
+    // Not paused — compositor should be active already.
+    std::move(callback).Run();
+    return;
+  }
+
+  VLOG(1) << "ABP: EnsureCompositorActive - full resume for tab " << tab_id;
+
+  // Full resume: Debugger.resume + setVirtualTimePolicy("realtime") +
+  // Page.bringToFront.  The renderer main thread must be unblocked for the
+  // compositor to produce a frame that CopyFromSurface can grab.
+  // ResumeExecution sets execution.paused = false.
+  ResumeExecution(
+      tab_id,
+      base::BindOnce(
+          [](base::OnceClosure cb) {
+            // Give the compositor time to produce a frame after full resume.
+            base::SingleThreadTaskRunner::GetCurrentDefault()
+                ->PostDelayedTask(FROM_HERE, std::move(cb),
+                                  base::Milliseconds(100));
+          },
+          std::move(callback)));
+}
+
+void AbpController::RestoreVirtualTimePause(const std::string& tab_id,
+                                             base::OnceClosure callback) {
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end() || it->second.execution.paused) {
+    // Already paused or unknown tab — nothing to do.
+    std::move(callback).Run();
+    return;
+  }
+
+  if (!it->second.execution.virtual_time_enabled) {
+    // Execution control not enabled — nothing to restore.
+    std::move(callback).Run();
+    return;
+  }
+
+  VLOG(1) << "ABP: RestoreVirtualTimePause - full pause for tab " << tab_id;
+
+  // Full pause: setVirtualTimePolicy("pause") + Debugger.pause.
+  // PauseExecution sets execution.paused = true.
+  PauseExecution(tab_id, std::move(callback));
 }
 
 void AbpController::PauseAllTabs() {
@@ -3591,44 +3907,72 @@ void AbpController::BinaryScreenshot(const std::string& tab_id,
     }
   }
 
-  // For binary output, we use CopyFromSurface directly
-  // TODO: Add markup support later if needed
-  view->CopyFromSurface(
-      gfx::Rect(),       // Empty rect = entire surface
-      gfx::Size(),       // Empty size = native size
-      base::Seconds(5),  // 5 second timeout to match other screenshot paths
+  // Use CopyFromSurface directly with EnsureCompositorActive/RestoreVirtualTimePause.
+  auto wrapped_cb = base::BindOnce(
+      [](base::WeakPtr<AbpController> ctrl, std::string tid,
+         ResponseCallback orig,
+         int status, const std::string& ct, std::string body) {
+        if (!ctrl) {
+          std::move(orig).Run(status, ct, std::move(body));
+          return;
+        }
+        ctrl->RestoreVirtualTimePause(
+            tid,
+            base::BindOnce(
+                [](ResponseCallback cb, int s, std::string ct, std::string b) {
+                  std::move(cb).Run(s, std::move(ct), std::move(b));
+                },
+                std::move(orig), status, std::string(ct), std::move(body)));
+      },
+      weak_factory_.GetWeakPtr(), tab_id, std::move(callback));
+
+  EnsureCompositorActive(
+      tab_id,
       base::BindOnce(
-          [](ResponseCallback cb,
-             const content::CopyFromSurfaceResult& result) {
-            // Check if the copy failed
-            if (!result.has_value()) {
-              std::move(cb).Run(500, "application/json",
-                               R"({"error":"Screenshot capture failed"})");
+          [](base::WeakPtr<AbpController> ctrl, std::string tid,
+             ResponseCallback cb) {
+            if (!ctrl) return;
+            auto* wc = ctrl->FindWebContents(tid);
+            if (!wc) {
+              ctrl->SendError(404, "Tab not found", std::move(cb));
               return;
             }
-
-            const SkBitmap& bitmap = result.value().bitmap;
-            if (bitmap.drawsNothing()) {
+            gfx::NativeView native_view = wc->GetContentNativeView();
+            if (!native_view) {
               std::move(cb).Run(500, "application/json",
-                               R"({"error":"Empty screenshot"})");
+                               R"({"error":"No native view"})");
               return;
             }
-
-            // Encode as WebP
-            std::optional<std::vector<uint8_t>> encoded =
-                gfx::WebpCodec::Encode(bitmap, 80);
-
-            if (!encoded || encoded->empty()) {
-              std::move(cb).Run(500, "application/json",
-                               R"({"error":"WebP encoding failed"})");
-              return;
+            auto* view = wc->GetRenderWidgetHostView();
+            gfx::Rect source_rect;
+            if (view) {
+              source_rect = gfx::Rect(view->GetViewBounds().size());
             }
-
-            // Return raw binary WebP data
-            std::string binary_data(encoded->begin(), encoded->end());
-            std::move(cb).Run(200, "image/webp", std::move(binary_data));
+            ui::GrabViewSnapshot(
+                native_view, source_rect,
+                base::BindOnce(
+                    [](ResponseCallback cb, gfx::Image snapshot) {
+                      if (snapshot.IsEmpty()) {
+                        std::move(cb).Run(
+                            500, "application/json",
+                            R"({"error":"Screenshot capture failed"})");
+                        return;
+                      }
+                      const SkBitmap& bitmap = *snapshot.ToSkBitmap();
+                      auto encoded = gfx::WebpCodec::Encode(bitmap, 80);
+                      if (!encoded || encoded->empty()) {
+                        std::move(cb).Run(
+                            500, "application/json",
+                            R"({"error":"Failed to encode screenshot"})");
+                        return;
+                      }
+                      std::string binary(encoded->begin(), encoded->end());
+                      std::move(cb).Run(200, "image/webp",
+                                        std::move(binary));
+                    },
+                    std::move(cb)));
           },
-          std::move(callback)));
+          weak_factory_.GetWeakPtr(), tab_id, std::move(wrapped_cb)));
 }
 
 // Browser shutdown endpoint
