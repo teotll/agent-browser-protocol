@@ -4,10 +4,12 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <cstdint>
 
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
+#include "base/timer/timer.h"
 #include "base/values.h"
 #include "chrome/browser/abp/abp_event_collector.h"
 #include "chrome/browser/abp/abp_types.h"
@@ -137,7 +139,10 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
 
   // Internal flow methods
   void Start();
+  void StartOnDeterministicSlot(uint64_t action_epoch);
   void StartEventCapture();
+  bool IsCurrentAction() const;
+  void ReleaseDeterministicSlot();
   void ResumeExecutionIfNeeded();
   void OnExecutionResumed();
   void CaptureBeforeScreenshot();
@@ -170,6 +175,7 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   void SendErrorResponse(int status,
                          const std::string& error_code,
                          const std::string& error_message);
+  void OnActionTimeout();
 
   // State
   raw_ptr<AbpController> controller_;
@@ -222,6 +228,14 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   // Self-reference to prevent destruction during async operations.
   // Set in Start(), cleared in SendResponse()/SendErrorResponse().
   scoped_refptr<AbpActionContext> prevent_destroy_;
+
+  // Deterministic action runner epoch for stale-callback filtering.
+  uint64_t action_epoch_ = 0;
+  bool deterministic_slot_active_ = false;
+
+  // Action-level timeout to prevent permanent queue stalls.
+  static constexpr base::TimeDelta kActionTimeout = base::Seconds(30);
+  base::OneShotTimer action_timeout_timer_;
 
   base::WeakPtrFactory<AbpActionContext> weak_factory_{this};
 };

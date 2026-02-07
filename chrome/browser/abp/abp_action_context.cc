@@ -1,6 +1,7 @@
 #include "chrome/browser/abp/abp_action_context.h"
 
 #include "base/logging.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 #include "chrome/browser/abp/abp_controller.h"
 #include "chrome/browser/abp/abp_event_collector.h"
@@ -34,7 +35,8 @@ void AbpActionContext::RunWithOptions(AbpController* controller,
   auto ctx = base::MakeRefCounted<AbpActionContext>(
       controller, tab_id, action_type, params, options, std::move(action),
       std::move(response));
-  ctx->Start();
+  controller->RunOrQueueDeterministicAction(
+      tab_id, base::BindOnce(&AbpActionContext::StartOnDeterministicSlot, ctx));
 }
 
 AbpActionContext::AbpActionContext(AbpController* controller,
@@ -52,7 +54,15 @@ AbpActionContext::AbpActionContext(AbpController* controller,
       action_(std::move(action)),
       response_callback_(std::move(response)) {}
 
-AbpActionContext::~AbpActionContext() = default;
+AbpActionContext::~AbpActionContext() {
+  ReleaseDeterministicSlot();
+}
+
+void AbpActionContext::StartOnDeterministicSlot(uint64_t action_epoch) {
+  action_epoch_ = action_epoch;
+  deterministic_slot_active_ = true;
+  Start();
+}
 
 void AbpActionContext::Start() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -60,6 +70,12 @@ void AbpActionContext::Start() {
 
   // Hold a self-reference to prevent destruction during async operations
   prevent_destroy_ = this;
+
+  // Start action-level timeout watchdog
+  action_timeout_timer_.Start(
+      FROM_HERE, kActionTimeout,
+      base::BindOnce(&AbpActionContext::OnActionTimeout,
+                     base::Unretained(this)));
 
   start_time_ms_ = base::Time::Now().InMillisecondsSinceUnixEpoch();
   start_ticks_ = base::TimeTicks::Now();
@@ -111,6 +127,21 @@ void AbpActionContext::StartEventCapture() {
   }
 }
 
+bool AbpActionContext::IsCurrentAction() const {
+  if (!deterministic_slot_active_) {
+    return false;
+  }
+  return controller_->IsDeterministicActionCurrent(tab_id_, action_epoch_);
+}
+
+void AbpActionContext::ReleaseDeterministicSlot() {
+  if (!deterministic_slot_active_) {
+    return;
+  }
+  deterministic_slot_active_ = false;
+  controller_->FinishDeterministicAction(tab_id_, action_epoch_);
+}
+
 void AbpActionContext::ResumeExecutionIfNeeded() {
   VLOG(1) << "ABP ActionContext: ResumeExecutionIfNeeded() action=" << action_type_;
   // Check if resume should be skipped for this action
@@ -133,6 +164,9 @@ void AbpActionContext::ResumeExecutionIfNeeded() {
 }
 
 void AbpActionContext::OnExecutionResumed() {
+  if (!IsCurrentAction()) {
+    return;
+  }
   VLOG(1) << "ABP ActionContext: OnExecutionResumed() action=" << action_type_;
   if (has_error_) {
     return;
@@ -165,6 +199,9 @@ void AbpActionContext::OnBeforeScreenshotCaptured(std::string history_path,
                                                     std::string base64,
                                                     int width,
                                                     int height) {
+  if (!IsCurrentAction()) {
+    return;
+  }
   VLOG(1) << "ABP ActionContext: OnBeforeScreenshotCaptured() action=" << action_type_;
   screenshot_before_path_ = std::move(history_path);
   screenshot_before_base64_ = std::move(base64);
@@ -191,6 +228,9 @@ void AbpActionContext::ExecuteAction() {
 }
 
 void AbpActionContext::OnActionDispatched() {
+  if (!IsCurrentAction()) {
+    return;
+  }
   VLOG(1) << "ABP ActionContext: OnActionDispatched() action=" << action_type_;
   action_end_ticks_ = base::TimeTicks::Now();
 
@@ -215,6 +255,9 @@ void AbpActionContext::OnActionDispatched() {
 
 void AbpActionContext::OnActionError(const std::string& error_code,
                                      const std::string& error_message) {
+  if (!IsCurrentAction()) {
+    return;
+  }
   has_error_ = true;
   error_code_ = error_code;
   error_message_ = error_message;
@@ -248,6 +291,9 @@ void AbpActionContext::DoWaitUntil() {
 }
 
 void AbpActionContext::OnWaitUntilComplete() {
+  if (!IsCurrentAction()) {
+    return;
+  }
   VLOG(1) << "ABP ActionContext: OnWaitUntilComplete() action=" << action_type_;
   wait_completed_ms_ = base::Time::Now().InMillisecondsSinceUnixEpoch();
 
@@ -299,6 +345,9 @@ void AbpActionContext::StopEventCaptureAndGetScrollPosition() {
 }
 
 void AbpActionContext::OnScrollPositionReceived(base::Value::Dict scroll_info) {
+  if (!IsCurrentAction()) {
+    return;
+  }
   VLOG(1) << "ABP ActionContext: OnScrollPositionReceived() action=" << action_type_;
   scroll_info_ = std::move(scroll_info);
 
@@ -355,6 +404,9 @@ void AbpActionContext::OnAfterScreenshotCaptured(std::string history_path,
                                                    std::string base64,
                                                    int width,
                                                    int height) {
+  if (!IsCurrentAction()) {
+    return;
+  }
   VLOG(1) << "ABP ActionContext: OnAfterScreenshotCaptured() action=" << action_type_;
   screenshot_after_path_ = std::move(history_path);
   screenshot_after_base64_ = std::move(base64);
@@ -387,6 +439,9 @@ void AbpActionContext::PauseExecutionIfNeeded() {
 }
 
 void AbpActionContext::OnExecutionPaused() {
+  if (!IsCurrentAction()) {
+    return;
+  }
   VLOG(1) << "ABP ActionContext: OnExecutionPaused() action=" << action_type_;
 
   // Both before and after screenshots are already captured.
@@ -433,9 +488,15 @@ void AbpActionContext::BuildResponseEnvelope() {
 }
 
 void AbpActionContext::SendResponse() {
+  action_timeout_timer_.Stop();
+  if (!IsCurrentAction()) {
+    return;
+  }
   VLOG(1) << "ABP ActionContext: SendResponse() action=" << action_type_;
   if (!response_callback_) {
     LOG(WARNING) << "ABP ActionContext: SendResponse() - NO CALLBACK!";
+    ReleaseDeterministicSlot();
+    prevent_destroy_ = nullptr;
     return;
   }
 
@@ -509,6 +570,7 @@ void AbpActionContext::SendResponse() {
   controller_->SendJson(200, base::Value(std::move(envelope)),
                         std::move(response_callback_));
 
+  ReleaseDeterministicSlot();
   // Clear self-reference to allow destruction
   prevent_destroy_ = nullptr;
 }
@@ -516,7 +578,13 @@ void AbpActionContext::SendResponse() {
 void AbpActionContext::SendErrorResponse(int status,
                                          const std::string& error_code,
                                          const std::string& error_message) {
+  action_timeout_timer_.Stop();
+  if (!IsCurrentAction()) {
+    return;
+  }
   if (!response_callback_) {
+    ReleaseDeterministicSlot();
+    prevent_destroy_ = nullptr;
     return;
   }
 
@@ -530,7 +598,30 @@ void AbpActionContext::SendErrorResponse(int status,
 
   controller_->SendError(status, error_message, std::move(response_callback_));
 
+  ReleaseDeterministicSlot();
   // Clear self-reference to allow destruction
+  prevent_destroy_ = nullptr;
+}
+
+void AbpActionContext::OnActionTimeout() {
+  LOG(WARNING) << "ABP ActionContext: Action timed out after "
+               << kActionTimeout.InSeconds() << "s, action=" << action_type_
+               << " tab=" << tab_id_;
+  if (!IsCurrentAction()) {
+    return;
+  }
+  has_error_ = true;
+  error_code_ = "ACTION_TIMEOUT";
+  error_message_ = "Action timed out after " +
+                    base::NumberToString(kActionTimeout.InSeconds()) + " seconds";
+
+  // Skip the normal pause flow — just release and respond immediately.
+  // The next queued action will re-establish correct execution state.
+  RecordHistory(false, error_code_, error_message_);
+  if (response_callback_) {
+    controller_->SendError(504, error_message_, std::move(response_callback_));
+  }
+  ReleaseDeterministicSlot();
   prevent_destroy_ = nullptr;
 }
 
