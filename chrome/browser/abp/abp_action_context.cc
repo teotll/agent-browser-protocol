@@ -343,10 +343,11 @@ void AbpActionContext::StopEventCaptureAndGetScrollPosition() {
     captured_events_ = controller_->event_collector()->StopCapturing();
   }
 
-  // Execution may have been paused externally during the wait phase
-  // (e.g., by the 5-second auto-pause timer).  GetScrollPosition uses
-  // Runtime.evaluate which requires JS to be running, so resume first.
-  // PauseExecutionIfNeeded() later in the flow will re-pause.
+  // Defensive guard: execution may have been paused externally (e.g., via
+  // the /execution API endpoint). The auto-pause timer no longer fires
+  // during actions, but other pause sources are still possible.
+  // GetScrollPosition uses Runtime.evaluate which requires JS to be
+  // running, so resume first. PauseExecutionIfNeeded() later will re-pause.
   auto it = controller_->tab_states_.find(tab_id_);
   bool externally_paused =
       it != controller_->tab_states_.end() && it->second.execution.IsPaused();

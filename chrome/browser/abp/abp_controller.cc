@@ -3395,13 +3395,23 @@ void AbpController::PauseAllTabs() {
     return;
   }
 
-  LOG(INFO) << "ABP: Auto-pausing all tabs on startup";
+  LOG(INFO) << "ABP: Auto-pausing all idle tabs on startup";
   for (Browser* browser : *BrowserList::GetInstance()) {
     TabStripModel* tab_strip = browser->tab_strip_model();
     for (int i = 0; i < tab_strip->count(); ++i) {
       content::WebContents* wc = tab_strip->GetWebContentsAt(i);
       auto host = content::DevToolsAgentHost::GetOrCreateFor(wc);
       std::string tab_id = host->GetId();
+
+      // Skip tabs with an action currently executing — the action's
+      // own PauseExecutionIfNeeded() will pause when it completes.
+      auto it = tab_states_.find(tab_id);
+      if (it != tab_states_.end() && it->second.action_in_flight) {
+        LOG(INFO) << "ABP: Skipping auto-pause for tab " << tab_id
+                  << " (action in flight)";
+        continue;
+      }
+
       PauseExecution(tab_id, base::DoNothing());
     }
   }
