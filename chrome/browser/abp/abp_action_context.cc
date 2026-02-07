@@ -35,8 +35,15 @@ void AbpActionContext::RunWithOptions(AbpController* controller,
   auto ctx = base::MakeRefCounted<AbpActionContext>(
       controller, tab_id, action_type, params, options, std::move(action),
       std::move(response));
-  controller->RunOrQueueDeterministicAction(
-      tab_id, base::BindOnce(&AbpActionContext::StartOnDeterministicSlot, ctx));
+
+  bool accepted = controller->RunOrQueueDeterministicAction(
+      tab_id,
+      base::BindOnce(&AbpActionContext::StartOnDeterministicSlot, ctx));
+
+  if (!accepted) {
+    ctx->RejectBeforeStart(429, "QUEUE_FULL",
+                           "Too many queued actions for this tab");
+  }
 }
 
 AbpActionContext::AbpActionContext(AbpController* controller,
@@ -56,6 +63,15 @@ AbpActionContext::AbpActionContext(AbpController* controller,
 
 AbpActionContext::~AbpActionContext() {
   ReleaseDeterministicSlot();
+}
+
+void AbpActionContext::RejectBeforeStart(int status,
+                                         const std::string& error_code,
+                                         const std::string& error_message) {
+  if (!response_callback_) {
+    return;
+  }
+  controller_->SendError(status, error_message, std::move(response_callback_));
 }
 
 void AbpActionContext::StartOnDeterministicSlot(uint64_t action_epoch) {

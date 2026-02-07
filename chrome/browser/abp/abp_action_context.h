@@ -108,6 +108,12 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   void OnActionError(const std::string& error_code,
                      const std::string& error_message);
 
+  // Send a rejection response without entering the action flow.
+  // Used when the action is rejected before starting (e.g., queue full).
+  void RejectBeforeStart(int status,
+                         const std::string& error_code,
+                         const std::string& error_message);
+
   // Access to CDP client for action implementation
   AbpCdpClient* client() const { return client_; }
 

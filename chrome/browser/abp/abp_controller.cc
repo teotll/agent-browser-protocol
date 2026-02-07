@@ -149,18 +149,24 @@ void AbpController::CleanupTabState(const std::string& tab_id) {
   }
 }
 
-void AbpController::RunOrQueueDeterministicAction(
+bool AbpController::RunOrQueueDeterministicAction(
     const std::string& tab_id,
     base::OnceCallback<void(uint64_t)> starter) {
   TabState& state = GetOrCreateTabState(tab_id);
   if (state.action_in_flight) {
+    if (state.queued_action_starters.size() >= kMaxQueuedActionsPerTab) {
+      LOG(WARNING) << "ABP: Action queue full for tab " << tab_id
+                   << " (" << kMaxQueuedActionsPerTab << " queued)";
+      return false;
+    }
     state.queued_action_starters.push_back(std::move(starter));
-    return;
+    return true;
   }
 
   state.action_in_flight = true;
   state.active_action_epoch = ++state.next_action_epoch;
   std::move(starter).Run(state.active_action_epoch);
+  return true;
 }
 
 void AbpController::FinishDeterministicAction(const std::string& tab_id,

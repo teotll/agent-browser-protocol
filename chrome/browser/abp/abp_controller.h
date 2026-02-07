@@ -641,12 +641,16 @@ class AbpController {
   void CleanupTabState(const std::string& tab_id);
 
   // Deterministic per-tab action runner.
-  void RunOrQueueDeterministicAction(
+  // Returns true if the action was started or queued, false if rejected
+  // (queue full). Caller is responsible for sending 429 on rejection.
+  bool RunOrQueueDeterministicAction(
       const std::string& tab_id,
       base::OnceCallback<void(uint64_t)> starter);
   void FinishDeterministicAction(const std::string& tab_id, uint64_t action_epoch);
   bool IsDeterministicActionCurrent(const std::string& tab_id,
                                     uint64_t action_epoch) const;
+
+  static constexpr size_t kMaxQueuedActionsPerTab = 50;
 
   // ==========================================================================
   // Virtual cursor methods (private)
