@@ -177,33 +177,18 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
                                                           true);
             }
 
-            AbpCdpClient* client = ctx->client();
-            if (!client) {
-              ctx->OnActionError("CDP_ERROR", "CDP client lost");
-              return;
-            }
-
-            // Take a scoped_refptr to keep context alive through async calls
+            // Keep context alive through async fences + input dispatch.
             scoped_refptr<AbpActionContext> ctx_ref(ctx);
-
-            // Send mousePressed
-            base::Value::Dict press_params;
-            press_params.Set("type", "mousePressed");
-            press_params.Set("x", coord_x);
-            press_params.Set("y", coord_y);
-            press_params.Set("button", btn);
-            press_params.Set("clickCount", count);
-            press_params.Set("modifiers", modifiers);
-
-            client->SendCommand(
-                "Input.dispatchMouseEvent", std::move(press_params),
+            ctx->controller()->InsertVisualStateFence(
+                ctx->tab_id(),
                 base::BindOnce(
                     [](double x, double y, std::string button, int click_count,
-                       int mods,
-                       scoped_refptr<AbpActionContext> action_ctx, bool success,
-                       const std::string& result) {
-                      if (!success) {
-                        action_ctx->OnActionError("CDP_ERROR", result);
+                       int mods, scoped_refptr<AbpActionContext> action_ctx,
+                       bool fence_ready) {
+                      if (!fence_ready) {
+                        action_ctx->OnActionError(
+                            "VISUAL_STATE_ERROR",
+                            "Failed to establish visual-state fence before click");
                         return;
                       }
 
@@ -214,35 +199,67 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
                         return;
                       }
 
-                      // Send mouseReleased
-                      base::Value::Dict release_params;
-                      release_params.Set("type", "mouseReleased");
-                      release_params.Set("x", x);
-                      release_params.Set("y", y);
-                      release_params.Set("button", button);
-                      release_params.Set("clickCount", click_count);
-                      release_params.Set("modifiers", mods);
+                      // Send mousePressed after cursor is confirmed visible.
+                      base::Value::Dict press_params;
+                      press_params.Set("type", "mousePressed");
+                      press_params.Set("x", x);
+                      press_params.Set("y", y);
+                      press_params.Set("button", button);
+                      press_params.Set("clickCount", click_count);
+                      press_params.Set("modifiers", mods);
 
                       cdp_client->SendCommand(
-                          "Input.dispatchMouseEvent",
-                          std::move(release_params),
+                          "Input.dispatchMouseEvent", std::move(press_params),
                           base::BindOnce(
-                              [](scoped_refptr<AbpActionContext> c,
+                              [](double x, double y, std::string button,
+                                 int click_count, int mods,
+                                 scoped_refptr<AbpActionContext> action_ctx,
                                  bool success, const std::string& result) {
                                 if (!success) {
-                                  c->OnActionError("CDP_ERROR", result);
+                                  action_ctx->OnActionError("CDP_ERROR", result);
                                   return;
                                 }
 
-                                // Set result and signal action complete
-                                base::Value::Dict res;
-                                res.Set("status", "clicked");
-                                c->SetResult(std::move(res));
-                                c->OnActionDispatched();
+                                AbpCdpClient* cdp_client = action_ctx->client();
+                                if (!cdp_client) {
+                                  action_ctx->OnActionError(
+                                      "CDP_ERROR", "CDP client lost");
+                                  return;
+                                }
+
+                                // Send mouseReleased.
+                                base::Value::Dict release_params;
+                                release_params.Set("type", "mouseReleased");
+                                release_params.Set("x", x);
+                                release_params.Set("y", y);
+                                release_params.Set("button", button);
+                                release_params.Set("clickCount", click_count);
+                                release_params.Set("modifiers", mods);
+
+                                cdp_client->SendCommand(
+                                    "Input.dispatchMouseEvent",
+                                    std::move(release_params),
+                                    base::BindOnce(
+                                        [](scoped_refptr<AbpActionContext> c,
+                                           bool success,
+                                           const std::string& result) {
+                                          if (!success) {
+                                            c->OnActionError("CDP_ERROR",
+                                                             result);
+                                            return;
+                                          }
+
+                                          base::Value::Dict res;
+                                          res.Set("status", "clicked");
+                                          c->SetResult(std::move(res));
+                                          c->OnActionDispatched();
+                                        },
+                                        action_ctx));
                               },
-                              action_ctx));
+                              x, y, button, click_count, mods, action_ctx));
                     },
-                    coord_x, coord_y, btn, count, modifiers, ctx_ref));
+                    coord_x, coord_y, std::move(btn), count, modifiers,
+                    std::move(ctx_ref)));
           },
           click_x, click_y, std::move(button), click_count, mod_flags),
       std::move(callback));
@@ -386,45 +403,61 @@ void AbpInputDispatcher::Move(const std::string& tab_id,
                                                           true);
             }
 
-            AbpCdpClient* client = ctx->client();
-            if (!client) {
-              ctx->OnActionError("CDP_ERROR", "CDP client lost");
-              return;
-            }
-
             // Take a scoped_refptr to keep context alive through async calls.
             scoped_refptr<AbpActionContext> ctx_ref(ctx);
-
-            // Send mouseMoved event for page interaction (hover states, etc.).
-            base::Value::Dict move_params;
-            move_params.Set("type", "mouseMoved");
-            move_params.Set("x", coord_x);
-            move_params.Set("y", coord_y);
-
-            VLOG(1) << "ABP Move: Sending Input.dispatchMouseEvent ("
-                         << coord_x << ", " << coord_y << ")";
-            client->SendCommand(
-                "Input.dispatchMouseEvent", std::move(move_params),
+            ctx->controller()->InsertVisualStateFence(
+                ctx->tab_id(),
                 base::BindOnce(
                     [](double final_x, double final_y,
                        scoped_refptr<AbpActionContext> action_ctx,
-                       bool success, const std::string& result) {
-                      VLOG(1) << "ABP Move: Input.dispatchMouseEvent callback, success="
-                                   << success;
-                      if (!success) {
-                        action_ctx->OnActionError("CDP_ERROR", result);
+                       bool fence_ready) {
+                      if (!fence_ready) {
+                        action_ctx->OnActionError(
+                            "VISUAL_STATE_ERROR",
+                            "Failed to establish visual-state fence before move");
                         return;
                       }
 
-                      // Set result and signal action complete.
-                      base::Value::Dict res;
-                      res.Set("status", "moved");
-                      res.Set("x", final_x);
-                      res.Set("y", final_y);
-                      action_ctx->SetResult(std::move(res));
-                      action_ctx->OnActionDispatched();
+                      AbpCdpClient* cdp_client = action_ctx->client();
+                      if (!cdp_client) {
+                        action_ctx->OnActionError("CDP_ERROR",
+                                                  "CDP client lost");
+                        return;
+                      }
+
+                      // Send mouseMoved event for page interaction
+                      // (hover states, etc.).
+                      base::Value::Dict move_params;
+                      move_params.Set("type", "mouseMoved");
+                      move_params.Set("x", final_x);
+                      move_params.Set("y", final_y);
+
+                      VLOG(1) << "ABP Move: Sending Input.dispatchMouseEvent ("
+                              << final_x << ", " << final_y << ")";
+                      cdp_client->SendCommand(
+                          "Input.dispatchMouseEvent", std::move(move_params),
+                          base::BindOnce(
+                              [](double final_x, double final_y,
+                                 scoped_refptr<AbpActionContext> action_ctx,
+                                 bool success, const std::string& result) {
+                                VLOG(1) << "ABP Move: Input.dispatchMouseEvent callback, success="
+                                        << success;
+                                if (!success) {
+                                  action_ctx->OnActionError("CDP_ERROR",
+                                                            result);
+                                  return;
+                                }
+
+                                base::Value::Dict res;
+                                res.Set("status", "moved");
+                                res.Set("x", final_x);
+                                res.Set("y", final_y);
+                                action_ctx->SetResult(std::move(res));
+                                action_ctx->OnActionDispatched();
+                              },
+                              final_x, final_y, action_ctx));
                     },
-                    coord_x, coord_y, ctx_ref));
+                    coord_x, coord_y, std::move(ctx_ref)));
           },
           move_x, move_y),
       std::move(callback));

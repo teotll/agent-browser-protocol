@@ -2,11 +2,13 @@
 #define CHROME_BROWSER_ABP_ABP_CONTROLLER_H_
 
 #include <map>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <set>
 #include <string>
 #include <vector>
+#include <cstdint>
 
 #include "base/files/file_path.h"
 #include "base/memory/raw_ptr.h"
@@ -261,6 +263,12 @@ class AbpController {
 
   // Get virtual time for a tab, or wall clock if not enabled
   int64_t GetVirtualTimeMs(const std::string& tab_id);
+
+  // Insert a deterministic visual-state fence for a tab.
+  // Runs |callback| with true if a compositor frame boundary was reached.
+  // Runs with false if the tab/widget is unavailable or the fence fails.
+  void InsertVisualStateFence(const std::string& tab_id,
+                              base::OnceCallback<void(bool)> callback);
 
   // Get the event collector (for AbpActionContext)
   AbpEventCollector* event_collector() { return event_collector_.get(); }
@@ -610,6 +618,12 @@ class AbpController {
     // Action completion waiter (for screenshot timing)
     std::unique_ptr<ActionCompleteWaiter> action_waiter;
 
+    // Deterministic action loop state.
+    bool action_in_flight = false;
+    uint64_t active_action_epoch = 0;
+    uint64_t next_action_epoch = 0;
+    std::deque<base::OnceCallback<void(uint64_t)>> queued_action_starters;
+
     // Check if tab has any active state
     bool IsIdle() const;
 
@@ -625,6 +639,14 @@ class AbpController {
 
   // Clean up state for a closed tab
   void CleanupTabState(const std::string& tab_id);
+
+  // Deterministic per-tab action runner.
+  void RunOrQueueDeterministicAction(
+      const std::string& tab_id,
+      base::OnceCallback<void(uint64_t)> starter);
+  void FinishDeterministicAction(const std::string& tab_id, uint64_t action_epoch);
+  bool IsDeterministicActionCurrent(const std::string& tab_id,
+                                    uint64_t action_epoch) const;
 
   // ==========================================================================
   // Virtual cursor methods (private)
