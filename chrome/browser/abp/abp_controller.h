@@ -16,6 +16,7 @@
 #include "content/public/browser/devtools_agent_host_client.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
+#include "content/public/browser/web_contents_observer.h"
 #include "chrome/browser/abp/abp_types.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/image/image.h"
@@ -101,6 +102,23 @@ class AbpCdpClient : public content::DevToolsAgentHostClient {
   base::WeakPtrFactory<AbpCdpClient> weak_factory_{this};
 };
 
+// Per-tab observer for first paint events during action waits.
+// Created when a waiter starts, destroyed when waiter completes.
+class AbpPaintObserver : public content::WebContentsObserver {
+ public:
+  AbpPaintObserver(content::WebContents* wc, base::OnceClosure callback);
+  ~AbpPaintObserver() override;
+
+  AbpPaintObserver(const AbpPaintObserver&) = delete;
+  AbpPaintObserver& operator=(const AbpPaintObserver&) = delete;
+
+  // content::WebContentsObserver:
+  void DidFirstVisuallyNonEmptyPaint() override;
+
+ private:
+  base::OnceClosure callback_;
+};
+
 // Handles ABP REST API requests on the UI thread.
 // Provides direct access to browser windows and tabs.
 class AbpController {
@@ -118,6 +136,16 @@ class AbpController {
 
   AbpController(const AbpController&) = delete;
   AbpController& operator=(const AbpController&) = delete;
+
+  // Result from CaptureActionScreenshot
+  struct ActionScreenshotResult {
+    std::string history_path;  // Path to saved file (empty if history disabled)
+    std::string base64;        // Base64-encoded image data
+    int width = 0;
+    int height = 0;
+  };
+  using ActionScreenshotCallback =
+      base::OnceCallback<void(ActionScreenshotResult)>;
 
   // Screenshot options struct (public for lambda access)
   struct ScreenshotOptions {
@@ -207,6 +235,16 @@ class AbpController {
       int64_t timestamp,
       bool is_before,
       base::OnceCallback<void(std::string path)> callback);
+
+  // Capture screenshot for action context: injects markup CSS, captures via CDP,
+  // cleans up CSS, saves to disk for history, and returns base64 + dimensions.
+  // Serves both history and response purposes in a single capture.
+  void CaptureActionScreenshot(
+      const std::string& tab_id,
+      int64_t timestamp,
+      bool is_before,
+      const ScreenshotOptions& options,
+      ActionScreenshotCallback callback);
 
   // Update the virtual cursor state for a tab (used by input actions)
   void UpdateVirtualCursorState(const std::string& tab_id, double x, double y);
@@ -366,6 +404,41 @@ class AbpController {
                              bool success,
                              const std::string& result);
 
+  // Internal: capture step of CaptureActionScreenshot (after markup inject)
+  // Uses GetSnapshotFromBrowser(from_surface=false) for ForceRedraw + capture.
+  void CaptureActionScreenshotCdp(
+      const std::string& tab_id,
+      int64_t timestamp,
+      bool is_before,
+      const ScreenshotOptions& options,
+      ActionScreenshotCallback callback,
+      const base::FilePath& history_path,
+      int view_width,
+      int view_height);
+
+  // Internal: screenshot capture with retry support.
+  // On first ForceRedraw timeout, retries once (blink_widget_ may have been
+  // null during renderer process swap). On second timeout, falls back to
+  // direct GrabViewSnapshot.
+  void CaptureActionScreenshotWithRetry(
+      const std::string& tab_id,
+      int64_t timestamp,
+      bool is_before,
+      const ScreenshotOptions& options,
+      ActionScreenshotCallback callback,
+      const base::FilePath& history_path,
+      int view_width,
+      int view_height,
+      int retry_count);
+
+  // Shared handler for action screenshot capture result (primary + fallback)
+  void OnActionScreenshotCaptured(
+      ActionScreenshotCallback callback,
+      const ScreenshotOptions& options,
+      const base::FilePath& history_path,
+      const std::string& tab_id,
+      const gfx::Image& snapshot);
+
   // Direct screenshot capture using CopyFromSurface (no CDP/JS injection)
   // Note: Cursor is rendered by virtual cursor overlay and captured automatically
   void CaptureScreenshotDirect(
@@ -456,8 +529,13 @@ class AbpController {
     // Condition flags for action_complete mode
     bool load_fired = false;
     bool dom_content_loaded_fired = false;
+    bool first_paint_fired = false;
     bool network_idle = false;
     bool min_time_elapsed = false;
+    bool min_wait_timer_started = false;
+
+    // Observer for DidFirstVisuallyNonEmptyPaint (destroyed with waiter)
+    std::unique_ptr<AbpPaintObserver> paint_observer;
 
     // Network tracking (networkidle2 = ≤2 connections for 500ms)
     int active_requests = 0;
@@ -485,7 +563,7 @@ class AbpController {
     bool IsComplete() const {
       if (wait_type == "action_complete") {
         return load_fired && dom_content_loaded_fired &&
-               min_time_elapsed;
+               first_paint_fired && min_time_elapsed;
       } else if (wait_type == "network_idle") {
         return network_idle;
       } else if (wait_type == "text") {
@@ -601,6 +679,12 @@ class AbpController {
   void OnCdpEventForWait(const std::string& tab_id,
                          const std::string& method,
                          const base::Value::Dict& params);
+
+  // Called when DidFirstVisuallyNonEmptyPaint fires during an action wait
+  void OnFirstPaintForWait(const std::string& tab_id);
+
+  // Start the min_wait timer once all base conditions are met
+  void MaybeStartMinWaitTimer(const std::string& tab_id);
 
   // Timer callback for minimum wait time
   void OnMinWaitTimeElapsed(const std::string& tab_id);

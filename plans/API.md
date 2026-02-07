@@ -154,13 +154,20 @@ The `action_complete` type uses engine-level signals to detect completion:
 
 ## Standard Response Envelope (Actions)
 
-All action responses include a screenshot, scroll position, and event log:
+All action responses include before and after screenshots, scroll position, and event log:
 
 ```json
 {
   "result": { ... },
-  "screenshot": {
-    "data": "base64-encoded-webp-image",
+  "screenshot_before": {
+    "data": "base64-encoded-image",
+    "width": 1920,
+    "height": 1080,
+    "virtual_time_ms": 1699999999000,
+    "format": "webp"
+  },
+  "screenshot_after": {
+    "data": "base64-encoded-image",
     "width": 1920,
     "height": 1080,
     "virtual_time_ms": 1699999999999,
@@ -192,17 +199,22 @@ All action responses include a screenshot, scroll position, and event log:
 }
 ```
 
-### Screenshot Object
+### Screenshot Objects
+
+Both `screenshot_before` and `screenshot_after` share the same format:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `data` | string | Base64-encoded WebP image |
+| `data` | string | Base64-encoded image |
 | `width` | number | Image width in pixels |
 | `height` | number | Image height in pixels |
-| `virtual_time_ms` | number | Virtual time when screenshot was captured (ms since epoch). Since execution is paused between actions, this reflects the frozen page time. |
-| `format` | string | Image format (`webp`) |
+| `virtual_time_ms` | number | Virtual time when screenshot was captured (ms since epoch) |
+| `format` | string | Image format (default `webp`) |
 
-Note: When `markup` is enabled, elements are visually marked on the screenshot image itself. The agent uses the visual markers to identify click targets.
+- `screenshot_before` is captured just before the action executes, reflecting the page state the agent sees.
+- `screenshot_after` is captured after the action completes and wait conditions are met.
+- When `screenshot.markup` is set in the request, both screenshots include element markup overlays.
+- In MCP responses, both screenshots are returned as separate image content blocks (before first, then after).
 
 ### Scroll Position
 
@@ -699,7 +711,14 @@ POST /tabs/{tab_id}/navigate
     "url": "https://example.com",
     "title": "Example Domain"
   },
-  "screenshot": {
+  "screenshot_before": {
+    "data": "UklGRlYAAABXRUJQVlA4I...",
+    "width": 1920,
+    "height": 1080,
+    "virtual_time_ms": 1699999999000,
+    "format": "webp"
+  },
+  "screenshot_after": {
     "data": "UklGRlYAAABXRUJQVlA4I...",
     "width": 1920,
     "height": 1080,
@@ -825,7 +844,14 @@ Performs a mouse click at the specified coordinates.
     "y": 200,
     "button": "left"
   },
-  "screenshot": {
+  "screenshot_before": {
+    "data": "UklGRlYAAABXRUJQVlA4I...",
+    "width": 1920,
+    "height": 1080,
+    "virtual_time_ms": 1699999999000,
+    "format": "webp"
+  },
+  "screenshot_after": {
     "data": "UklGRlYAAABXRUJQVlA4I...",
     "width": 1920,
     "height": 1080,
@@ -1393,11 +1419,12 @@ By default (unless `--abp-disable-pause` is set):
 ```
 Agent sends click action
   → ABP resumes JS (Debugger.resume + virtual time advance)
+  → Takes before screenshot (page state before action)
   → Dispatches click event
   → Waits for action to complete
+  → Takes after screenshot (page state after action)
   → Pauses JS (virtual time pause + Debugger.pause)
-  → Takes screenshot (page frozen)
-  → Returns response with screenshot
+  → Returns response with both screenshots
 ```
 
 ### Command-Line Flag

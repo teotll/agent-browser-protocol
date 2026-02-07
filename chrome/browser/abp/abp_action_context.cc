@@ -1,16 +1,7 @@
 #include "chrome/browser/abp/abp_action_context.h"
 
-#include "base/base64.h"
-#include "base/json/json_reader.h"
-#include "base/json/json_writer.h"
 #include "base/logging.h"
-#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
-#include "ui/gfx/codec/webp_codec.h"
-#include "ui/gfx/geometry/rect.h"
-#include "ui/gfx/geometry/size.h"
-#include "ui/gfx/image/image.h"
-#include "ui/snapshot/snapshot.h"
 #include "chrome/browser/abp/abp_controller.h"
 #include "chrome/browser/abp/abp_event_collector.h"
 #include "chrome/browser/abp/abp_history_controller.h"
@@ -75,6 +66,23 @@ void AbpActionContext::Start() {
   start_time_ms_ = base::Time::Now().InMillisecondsSinceUnixEpoch();
   start_ticks_ = base::TimeTicks::Now();
 
+  // Parse screenshot options from action params
+  const base::Value::Dict* ss_params = params_.FindDict("screenshot");
+  if (ss_params) {
+    const std::string* markup = ss_params->FindString("markup");
+    if (markup) {
+      screenshot_markup_ = *markup;
+    }
+    const std::string* format = ss_params->FindString("format");
+    if (format) {
+      screenshot_format_ = *format;
+    }
+    std::optional<int> quality = ss_params->FindInt("quality");
+    if (quality.has_value()) {
+      screenshot_quality_ = *quality;
+    }
+  }
+
   // Capture virtual time at start
   virtual_time_at_start_ = controller_->GetVirtualTimeMs(tab_id_);
 
@@ -137,15 +145,33 @@ void AbpActionContext::OnExecutionResumed() {
 }
 
 void AbpActionContext::CaptureBeforeScreenshot() {
-  controller_->CaptureScreenshotForHistory(
-      tab_id_, start_time_ms_, true,
-      base::BindOnce(&AbpActionContext::OnBeforeScreenshotCaptured,
-                     weak_factory_.GetWeakPtr()));
+  AbpController::ScreenshotOptions opts;
+  opts.format = screenshot_format_;
+  opts.quality = screenshot_quality_;
+  opts.markup = screenshot_markup_;
+
+  controller_->CaptureActionScreenshot(
+      tab_id_, start_time_ms_, true, opts,
+      base::BindOnce(
+          [](base::WeakPtr<AbpActionContext> ctx,
+             AbpController::ActionScreenshotResult r) {
+            if (!ctx) return;
+            ctx->OnBeforeScreenshotCaptured(
+                std::move(r.history_path), std::move(r.base64),
+                r.width, r.height);
+          },
+          weak_factory_.GetWeakPtr()));
 }
 
-void AbpActionContext::OnBeforeScreenshotCaptured(std::string screenshot_path) {
+void AbpActionContext::OnBeforeScreenshotCaptured(std::string history_path,
+                                                    std::string base64,
+                                                    int width,
+                                                    int height) {
   VLOG(1) << "ABP ActionContext: OnBeforeScreenshotCaptured() action=" << action_type_;
-  screenshot_before_path_ = std::move(screenshot_path);
+  screenshot_before_path_ = std::move(history_path);
+  screenshot_before_base64_ = std::move(base64);
+  screenshot_before_width_ = width;
+  screenshot_before_height_ = height;
 
   if (has_error_) {
     return;
@@ -301,104 +327,84 @@ void AbpActionContext::EnsureVirtualCursorVisible() {
     controller_->SetVirtualCursorEnabledViaMojo(web_contents_, true);
     controller_->SetVirtualCursorViaMojo(web_contents_, tab_state.cursor.x,
                                           tab_state.cursor.y, true);
+
+    // Wait for compositor to produce a frame with the cursor.
+    // InsertVisualStateCallback roundtrips through the compositor pipeline,
+    // guaranteeing the cursor Mojo message has been composited.
+    auto* rwhv = web_contents_->GetRenderWidgetHostView();
+    auto* rwh = rwhv ? rwhv->GetRenderWidgetHost() : nullptr;
+    if (rwh) {
+      visual_state_completed_ = false;
+
+      // 500ms timeout fallback in case compositor can't produce a frame
+      content::GetUIThreadTaskRunner({})->PostDelayedTask(
+          FROM_HERE,
+          base::BindOnce(&AbpActionContext::OnVisualStateTimeout,
+                         weak_factory_.GetWeakPtr()),
+          base::Milliseconds(500));
+
+      rwh->InsertVisualStateCallback(
+          base::BindOnce(&AbpActionContext::OnVisualStateCallbackFired,
+                         weak_factory_.GetWeakPtr()));
+      return;
+    }
   }
   CaptureAfterScreenshot();
 }
 
+void AbpActionContext::OnVisualStateCallbackFired(bool success) {
+  if (visual_state_completed_) {
+    return;
+  }
+  visual_state_completed_ = true;
+  VLOG(1) << "ABP ActionContext: visual state callback fired (success="
+           << success << ")";
+  CaptureAfterScreenshot();
+}
+
+void AbpActionContext::OnVisualStateTimeout() {
+  if (visual_state_completed_) {
+    return;
+  }
+  visual_state_completed_ = true;
+  VLOG(1) << "ABP ActionContext: visual state timeout, proceeding with capture";
+  CaptureAfterScreenshot();
+}
+
 void AbpActionContext::CaptureAfterScreenshot() {
-  controller_->CaptureScreenshotForHistory(
-      tab_id_, start_time_ms_, false,
-      base::BindOnce(&AbpActionContext::OnAfterScreenshotCaptured,
-                     weak_factory_.GetWeakPtr()));
-}
+  AbpController::ScreenshotOptions opts;
+  opts.format = screenshot_format_;
+  opts.quality = screenshot_quality_;
+  opts.markup = screenshot_markup_;
 
-void AbpActionContext::OnAfterScreenshotCaptured(std::string screenshot_path) {
-  VLOG(1) << "ABP ActionContext: OnAfterScreenshotCaptured() action=" << action_type_;
-  screenshot_after_path_ = std::move(screenshot_path);
-
-  // Capture virtual time at end
-  virtual_time_at_end_ = controller_->GetVirtualTimeMs(tab_id_);
-
-  // Pause execution FIRST, then capture the base64 screenshot.
-  // CopyFromSurface needs a stable compositor buffer — pausing virtual time
-  // freezes the compositor surface, giving CopyFromSurface an immediate,
-  // fresh frame to grab.  When virtual time is in "realtime" mode, the
-  // compositor state can be disrupted and CopyFromSurface times out.
-  PauseExecutionIfNeeded();
-}
-
-void AbpActionContext::CaptureScreenshotBase64() {
-  if (!web_contents_) {
-    OnScreenshotBase64Captured(std::string(), 0, 0);
-    return;
-  }
-
-  gfx::NativeView native_view = web_contents_->GetContentNativeView();
-  if (!native_view) {
-    VLOG(1) << "ABP ActionContext: No native view, skipping screenshot";
-    OnScreenshotBase64Captured(std::string(), 0, 0);
-    return;
-  }
-
-  content::RenderWidgetHostView* view =
-      web_contents_->GetRenderWidgetHostView();
-  gfx::Rect source_rect;
-  if (view) {
-    source_rect = gfx::Rect(view->GetViewBounds().size());
-  }
-
-  // Use GrabViewSnapshot for OS-level capture of just the web content area.
-  // This works even when execution is paused (unlike CopyFromSurface/ForceRedraw
-  // which depend on the renderer compositor producing frames).
-  ui::GrabViewSnapshot(
-      native_view, source_rect,
+  controller_->CaptureActionScreenshot(
+      tab_id_, start_time_ms_, false, opts,
       base::BindOnce(
-          [](base::WeakPtr<AbpActionContext> ctx, gfx::Image snapshot) {
+          [](base::WeakPtr<AbpActionContext> ctx,
+             AbpController::ActionScreenshotResult r) {
             if (!ctx) return;
-
-            if (snapshot.IsEmpty()) {
-              VLOG(1) << "ABP ActionContext: GrabViewSnapshot returned empty";
-              ctx->OnScreenshotBase64Captured(std::string(), 0, 0);
-              return;
-            }
-
-            const SkBitmap& bitmap = *snapshot.ToSkBitmap();
-
-            auto encoded = gfx::WebpCodec::Encode(bitmap, 80);
-            if (!encoded || encoded->empty()) {
-              ctx->OnScreenshotBase64Captured(std::string(), 0, 0);
-              return;
-            }
-
-            std::string base64_data = base::Base64Encode(*encoded);
-            ctx->OnScreenshotBase64Captured(
-                std::move(base64_data),
-                snapshot.Width(), snapshot.Height());
+            ctx->OnAfterScreenshotCaptured(
+                std::move(r.history_path), std::move(r.base64),
+                r.width, r.height);
           },
           weak_factory_.GetWeakPtr()));
 }
 
-void AbpActionContext::OnScreenshotBase64Captured(std::string base64,
+void AbpActionContext::OnAfterScreenshotCaptured(std::string history_path,
+                                                   std::string base64,
                                                    int width,
                                                    int height) {
-  // Guard: the safety timeout and the real CDP callback both target this
-  // method.  Only the first arrival proceeds; the second is dropped.
-  if (screenshot_base64_captured_) {
-    return;
-  }
-  screenshot_base64_captured_ = true;
+  VLOG(1) << "ABP ActionContext: OnAfterScreenshotCaptured() action=" << action_type_;
+  screenshot_after_path_ = std::move(history_path);
+  screenshot_after_base64_ = std::move(base64);
+  screenshot_after_width_ = width;
+  screenshot_after_height_ = height;
 
-  VLOG(1) << "ABP ActionContext: OnScreenshotBase64Captured() action=" << action_type_
-           << " has_data=" << !base64.empty();
-  screenshot_base64_ = std::move(base64);
-  screenshot_width_ = width;
-  screenshot_height_ = height;
+  // Capture virtual time at end
+  virtual_time_at_end_ = controller_->GetVirtualTimeMs(tab_id_);
 
-  // Re-pause virtual time (it was temporarily resumed for the screenshot).
-  controller_->RestoreVirtualTimePause(
-      tab_id_,
-      base::BindOnce(&AbpActionContext::FinalizeResponse,
-                     weak_factory_.GetWeakPtr()));
+  // Pause execution — no separate screenshot capture step needed anymore
+  PauseExecutionIfNeeded();
 }
 
 void AbpActionContext::PauseExecutionIfNeeded() {
@@ -422,20 +428,9 @@ void AbpActionContext::PauseExecutionIfNeeded() {
 void AbpActionContext::OnExecutionPaused() {
   VLOG(1) << "ABP ActionContext: OnExecutionPaused() action=" << action_type_;
 
-  // On error, skip the screenshot and finalize immediately.
-  if (has_error_) {
-    FinalizeResponse();
-    return;
-  }
-
-  // Execution is now paused (Debugger.pause + virtual time "pause").
-  // The compositor is frozen because virtual time is paused — CopyFromSurface
-  // will time out with no fresh frame.  Temporarily resume virtual time so
-  // the compositor can produce a frame, then capture and re-pause.
-  controller_->EnsureCompositorActive(
-      tab_id_,
-      base::BindOnce(&AbpActionContext::CaptureScreenshotBase64,
-                     weak_factory_.GetWeakPtr()));
+  // Both before and after screenshots are already captured.
+  // Go directly to finalizing the response.
+  FinalizeResponse();
 }
 
 void AbpActionContext::FinalizeResponse() {
@@ -489,23 +484,34 @@ void AbpActionContext::SendResponse() {
   // 1. Add action result
   envelope.Set("result", std::move(result_));
 
-  // 2. Add screenshot
-  if (!screenshot_base64_.empty()) {
-    base::Value::Dict screenshot;
-    screenshot.Set("data", screenshot_base64_);
-    screenshot.Set("width", screenshot_width_);
-    screenshot.Set("height", screenshot_height_);
-    screenshot.Set("virtual_time_ms", static_cast<double>(virtual_time_at_end_));
-    screenshot.Set("format", "webp");
-    envelope.Set("screenshot", std::move(screenshot));
+  // 2. Add before screenshot
+  if (!screenshot_before_base64_.empty()) {
+    base::Value::Dict sb;
+    sb.Set("data", screenshot_before_base64_);
+    sb.Set("width", screenshot_before_width_);
+    sb.Set("height", screenshot_before_height_);
+    sb.Set("virtual_time_ms", static_cast<double>(virtual_time_at_start_));
+    sb.Set("format", screenshot_format_);
+    envelope.Set("screenshot_before", std::move(sb));
   }
 
-  // 3. Add scroll position
+  // 3. Add after screenshot
+  if (!screenshot_after_base64_.empty()) {
+    base::Value::Dict sa;
+    sa.Set("data", screenshot_after_base64_);
+    sa.Set("width", screenshot_after_width_);
+    sa.Set("height", screenshot_after_height_);
+    sa.Set("virtual_time_ms", static_cast<double>(virtual_time_at_end_));
+    sa.Set("format", screenshot_format_);
+    envelope.Set("screenshot_after", std::move(sa));
+  }
+
+  // 4. Add scroll position
   if (!scroll_info_.empty()) {
     envelope.Set("scroll", std::move(scroll_info_));
   }
 
-  // 4. Add captured events
+  // 5. Add captured events
   base::Value::List events_list;
   for (auto& event : captured_events_) {
     base::Value::Dict event_dict;
@@ -516,7 +522,7 @@ void AbpActionContext::SendResponse() {
   }
   envelope.Set("events", std::move(events_list));
 
-  // 5. Add timing info
+  // 6. Add timing info
   base::Value::Dict timing;
   timing.Set("action_started_ms", static_cast<double>(start_time_ms_));
   timing.Set("action_completed_ms",
@@ -527,7 +533,7 @@ void AbpActionContext::SendResponse() {
              static_cast<int>(wait_completed_ms_ - start_time_ms_));
   envelope.Set("timing", std::move(timing));
 
-  // 6. Add virtual time info if execution control is enabled
+  // 7. Add virtual time info if execution control is enabled
   if (controller_->IsExecutionControlEnabled()) {
     auto it = controller_->tab_states_.find(tab_id_);
     if (it != controller_->tab_states_.end()) {

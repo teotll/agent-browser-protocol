@@ -37,19 +37,19 @@ using ActionCallback = base::OnceCallback<void(AbpActionContext* ctx)>;
 //   Run()
 //     -> ResumeExecutionIfNeeded()
 //     -> OnExecutionResumed()
-//     -> CaptureBeforeScreenshot()
-//     -> OnBeforeScreenshotCaptured()
+//     -> CaptureBeforeScreenshot()         // markup inject → CDP capture → cleanup → history save → return base64
+//     -> OnBeforeScreenshotCaptured()      // store path + base64
 //     -> ExecuteAction() (calls user-provided ActionCallback)
 //     -> [action calls OnActionDispatched()]
 //     -> WaitUntil() (handles wait_until from params)
 //     -> OnWaitUntilComplete()
 //     -> EnsureVirtualCursorVisible()
-//     -> CaptureAfterScreenshot() (compositor still running)
-//     -> CaptureScreenshotBase64()
-//     -> PauseExecutionIfNeeded() (virtual time pause + Debugger.pause)
+//     -> CaptureAfterScreenshot()          // markup inject → CDP capture → cleanup → history save → return base64
+//     -> OnAfterScreenshotCaptured()       // store path + base64
+//     -> PauseExecutionIfNeeded()
 //     -> OnExecutionPaused()
-//     -> RecordHistory()
-//     -> SendResponse()
+//     -> FinalizeResponse()                // direct — no more EnsureCompositorActive dance
+//     -> RecordHistory() + SendResponse()
 //
 class AbpActionContext : public base::RefCounted<AbpActionContext> {
  public:
@@ -141,7 +141,10 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   void ResumeExecutionIfNeeded();
   void OnExecutionResumed();
   void CaptureBeforeScreenshot();
-  void OnBeforeScreenshotCaptured(std::string screenshot_path);
+  void OnBeforeScreenshotCaptured(std::string history_path,
+                                   std::string base64,
+                                   int width,
+                                   int height);
   void ExecuteAction();
   void DoWaitUntil();
   void OnWaitUntilComplete();
@@ -153,10 +156,13 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   void PauseExecutionIfNeeded();
   void OnExecutionPaused();
   void EnsureVirtualCursorVisible();
+  void OnVisualStateCallbackFired(bool success);
+  void OnVisualStateTimeout();
   void CaptureAfterScreenshot();
-  void OnAfterScreenshotCaptured(std::string screenshot_path);
-  void CaptureScreenshotBase64();
-  void OnScreenshotBase64Captured(std::string base64, int width, int height);
+  void OnAfterScreenshotCaptured(std::string history_path,
+                                  std::string base64,
+                                  int width,
+                                  int height);
   void RecordHistory(bool success,
                      const std::string& error_code,
                      const std::string& error_message);
@@ -179,9 +185,22 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   raw_ptr<content::WebContents> web_contents_ = nullptr;
   base::Value::Dict result_;
 
-  // Screenshots
+  // Screenshots — before
   std::string screenshot_before_path_;
+  std::string screenshot_before_base64_;
+  int screenshot_before_width_ = 0;
+  int screenshot_before_height_ = 0;
+
+  // Screenshots — after
   std::string screenshot_after_path_;
+  std::string screenshot_after_base64_;
+  int screenshot_after_width_ = 0;
+  int screenshot_after_height_ = 0;
+
+  // Screenshot options (parsed from action params)
+  std::string screenshot_format_ = "webp";
+  std::string screenshot_markup_ = "none";
+  int screenshot_quality_ = 80;
 
   // Timing
   int64_t start_time_ms_ = 0;
@@ -195,13 +214,10 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   // Response envelope data
   std::vector<AbpEvent> captured_events_;
   base::Value::Dict scroll_info_;
-  std::string screenshot_base64_;
-  int screenshot_width_ = 0;
-  int screenshot_height_ = 0;
   int64_t wait_completed_ms_ = 0;
 
-  // Screenshot base64 capture guard (safety timeout vs CDP response race)
-  bool screenshot_base64_captured_ = false;
+  // Visual state callback guard (for cursor compositing)
+  bool visual_state_completed_ = false;
 
   // Error state
   bool has_error_ = false;

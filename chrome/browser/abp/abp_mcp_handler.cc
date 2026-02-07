@@ -1171,43 +1171,51 @@ void AbpMcpHandler::OnControllerResponse(base::Value request_id,
     base::Value::Dict& response_dict = parsed->GetDict();
 
     // Extract screenshot image data if present.
-    // Two formats:
-    //   Action envelope: {"screenshot": {"data": "...", "format": "webp", ...}}
+    // Formats:
+    //   Action envelope (new): {"screenshot_before": {"data": "...", "format": "webp"}, "screenshot_after": {"data": "...", "format": "webp"}}
+    //   Action envelope (legacy): {"screenshot": {"data": "...", "format": "webp", ...}}
     //   Screenshot endpoint: {"data": "...", "mimeType": "image/webp", ...}
-    std::string image_data;
-    std::string mime_type = "image/webp";
 
-    // Check action envelope format (click, navigate, type responses)
-    base::Value::Dict* screenshot_dict = response_dict.FindDict("screenshot");
-    if (screenshot_dict) {
-      std::string* data = screenshot_dict->FindString("data");
-      if (data && !data->empty()) {
-        image_data = std::move(*data);
-        screenshot_dict->Remove("data");
-
-        // Determine mime type from format field
-        const std::string* format = screenshot_dict->FindString("format");
-        if (format) {
-          if (*format == "png") {
-            mime_type = "image/png";
-          } else if (*format == "jpeg") {
-            mime_type = "image/jpeg";
-          }
-          // webp is the default
-        }
+    // Helper to extract image data from a screenshot dict and determine mime
+    auto extract_image = [](base::Value::Dict* dict, std::string& out_data,
+                            std::string& out_mime) {
+      if (!dict) return;
+      std::string* data = dict->FindString("data");
+      if (!data || data->empty()) return;
+      out_data = std::move(*data);
+      dict->Remove("data");
+      out_mime = "image/webp";
+      const std::string* format = dict->FindString("format");
+      if (format) {
+        if (*format == "png") out_mime = "image/png";
+        else if (*format == "jpeg") out_mime = "image/jpeg";
       }
+    };
+
+    std::string before_data, before_mime;
+    std::string after_data, after_mime;
+    std::string single_data, single_mime;
+
+    // Check new before/after format
+    extract_image(response_dict.FindDict("screenshot_before"),
+                  before_data, before_mime);
+    extract_image(response_dict.FindDict("screenshot_after"),
+                  after_data, after_mime);
+
+    // Fallback: legacy single "screenshot" dict
+    if (before_data.empty() && after_data.empty()) {
+      extract_image(response_dict.FindDict("screenshot"),
+                    single_data, single_mime);
     }
 
-    // Check direct screenshot endpoint format
-    if (image_data.empty()) {
+    // Fallback: direct screenshot endpoint format
+    if (before_data.empty() && after_data.empty() && single_data.empty()) {
       std::string* data = response_dict.FindString("data");
       const std::string* top_mime = response_dict.FindString("mimeType");
       if (data && !data->empty()) {
-        image_data = std::move(*data);
+        single_data = std::move(*data);
         response_dict.Remove("data");
-        if (top_mime) {
-          mime_type = *top_mime;
-        }
+        single_mime = top_mime ? *top_mime : "image/webp";
       }
     }
 
@@ -1220,13 +1228,28 @@ void AbpMcpHandler::OnControllerResponse(base::Value request_id,
     text_content.Set("text", pretty_json);
     content.Append(std::move(text_content));
 
-    // Add image content block if screenshot data was found
-    if (!image_data.empty()) {
-      base::Value::Dict image_content;
-      image_content.Set("type", "image");
-      image_content.Set("data", std::move(image_data));
-      image_content.Set("mimeType", mime_type);
-      content.Append(std::move(image_content));
+    // Add image content blocks: before first, then after
+    if (!before_data.empty()) {
+      base::Value::Dict img;
+      img.Set("type", "image");
+      img.Set("data", std::move(before_data));
+      img.Set("mimeType", before_mime);
+      content.Append(std::move(img));
+    }
+    if (!after_data.empty()) {
+      base::Value::Dict img;
+      img.Set("type", "image");
+      img.Set("data", std::move(after_data));
+      img.Set("mimeType", after_mime);
+      content.Append(std::move(img));
+    }
+    // Fallback: single screenshot image
+    if (!single_data.empty()) {
+      base::Value::Dict img;
+      img.Set("type", "image");
+      img.Set("data", std::move(single_data));
+      img.Set("mimeType", single_mime);
+      content.Append(std::move(img));
     }
   } else {
     // Not JSON, return as-is

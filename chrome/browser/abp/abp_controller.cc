@@ -39,6 +39,7 @@
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/browser/web_contents_observer.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
 #include "ui/base/cursor/mojom/cursor_type.mojom.h"
 #include "ui/gfx/codec/jpeg_codec.h"
@@ -49,6 +50,19 @@
 #include "ui/snapshot/snapshot.h"
 
 namespace abp {
+
+// AbpPaintObserver implementation
+AbpPaintObserver::AbpPaintObserver(content::WebContents* wc,
+                                    base::OnceClosure callback)
+    : content::WebContentsObserver(wc), callback_(std::move(callback)) {}
+
+AbpPaintObserver::~AbpPaintObserver() = default;
+
+void AbpPaintObserver::DidFirstVisuallyNonEmptyPaint() {
+  if (callback_) {
+    std::move(callback_).Run();
+  }
+}
 
 // KeyInfo implementation
 KeyInfo::KeyInfo() = default;
@@ -658,6 +672,351 @@ void AbpController::CaptureScreenshotForHistory(
           screenshot_path, std::move(callback)));
 }
 
+void AbpController::CaptureActionScreenshot(
+    const std::string& tab_id,
+    int64_t timestamp,
+    bool is_before,
+    const ScreenshotOptions& options,
+    ActionScreenshotCallback callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  content::WebContents* wc = FindWebContents(tab_id);
+  if (!wc) {
+    std::move(callback).Run(ActionScreenshotResult());
+    return;
+  }
+
+  AbpCdpClient* client = GetOrCreateCdpClient(wc);
+  if (!client) {
+    std::move(callback).Run(ActionScreenshotResult());
+    return;
+  }
+
+  // Get viewport dimensions
+  content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
+  int view_width = 0, view_height = 0;
+  if (view) {
+    gfx::Size size = view->GetViewBounds().size();
+    view_width = size.width();
+    view_height = size.height();
+  }
+
+  // Determine history path (if history is enabled)
+  base::FilePath history_path;
+  if (history_controller_ && history_controller_->ScreenshotsEnabled()) {
+    history_path =
+        history_controller_->GetScreenshotPath(tab_id, timestamp, is_before);
+  }
+
+  // If markup is requested, inject CSS first
+  if (options.markup != "none") {
+    std::string css_rules;
+    if (options.markup == "interactive") {
+      css_rules = R"(
+        a, [role='link'] { outline:2px solid #2196F3!important; outline-offset:-2px!important; }
+        button, [role='button'], [onclick], [tabindex]:not([tabindex='-1']) { outline:2px solid #4CAF50!important; outline-offset:-2px!important; }
+        input:not([type='hidden']) { outline:2px solid #FF9800!important; outline-offset:-2px!important; }
+        select { outline:2px solid #9C27B0!important; outline-offset:-2px!important; }
+        textarea, [contenteditable='true'] { outline:2px solid #795548!important; outline-offset:-2px!important; }
+      )";
+    } else if (options.markup == "clickable") {
+      css_rules = R"(
+        a, [role='link'] { outline:2px solid #2196F3!important; outline-offset:-2px!important; }
+        button, [role='button'], [onclick] { outline:2px solid #4CAF50!important; outline-offset:-2px!important; }
+      )";
+    } else if (options.markup == "typeable") {
+      css_rules = R"(
+        input:not([type='hidden']):not([type='checkbox']):not([type='radio']):not([type='submit']):not([type='button']),
+        textarea, [contenteditable='true'] { outline:2px solid #FF9800!important; outline-offset:-2px!important; }
+      )";
+    } else if (options.markup == "inputs") {
+      css_rules = R"(
+        input:not([type='hidden']) { outline:2px solid #FF9800!important; outline-offset:-2px!important; }
+        select { outline:2px solid #9C27B0!important; outline-offset:-2px!important; }
+        textarea { outline:2px solid #795548!important; outline-offset:-2px!important; }
+      )";
+    }
+
+    // Inject CSS via Runtime.evaluate.  The subsequent capture uses
+    // GetSnapshotFromBrowser(from_surface=false) which calls ForceRedraw()
+    // to ensure the compositor paints the outlines before capture.
+    std::string script = R"(
+      (function() {
+        const old = document.getElementById('abp-markup-style');
+        if (old) old.remove();
+        const style = document.createElement('style');
+        style.id = 'abp-markup-style';
+        style.textContent = `)" + css_rules + R"(`;
+        document.head.appendChild(style);
+        return true;
+      })()
+    )";
+
+    base::Value::Dict js_params;
+    js_params.Set("expression", script);
+    js_params.Set("returnByValue", true);
+
+    client->SendCommand(
+        "Runtime.evaluate", js_params,
+        base::BindOnce(
+            [](base::WeakPtr<AbpController> ctrl, std::string tid,
+               int64_t ts, bool before, ScreenshotOptions opts,
+               ActionScreenshotCallback cb, base::FilePath h_path,
+               int w, int h, bool success, const std::string& result) {
+              if (!ctrl) {
+                std::move(cb).Run(ActionScreenshotResult());
+                return;
+              }
+              // CaptureActionScreenshotCdp uses GetSnapshotFromBrowser(
+              // from_surface=false) which internally calls ForceRedraw(),
+              // guaranteeing the compositor paints the injected CSS before
+              // capture.  No delay needed.
+              ctrl->CaptureActionScreenshotCdp(
+                  tid, ts, before, opts, std::move(cb), h_path, w, h);
+            },
+            weak_factory_.GetWeakPtr(), tab_id, timestamp, is_before, options,
+            std::move(callback), history_path, view_width, view_height));
+    return;
+  }
+
+  // No markup — go directly to CDP capture
+  CaptureActionScreenshotCdp(tab_id, timestamp, is_before, options,
+                              std::move(callback), history_path,
+                              view_width, view_height);
+}
+
+void AbpController::CaptureActionScreenshotCdp(
+    const std::string& tab_id,
+    int64_t timestamp,
+    bool is_before,
+    const ScreenshotOptions& options,
+    ActionScreenshotCallback callback,
+    const base::FilePath& history_path,
+    int view_width,
+    int view_height) {
+  CaptureActionScreenshotWithRetry(tab_id, timestamp, is_before, options,
+                                    std::move(callback), history_path,
+                                    view_width, view_height,
+                                    /*retry_count=*/0);
+}
+
+void AbpController::CaptureActionScreenshotWithRetry(
+    const std::string& tab_id,
+    int64_t timestamp,
+    bool is_before,
+    const ScreenshotOptions& options,
+    ActionScreenshotCallback callback,
+    const base::FilePath& history_path,
+    int view_width,
+    int view_height,
+    int retry_count) {
+  content::WebContents* wc = FindWebContents(tab_id);
+  if (!wc) {
+    std::move(callback).Run(ActionScreenshotResult());
+    return;
+  }
+
+  content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
+  if (!view) {
+    std::move(callback).Run(ActionScreenshotResult());
+    return;
+  }
+
+  // Use GetSnapshotFromBrowser(from_surface=false) which internally:
+  //   1. ForceRedraw() — Mojo call to renderer, forces layout+paint+composite
+  //   2. Waits 167ms on Mac for GPU to present the frame to screen
+  //   3. GrabViewSnapshot() — OS-level capture of the presented frame
+  // This guarantees any recent DOM changes (e.g. markup CSS injection) are
+  // painted before capture, unlike calling GrabViewSnapshot directly.
+  auto* rwhi = static_cast<content::RenderWidgetHostImpl*>(
+      view->GetRenderWidgetHost());
+
+  // Timeout: GetSnapshotFromBrowser typically completes in ~200ms on Mac
+  // (ForceRedraw ~25ms + 167ms GPU wait + GrabViewSnapshot ~50ms).
+  // If the renderer main thread is blocked or blink_widget_ is null
+  // (e.g. during cross-process navigation), ForceRedraw won't return.
+  // Use 500ms timeout with retry or GrabViewSnapshot fallback.
+  struct SnapState {
+    bool done = false;
+    ActionScreenshotCallback cb;
+    ScreenshotOptions opts;
+    base::FilePath h_path;
+    std::string tab_id;
+    int64_t timestamp;
+    bool is_before;
+    int view_width;
+    int view_height;
+    int retry_count;
+  };
+  auto st = std::make_shared<SnapState>();
+  st->cb = std::move(callback);
+  st->opts = options;
+  st->h_path = history_path;
+  st->tab_id = tab_id;
+  st->timestamp = timestamp;
+  st->is_before = is_before;
+  st->view_width = view_width;
+  st->view_height = view_height;
+  st->retry_count = retry_count;
+
+  // Timeout fallback — retry ForceRedraw once, then direct GrabViewSnapshot
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](std::shared_ptr<SnapState> s,
+             base::WeakPtr<AbpController> ctrl) {
+            if (s->done) return;
+            s->done = true;
+
+            if (!ctrl) {
+              std::move(s->cb).Run(ActionScreenshotResult());
+              return;
+            }
+
+            // On first timeout, retry — blink_widget_ may have been null
+            // during a renderer process swap but is likely valid now.
+            if (s->retry_count < 1) {
+              LOG(WARNING) << "ABP: CaptureActionScreenshot timeout, "
+                           << "retrying ForceRedraw (attempt "
+                           << (s->retry_count + 1) << ")";
+              ctrl->CaptureActionScreenshotWithRetry(
+                  s->tab_id, s->timestamp, s->is_before, s->opts,
+                  std::move(s->cb), s->h_path,
+                  s->view_width, s->view_height,
+                  s->retry_count + 1);
+              return;
+            }
+
+            LOG(WARNING) << "ABP: CaptureActionScreenshot retry timeout, "
+                         << "falling back to direct GrabViewSnapshot";
+            // Final fallback: direct GrabViewSnapshot (no ForceRedraw)
+            content::WebContents* wc2 = ctrl->FindWebContents(s->tab_id);
+            if (!wc2 || !wc2->GetContentNativeView()) {
+              std::move(s->cb).Run(ActionScreenshotResult());
+              return;
+            }
+            content::RenderWidgetHostView* v2 =
+                wc2->GetRenderWidgetHostView();
+            gfx::Rect rect;
+            if (v2) {
+              rect = gfx::Rect(v2->GetViewBounds().size());
+            }
+            ui::GrabViewSnapshot(
+                wc2->GetContentNativeView(), rect,
+                base::BindOnce(
+                    [](std::shared_ptr<SnapState> ss,
+                       base::WeakPtr<AbpController> c,
+                       gfx::Image snapshot) {
+                      if (!c) {
+                        std::move(ss->cb).Run(ActionScreenshotResult());
+                        return;
+                      }
+                      c->OnActionScreenshotCaptured(
+                          std::move(ss->cb), ss->opts, ss->h_path,
+                          ss->tab_id, snapshot);
+                    },
+                    s, ctrl));
+          },
+          st, weak_factory_.GetWeakPtr()),
+      base::Milliseconds(500));
+
+  // Primary path — ForceRedraw + GrabViewSnapshot via GetSnapshotFromBrowser
+  rwhi->GetSnapshotFromBrowser(
+      base::BindOnce(
+          [](std::shared_ptr<SnapState> s,
+             base::WeakPtr<AbpController> ctrl,
+             const gfx::Image& image) {
+            if (s->done) return;
+            s->done = true;
+            if (!ctrl) {
+              std::move(s->cb).Run(ActionScreenshotResult());
+              return;
+            }
+            ctrl->OnActionScreenshotCaptured(
+                std::move(s->cb), s->opts, s->h_path,
+                s->tab_id, image);
+          },
+          st, weak_factory_.GetWeakPtr()),
+      /*from_surface=*/false);
+}
+
+void AbpController::OnActionScreenshotCaptured(
+    ActionScreenshotCallback callback,
+    const ScreenshotOptions& options,
+    const base::FilePath& history_path,
+    const std::string& tab_id,
+    const gfx::Image& snapshot) {
+  // Clean up markup CSS (fire-and-forget)
+  if (options.markup != "none") {
+    content::WebContents* wc = FindWebContents(tab_id);
+    if (wc) {
+      AbpCdpClient* client = GetOrCreateCdpClient(wc);
+      if (client) {
+        base::Value::Dict cleanup;
+        cleanup.Set("expression",
+            "document.getElementById('abp-markup-style')?.remove()");
+        cleanup.Set("returnByValue", true);
+        client->SendCommand("Runtime.evaluate", cleanup,
+                            base::BindOnce([](bool, const std::string&) {}));
+      }
+    }
+  }
+
+  if (snapshot.IsEmpty()) {
+    VLOG(1) << "ABP: CaptureActionScreenshot - snapshot empty";
+    std::move(callback).Run(ActionScreenshotResult());
+    return;
+  }
+
+  const SkBitmap& bitmap = *snapshot.ToSkBitmap();
+  std::optional<std::vector<uint8_t>> encoded;
+  if (options.format == "webp") {
+    encoded = gfx::WebpCodec::Encode(bitmap, options.quality);
+  } else if (options.format == "jpeg") {
+    encoded = gfx::JPEGCodec::Encode(bitmap, options.quality);
+  } else {
+    encoded = gfx::PNGCodec::EncodeBGRASkBitmap(
+        bitmap, false /* discard_transparency */);
+  }
+
+  if (!encoded || encoded->empty()) {
+    std::move(callback).Run(ActionScreenshotResult());
+    return;
+  }
+
+  ActionScreenshotResult r;
+  r.base64 = base::Base64Encode(*encoded);
+  r.width = snapshot.Width();
+  r.height = snapshot.Height();
+
+  // Save to disk for history if path is set
+  if (!history_path.empty()) {
+    base::ThreadPool::PostTaskAndReplyWithResult(
+        FROM_HERE, {base::MayBlock()},
+        base::BindOnce(
+            [](base::FilePath p,
+               std::vector<uint8_t> content) -> std::string {
+              if (base::WriteFile(p, content)) {
+                return p.AsUTF8Unsafe();
+              }
+              return "";
+            },
+            history_path, std::move(*encoded)),
+        base::BindOnce(
+            [](ActionScreenshotCallback final_cb,
+               ActionScreenshotResult res,
+               std::string saved_path) {
+              res.history_path = std::move(saved_path);
+              std::move(final_cb).Run(std::move(res));
+            },
+            std::move(callback), std::move(r)));
+    return;
+  }
+
+  // No history save needed — return immediately
+  std::move(callback).Run(std::move(r));
+}
+
 void AbpController::CaptureScreenshotDirect(
     content::WebContents* web_contents,
     const base::FilePath& screenshot_path,
@@ -1250,10 +1609,9 @@ void AbpController::Navigate(const std::string& tab_id,
   std::string url_copy = gurl.spec();
 
   // Center cursor after navigation so it's in the viewport center.
-  // Use longer min_wait_time (10s) to allow page to fully load.
+  // Paint-based wait handles page readiness — no need for 10s min_wait.
   AbpActionContext::Options options;
   options.center_cursor_after = true;
-  options.min_wait_time = base::Seconds(10);
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "navigate", params, options,
@@ -1287,10 +1645,9 @@ void AbpController::Reload(const std::string& tab_id,
   base::Value::Dict params;  // Empty params for reload
 
   // Center cursor after reload so it's in the viewport center.
-  // Use longer min_wait_time (10s) to allow page to fully load.
+  // Paint-based wait handles page readiness — no need for 10s min_wait.
   AbpActionContext::Options options;
   options.center_cursor_after = true;
-  options.min_wait_time = base::Seconds(10);
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "reload", params, options,
@@ -1324,10 +1681,9 @@ void AbpController::GoBack(const std::string& tab_id,
   base::Value::Dict params;  // Empty params for back
 
   // Center cursor after navigation so it's in the viewport center.
-  // Use longer min_wait_time (10s) to allow page to fully load.
+  // Paint-based wait handles page readiness — no need for 10s min_wait.
   AbpActionContext::Options options;
   options.center_cursor_after = true;
-  options.min_wait_time = base::Seconds(10);
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "back", params, options,
@@ -1366,10 +1722,9 @@ void AbpController::GoForward(const std::string& tab_id,
   base::Value::Dict params;  // Empty params for forward
 
   // Center cursor after navigation so it's in the viewport center.
-  // Use longer min_wait_time (10s) to allow page to fully load.
+  // Paint-based wait handles page readiness — no need for 10s min_wait.
   AbpActionContext::Options options;
   options.center_cursor_after = true;
-  options.min_wait_time = base::Seconds(10);
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "forward", params, options,
@@ -3045,15 +3400,18 @@ void AbpController::WaitForActionComplete(const std::string& tab_id,
   waiter->timeout_time = base::TimeTicks::Now() + kWaitTimeout;
   waiter->min_wait_time = min_wait_time;
 
-  // For pages that are already loaded, set load events as fired
-  // We'll still wait for network idle and min time
+  // For pages that are already loaded, set load events and paint as fired.
+  // We'll still wait for min time.
   if (!wc->IsLoading()) {
     waiter->load_fired = true;
     waiter->dom_content_loaded_fired = true;
+    waiter->first_paint_fired = true;
   }
 
-  // Save min_wait_time BEFORE moving waiter to avoid use-after-move
-  base::TimeDelta actual_min_wait = waiter->min_wait_time;
+  // Create paint observer to watch for DidFirstVisuallyNonEmptyPaint
+  waiter->paint_observer = std::make_unique<AbpPaintObserver>(
+      wc, base::BindOnce(&AbpController::OnFirstPaintForWait,
+                          weak_factory_.GetWeakPtr(), tab_id));
 
   GetOrCreateTabState(tab_id).action_waiter = std::move(waiter);
 
@@ -3066,15 +3424,12 @@ void AbpController::WaitForActionComplete(const std::string& tab_id,
   client->SendCommand("Page.enable", empty_params,
                       base::BindOnce([](bool, const std::string&) {}));
 
-  // Start minimum wait timer (use configured min_wait_time)
-  // Note: actual_min_wait was saved earlier before waiter was moved
-  content::GetUIThreadTaskRunner({})->PostDelayedTask(
-      FROM_HERE,
-      base::BindOnce(&AbpController::OnMinWaitTimeElapsed,
-                     weak_factory_.GetWeakPtr(), tab_id),
-      actual_min_wait);
+  // Min wait timer starts in MaybeStartMinWaitTimer once all base conditions
+  // (load + dom_content_loaded + first_paint) are met. Check now in case
+  // the page is already loaded.
+  MaybeStartMinWaitTimer(tab_id);
 
-  // Start timeout timer
+  // Start timeout timer (absolute safety net)
   content::GetUIThreadTaskRunner({})->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&AbpController::OnWaitTimeout,
@@ -3113,6 +3468,7 @@ void AbpController::OnCdpEventForWait(const std::string& tab_id,
         waiter->dom_content_loaded_fired) {
       OnLoadFiredForTimeWait(tab_id);
     }
+    MaybeStartMinWaitTimer(tab_id);
     CheckActionCompleteConditions(tab_id);
   } else if (method == "Page.domContentEventFired") {
     waiter->dom_content_loaded_fired = true;
@@ -3121,8 +3477,56 @@ void AbpController::OnCdpEventForWait(const std::string& tab_id,
         waiter->load_fired) {
       OnLoadFiredForTimeWait(tab_id);
     }
+    MaybeStartMinWaitTimer(tab_id);
     CheckActionCompleteConditions(tab_id);
   }
+}
+
+void AbpController::OnFirstPaintForWait(const std::string& tab_id) {
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end() || !it->second.action_waiter) {
+    return;
+  }
+
+  it->second.action_waiter->first_paint_fired = true;
+  VLOG(1) << "ABP: first paint fired for tab " << tab_id;
+  MaybeStartMinWaitTimer(tab_id);
+  CheckActionCompleteConditions(tab_id);
+}
+
+void AbpController::MaybeStartMinWaitTimer(const std::string& tab_id) {
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end() || !it->second.action_waiter) {
+    return;
+  }
+
+  ActionCompleteWaiter* waiter = it->second.action_waiter.get();
+
+  // Only for action_complete mode
+  if (waiter->wait_type != "action_complete") {
+    return;
+  }
+
+  // Only start once
+  if (waiter->min_wait_timer_started) {
+    return;
+  }
+
+  // Only start when all three base conditions are met
+  if (!waiter->load_fired || !waiter->dom_content_loaded_fired ||
+      !waiter->first_paint_fired) {
+    return;
+  }
+
+  waiter->min_wait_timer_started = true;
+  VLOG(1) << "ABP: starting min_wait timer (" << waiter->min_wait_time
+           << ") for tab " << tab_id;
+
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&AbpController::OnMinWaitTimeElapsed,
+                     weak_factory_.GetWeakPtr(), tab_id),
+      waiter->min_wait_time);
 }
 
 void AbpController::OnMinWaitTimeElapsed(const std::string& tab_id) {
