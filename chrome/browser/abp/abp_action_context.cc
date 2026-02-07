@@ -129,14 +129,14 @@ void AbpActionContext::Start() {
   // Validate tab exists
   web_contents_ = controller_->FindWebContents(tab_id_);
   if (!web_contents_) {
-    SendErrorResponse(404, "TAB_NOT_FOUND", "Tab not found");
+    Fail(404, "TAB_NOT_FOUND", "Tab not found");
     return;
   }
 
   // Get CDP client
   client_ = controller_->GetOrCreateCdpClient(web_contents_);
   if (!client_) {
-    SendErrorResponse(500, "CDP_ERROR", "Failed to create CDP client");
+    Fail(500, "CDP_ERROR", "Failed to create CDP client");
     return;
   }
 
@@ -634,6 +634,32 @@ void AbpActionContext::SendErrorResponse(int status,
   prevent_destroy_ = nullptr;
 }
 
+void AbpActionContext::Fail(int http_status,
+                            const std::string& error_code,
+                            const std::string& error_message) {
+  action_timeout_timer_.Stop();
+
+  if (!IsCurrentAction()) {
+    ReleaseDeterministicSlot();
+    prevent_destroy_ = nullptr;
+    return;
+  }
+
+  has_error_ = true;
+  error_code_ = error_code;
+  error_message_ = error_message;
+
+  RecordHistory(false, error_code, error_message);
+
+  if (response_callback_ && controller_) {
+    controller_->SendError(http_status, error_message,
+                           std::move(response_callback_));
+  }
+
+  ReleaseDeterministicSlot();
+  prevent_destroy_ = nullptr;
+}
+
 void AbpActionContext::OnActionTimeout() {
   LOG(WARNING) << "ABP ActionContext: Action timed out after "
                << kActionTimeout.InSeconds() << "s, action=" << action_type_
@@ -641,19 +667,9 @@ void AbpActionContext::OnActionTimeout() {
   if (!IsCurrentAction()) {
     return;
   }
-  has_error_ = true;
-  error_code_ = "ACTION_TIMEOUT";
-  error_message_ = "Action timed out after " +
-                    base::NumberToString(kActionTimeout.InSeconds()) + " seconds";
-
-  // Skip the normal pause flow — just release and respond immediately.
-  // The next queued action will re-establish correct execution state.
-  RecordHistory(false, error_code_, error_message_);
-  if (response_callback_) {
-    controller_->SendError(504, error_message_, std::move(response_callback_));
-  }
-  ReleaseDeterministicSlot();
-  prevent_destroy_ = nullptr;
+  Fail(504, "ACTION_TIMEOUT",
+       "Action timed out after " +
+           base::NumberToString(kActionTimeout.InSeconds()) + " seconds");
 }
 
 }  // namespace abp

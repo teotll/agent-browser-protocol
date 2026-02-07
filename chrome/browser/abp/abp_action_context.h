@@ -182,6 +182,13 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   void SendErrorResponse(int status,
                          const std::string& error_code,
                          const std::string& error_message);
+
+  // Unified teardown: stop timer -> record -> respond -> release slot -> clear self-ref.
+  // Safe to call from any point in the action lifecycle.
+  void Fail(int http_status,
+            const std::string& error_code,
+            const std::string& error_message);
+
   void OnActionTimeout();
 
   // State
