@@ -349,7 +349,7 @@ void AbpActionContext::StopEventCaptureAndGetScrollPosition() {
   // PauseExecutionIfNeeded() later in the flow will re-pause.
   auto it = controller_->tab_states_.find(tab_id_);
   bool externally_paused =
-      it != controller_->tab_states_.end() && it->second.execution.paused;
+      it != controller_->tab_states_.end() && it->second.execution.IsPaused();
   if (externally_paused && controller_->IsExecutionControlEnabled()) {
     LOG(INFO) << "ABP ActionContext: Execution was paused externally during "
               << "wait, resuming before GetScrollPosition";
@@ -592,7 +592,7 @@ void AbpActionContext::SendResponse() {
     if (it != controller_->tab_states_.end()) {
       const auto& exec = it->second.execution;
       base::Value::Dict virtual_time;
-      virtual_time.Set("paused", exec.paused);
+      virtual_time.Set("paused", exec.IsPaused());
       virtual_time.Set("base_ticks_ms", exec.virtual_time_base_ticks_ms);
       envelope.Set("virtual_time", std::move(virtual_time));
     }

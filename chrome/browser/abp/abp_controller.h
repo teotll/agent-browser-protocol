@@ -491,12 +491,29 @@ class AbpController {
     ui::mojom::CursorType cursor_type = ui::mojom::CursorType::kPointer;
   };
 
-  // Execution state for V8 virtual clock + debugger pause
+  // Execution control state machine.
+  // Transitions:
+  //   kDisabled -> kPaused    (EnableExecutionControl)
+  //   kPaused -> kResuming    (ResumeExecution called)
+  //   kResuming -> kRunning   (Debugger.resume + virtual time resume confirmed)
+  //   kRunning -> kPausing    (PauseExecution called)
+  //   kPausing -> kPaused     (virtual time pause + Debugger.pause confirmed)
+  //   any -> kDisabled        (tab close / cleanup)
+  enum class ExecutionPhase {
+    kDisabled,   // Execution control not enabled for this tab
+    kPaused,     // JS halted + virtual time frozen
+    kResuming,   // Resume in progress (CDP commands sent, awaiting callbacks)
+    kRunning,    // JS running + virtual time advancing
+    kPausing,    // Pause in progress (CDP commands sent, awaiting callbacks)
+  };
+
   struct ExecutionState {
-    bool debugger_enabled = false;
-    bool virtual_time_enabled = false;
-    bool paused = false;  // true = JS halted + time frozen
+    ExecutionPhase phase = ExecutionPhase::kDisabled;
     double virtual_time_base_ticks_ms = 0;
+
+    bool IsEnabled() const { return phase != ExecutionPhase::kDisabled; }
+    bool IsPaused() const { return phase == ExecutionPhase::kPaused; }
+    bool IsRunning() const { return phase == ExecutionPhase::kRunning; }
   };
 
   // Held keyboard keys state (for keyboard/down and keyboard/up)

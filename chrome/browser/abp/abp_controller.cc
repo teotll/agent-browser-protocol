@@ -106,7 +106,7 @@ AbpController::TabState::TabState(TabState&&) = default;
 AbpController::TabState& AbpController::TabState::operator=(TabState&&) = default;
 
 bool AbpController::TabState::IsIdle() const {
-  return !cdp_client && !cursor.active && !execution.debugger_enabled &&
+  return !cdp_client && !cursor.active && !execution.IsEnabled() &&
          held_keys.held_keys.empty() && !pending_dialog.has_value() &&
          !action_waiter && !action_in_flight &&
          queued_action_starters.empty();
@@ -2014,7 +2014,7 @@ void AbpController::CaptureScreenshotWithCursor(const std::string& tab_id,
   auto tab_it = tab_states_.find(tab_id);
   if (tab_it != tab_states_.end()) {
     const auto& exec = tab_it->second.execution;
-    restore_pause_after_capture = exec.paused && exec.virtual_time_enabled;
+    restore_pause_after_capture = exec.IsPaused();
   }
 
   auto wrapped_cb = base::BindOnce(
@@ -3011,7 +3011,7 @@ void AbpController::EnableExecutionControl(
 
   // Check if already enabled
   auto& state = GetOrCreateTabState(tab_id).execution;
-  if (state.debugger_enabled && state.virtual_time_enabled) {
+  if (state.IsEnabled()) {
     std::move(then).Run();
     return;
   }
@@ -3037,8 +3037,7 @@ void AbpController::OnDebuggerEnabled(
     return;
   }
 
-  auto& state = GetOrCreateTabState(tab_id).execution;
-  state.debugger_enabled = true;
+  // Debugger enabled — phase will be set to kPaused in OnVirtualTimeEnabled
 
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
@@ -3077,8 +3076,7 @@ void AbpController::OnVirtualTimeEnabled(
   }
 
   auto& state = GetOrCreateTabState(tab_id).execution;
-  state.virtual_time_enabled = true;
-  state.paused = true;  // Started in paused state
+  state.phase = ExecutionPhase::kPaused;  // Setup complete, start paused
 
   // Parse the result to get virtualTimeTicksBase
   auto parsed = base::JSONReader::Read(result, base::JSON_PARSE_RFC);
@@ -3097,7 +3095,7 @@ void AbpController::OnVirtualTimeEnabled(
 void AbpController::ResumeExecution(const std::string& tab_id,
                                     base::OnceClosure then) {
   auto it = tab_states_.find(tab_id);
-  if (it == tab_states_.end() || !it->second.execution.debugger_enabled) {
+  if (it == tab_states_.end() || !it->second.execution.IsEnabled()) {
     // Execution control not enabled for this tab yet
     // If global flag is enabled, auto-enable for this tab first
     if (IsExecutionControlEnabled()) {
@@ -3113,11 +3111,13 @@ void AbpController::ResumeExecution(const std::string& tab_id,
   }
 
   ExecutionState& state = it->second.execution;
-  if (!state.paused) {
-    // Already resumed
+  if (!state.IsPaused()) {
+    // Already resumed (or resuming)
     std::move(then).Run();
     return;
   }
+
+  state.phase = ExecutionPhase::kResuming;
 
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
@@ -3186,7 +3186,7 @@ void AbpController::OnDebuggerResumed(const std::string& tab_id,
                         if (!ctrl2) return;
                         auto it = ctrl2->tab_states_.find(tid2);
                         if (it != ctrl2->tab_states_.end()) {
-                          it->second.execution.debugger_enabled = true;
+                          // Debugger re-enabled; phase stays kResuming
                         }
                         // Now resume virtual time
                         content::WebContents* wc2 = ctrl2->FindWebContents(tid2);
@@ -3226,7 +3226,7 @@ void AbpController::OnVirtualTimeResumed(const std::string& tab_id,
 
   auto it = tab_states_.find(tab_id);
   if (it != tab_states_.end()) {
-    it->second.execution.paused = false;
+    it->second.execution.phase = ExecutionPhase::kRunning;
   }
 
   // Kick-start the compositor after virtual time resumes.
@@ -3250,7 +3250,7 @@ void AbpController::OnVirtualTimeResumed(const std::string& tab_id,
 void AbpController::PauseExecution(const std::string& tab_id,
                                    base::OnceClosure then) {
   auto it = tab_states_.find(tab_id);
-  if (it == tab_states_.end() || !it->second.execution.debugger_enabled) {
+  if (it == tab_states_.end() || !it->second.execution.IsEnabled()) {
     // Execution control not enabled for this tab yet
     // If global flag is enabled, auto-enable for this tab (starts paused)
     if (IsExecutionControlEnabled()) {
@@ -3264,11 +3264,13 @@ void AbpController::PauseExecution(const std::string& tab_id,
   }
 
   ExecutionState& state = it->second.execution;
-  if (state.paused) {
+  if (state.IsPaused()) {
     // Already paused
     std::move(then).Run();
     return;
   }
+
+  state.phase = ExecutionPhase::kPausing;
 
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
@@ -3330,7 +3332,7 @@ void AbpController::OnDebuggerPaused(const std::string& tab_id,
 
   auto it = tab_states_.find(tab_id);
   if (it != tab_states_.end()) {
-    it->second.execution.paused = true;
+    it->second.execution.phase = ExecutionPhase::kPaused;
   }
 
   LOG(INFO) << "ABP: Execution paused for tab " << tab_id;
@@ -3340,8 +3342,7 @@ void AbpController::OnDebuggerPaused(const std::string& tab_id,
 void AbpController::EnsureCompositorActive(const std::string& tab_id,
                                             base::OnceClosure callback) {
   auto it = tab_states_.find(tab_id);
-  if (it == tab_states_.end() || !it->second.execution.paused ||
-      !it->second.execution.virtual_time_enabled) {
+  if (it == tab_states_.end() || !it->second.execution.IsPaused()) {
     // Not paused — compositor should be active already.
     std::move(callback).Run();
     return;
@@ -3352,7 +3353,7 @@ void AbpController::EnsureCompositorActive(const std::string& tab_id,
   // Full resume: Debugger.resume + setVirtualTimePolicy("realtime") +
   // Page.bringToFront.  The renderer main thread must be unblocked for the
   // compositor to produce a frame that CopyFromSurface can grab.
-  // ResumeExecution sets execution.paused = false.
+  // ResumeExecution sets phase to kRunning.
   ResumeExecution(
       tab_id,
       base::BindOnce(
@@ -3368,13 +3369,13 @@ void AbpController::EnsureCompositorActive(const std::string& tab_id,
 void AbpController::RestoreVirtualTimePause(const std::string& tab_id,
                                              base::OnceClosure callback) {
   auto it = tab_states_.find(tab_id);
-  if (it == tab_states_.end() || it->second.execution.paused) {
+  if (it == tab_states_.end() || it->second.execution.IsPaused()) {
     // Already paused or unknown tab — nothing to do.
     std::move(callback).Run();
     return;
   }
 
-  if (!it->second.execution.virtual_time_enabled) {
+  if (!it->second.execution.IsEnabled()) {
     // Execution control not enabled — nothing to restore.
     std::move(callback).Run();
     return;
@@ -3383,7 +3384,7 @@ void AbpController::RestoreVirtualTimePause(const std::string& tab_id,
   VLOG(1) << "ABP: RestoreVirtualTimePause - full pause for tab " << tab_id;
 
   // Full pause: setVirtualTimePolicy("pause") + Debugger.pause.
-  // PauseExecution sets execution.paused = true.
+  // PauseExecution sets phase to kPaused.
   PauseExecution(tab_id, std::move(callback));
 }
 
@@ -3419,8 +3420,8 @@ void AbpController::GetExecutionState(const std::string& tab_id,
   auto it = tab_states_.find(tab_id);
   if (it != tab_states_.end()) {
     const ExecutionState& state = it->second.execution;
-    response.Set("enabled", state.debugger_enabled && state.virtual_time_enabled);
-    response.Set("paused", state.paused);
+    response.Set("enabled", state.IsEnabled());
+    response.Set("paused", state.IsPaused());
     response.Set("virtual_time_base_ms", state.virtual_time_base_ticks_ms);
   } else {
     response.Set("enabled", false);
@@ -3455,7 +3456,7 @@ void AbpController::SetExecutionState(const std::string& tab_id,
 
   // Check if execution control is enabled for this tab
   auto it = tab_states_.find(tab_id);
-  if (it == tab_states_.end() || !it->second.execution.debugger_enabled) {
+  if (it == tab_states_.end() || !it->second.execution.IsEnabled()) {
     // Need to enable first
     std::optional<double> initial_time;
     auto init_time = params.FindDouble("initial_virtual_time");
@@ -4003,7 +4004,7 @@ void AbpController::OnLoadFiredForTimeWait(const std::string& tab_id) {
 
 int64_t AbpController::GetVirtualTimeMs(const std::string& tab_id) {
   auto it = tab_states_.find(tab_id);
-  if (it != tab_states_.end() && it->second.execution.virtual_time_enabled) {
+  if (it != tab_states_.end() && it->second.execution.IsEnabled()) {
     return static_cast<int64_t>(it->second.execution.virtual_time_base_ticks_ms);
   }
   return base::Time::Now().InMillisecondsSinceUnixEpoch();
@@ -4473,7 +4474,7 @@ void AbpController::BinaryScreenshot(const std::string& tab_id,
   auto tab_it = tab_states_.find(tab_id);
   if (tab_it != tab_states_.end()) {
     const auto& exec = tab_it->second.execution;
-    restore_pause_after_capture = exec.paused && exec.virtual_time_enabled;
+    restore_pause_after_capture = exec.IsPaused();
   }
 
   auto wrapped_cb = base::BindOnce(
