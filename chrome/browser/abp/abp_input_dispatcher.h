@@ -4,10 +4,19 @@
 #include <string>
 
 #include "base/memory/raw_ptr.h"
+#include "base/memory/ref_counted.h"
 #include "base/values.h"
 #include "chrome/browser/abp/abp_types.h"
+#include "third_party/blink/public/common/input/web_input_event.h"
+
+namespace content {
+class WebContents;
+}
 
 namespace abp {
+
+class AbpActionContext;
+struct KeyInfo;
 
 class AbpController;
 
@@ -69,6 +78,18 @@ class AbpInputDispatcher {
              ResponseCallback callback);
 
  private:
+  // Forward a native keyboard event to the renderer (bypasses CDP entirely).
+  // Uses the same code path as real keyboard input.
+  void ForwardKeyEvent(content::WebContents* wc,
+                       blink::WebInputEvent::Type type,
+                       const KeyInfo& info,
+                       int web_modifiers);
+
+  // Type characters one-by-one with delays (recursive via PostDelayedTask)
+  void TypeNextCharacter(scoped_refptr<AbpActionContext> ctx,
+                         std::string text,
+                         size_t char_index);
+
   // Controller reference (not owned)
   raw_ptr<AbpController> controller_;
 };

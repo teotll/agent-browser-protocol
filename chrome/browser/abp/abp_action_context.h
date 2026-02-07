@@ -156,8 +156,6 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   void PauseExecutionIfNeeded();
   void OnExecutionPaused();
   void EnsureVirtualCursorVisible();
-  void OnVisualStateCallbackFired(bool success);
-  void OnVisualStateTimeout();
   void CaptureAfterScreenshot();
   void OnAfterScreenshotCaptured(std::string history_path,
                                   std::string base64,
@@ -215,9 +213,6 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   std::vector<AbpEvent> captured_events_;
   base::Value::Dict scroll_info_;
   int64_t wait_completed_ms_ = 0;
-
-  // Visual state callback guard (for cursor compositing)
-  bool visual_state_completed_ = false;
 
   // Error state
   bool has_error_ = false;

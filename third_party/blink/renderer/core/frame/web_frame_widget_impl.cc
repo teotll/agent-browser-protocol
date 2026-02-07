@@ -871,8 +871,12 @@ void WebFrameWidgetImpl::SetPosition(float x, float y, bool visible) {
       virtual_cursor_overlay_->UpdatePrePaint();
     }
     LocalFrame* frame = local_root_->GetFrame();
-    if (frame && frame->GetPage()) {
-      frame->GetPage()->GetChromeClient().ScheduleAnimation(frame->View());
+    if (frame && frame->View()) {
+      // Mark overlay as needing repaint so the paint phase actually runs.
+      frame->View()->SetVisualViewportOrOverlayNeedsRepaint();
+      if (frame->GetPage()) {
+        frame->GetPage()->GetChromeClient().ScheduleAnimation(frame->View());
+      }
     }
   }
 }
@@ -887,8 +891,11 @@ void WebFrameWidgetImpl::SetCursorType(ui::mojom::CursorType cursor_type) {
       virtual_cursor_overlay_->UpdatePrePaint();
     }
     LocalFrame* frame = local_root_->GetFrame();
-    if (frame && frame->GetPage()) {
-      frame->GetPage()->GetChromeClient().ScheduleAnimation(frame->View());
+    if (frame && frame->View()) {
+      frame->View()->SetVisualViewportOrOverlayNeedsRepaint();
+      if (frame->GetPage()) {
+        frame->GetPage()->GetChromeClient().ScheduleAnimation(frame->View());
+      }
     }
   }
 }
@@ -903,8 +910,11 @@ void WebFrameWidgetImpl::SetVisible(bool visible) {
       virtual_cursor_overlay_->UpdatePrePaint();
     }
     LocalFrame* frame = local_root_->GetFrame();
-    if (frame && frame->GetPage()) {
-      frame->GetPage()->GetChromeClient().ScheduleAnimation(frame->View());
+    if (frame && frame->View()) {
+      frame->View()->SetVisualViewportOrOverlayNeedsRepaint();
+      if (frame->GetPage()) {
+        frame->GetPage()->GetChromeClient().ScheduleAnimation(frame->View());
+      }
     }
   }
 }

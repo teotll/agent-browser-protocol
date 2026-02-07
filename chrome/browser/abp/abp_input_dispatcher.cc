@@ -4,16 +4,118 @@
 
 #include "chrome/browser/abp/abp_input_dispatcher.h"
 
+#include <cctype>
+
+#include "base/strings/string_number_conversions.h"
 #include "chrome/browser/abp/abp_action_context.h"
 #include "chrome/browser/abp/abp_controller.h"
-#include "base/strings/string_number_conversions.h"
+#include "components/input/native_web_keyboard_event.h"
+#include "content/public/browser/browser_thread.h"
+#include "content/browser/renderer_host/render_widget_host_impl.h"
+#include "content/public/browser/render_widget_host_view.h"
+#include "content/public/browser/web_contents.h"
+#include "third_party/blink/public/common/input/web_keyboard_event.h"
+#include "ui/events/keycodes/dom/keycode_converter.h"
 
 namespace abp {
+
+namespace {
+
+// Convert ABP modifier bitmask (1=Alt, 2=Ctrl, 4=Meta, 8=Shift) to
+// blink::WebInputEvent modifier flags.
+int ModifierFlagsToWebModifiers(int flags) {
+  int result = 0;
+  if (flags & 1)
+    result |= blink::WebInputEvent::kAltKey;
+  if (flags & 2)
+    result |= blink::WebInputEvent::kControlKey;
+  if (flags & 4)
+    result |= blink::WebInputEvent::kMetaKey;
+  if (flags & 8)
+    result |= blink::WebInputEvent::kShiftKey;
+  return result;
+}
+
+}  // namespace
 
 AbpInputDispatcher::AbpInputDispatcher(AbpController* controller)
     : controller_(controller) {}
 
 AbpInputDispatcher::~AbpInputDispatcher() = default;
+
+void AbpInputDispatcher::ForwardKeyEvent(content::WebContents* wc,
+                                         blink::WebInputEvent::Type type,
+                                         const KeyInfo& info,
+                                         int web_modifiers) {
+  auto* rwhv = wc->GetRenderWidgetHostView();
+  if (!rwhv)
+    return;
+  auto* rwhi = static_cast<content::RenderWidgetHostImpl*>(
+      rwhv->GetRenderWidgetHost());
+  if (!rwhi)
+    return;
+
+  // Get the focused widget (handles iframes, etc.)
+  if (rwhi->delegate()) {
+    auto* target = rwhi->delegate()->GetFocusedRenderWidgetHost(rwhi);
+    if (target)
+      rwhi = target;
+  }
+
+  if (type == blink::WebInputEvent::Type::kKeyDown) {
+    // Send the full three-event sequence that real keyboard input produces:
+    //   1. kRawKeyDown → DOM "keydown"
+    //   2. kChar → DOM "keypress" (only for keys that produce text)
+    //   3. (kKeyUp sent separately by caller)
+    // This matches macOS's native event sequence and is more reliable than
+    // relying on blink's kKeyDown→kChar fallthrough logic.
+
+    // 1. Send kRawKeyDown (generates DOM "keydown")
+    base::TimeTicks now = base::TimeTicks::Now();
+    input::NativeWebKeyboardEvent raw_down(
+        blink::WebInputEvent::Type::kRawKeyDown, web_modifiers, now);
+    raw_down.windows_key_code = info.windows_virtual_key;
+    raw_down.native_key_code = info.native_virtual_key;
+    raw_down.dom_code = static_cast<int>(
+        ui::KeycodeConverter::CodeStringToDomCode(info.code));
+    raw_down.dom_key = static_cast<int>(
+        ui::KeycodeConverter::KeyStringToDomKey(info.key));
+    if (!info.text.empty()) {
+      raw_down.text[0] = static_cast<char16_t>(info.text[0]);
+      raw_down.unmodified_text[0] = raw_down.text[0];
+    }
+    raw_down.skip_if_unhandled = true;
+    rwhi->ForwardKeyboardEvent(raw_down);
+
+    // 2. Send kChar (generates DOM "keypress") — only if key produces text
+    if (!info.text.empty()) {
+      input::NativeWebKeyboardEvent char_event(
+          blink::WebInputEvent::Type::kChar, web_modifiers, now);
+      char_event.windows_key_code = info.windows_virtual_key;
+      char_event.native_key_code = info.native_virtual_key;
+      char_event.dom_code = static_cast<int>(
+          ui::KeycodeConverter::CodeStringToDomCode(info.code));
+      char_event.dom_key = static_cast<int>(
+          ui::KeycodeConverter::KeyStringToDomKey(info.key));
+      char_event.text[0] = static_cast<char16_t>(info.text[0]);
+      char_event.unmodified_text[0] = char_event.text[0];
+      char_event.skip_if_unhandled = true;
+      rwhi->ForwardKeyboardEvent(char_event);
+    }
+  } else {
+    // kKeyUp or other types — send as-is
+    input::NativeWebKeyboardEvent event(type, web_modifiers,
+                                        base::TimeTicks::Now());
+    event.windows_key_code = info.windows_virtual_key;
+    event.native_key_code = info.native_virtual_key;
+    event.dom_code = static_cast<int>(
+        ui::KeycodeConverter::CodeStringToDomCode(info.code));
+    event.dom_key = static_cast<int>(
+        ui::KeycodeConverter::KeyStringToDomKey(info.key));
+    event.skip_if_unhandled = true;
+    rwhi->ForwardKeyboardEvent(event);
+  }
+}
 
 void AbpInputDispatcher::Click(const std::string& tab_id,
                                const base::Value::Dict& params,
@@ -158,44 +260,95 @@ void AbpInputDispatcher::Type(const std::string& tab_id,
 
   std::string text_copy = *text;
 
-  // Use AbpActionContext for unified action flow
+  // Use AbpActionContext for unified action flow.
+  // Type uses native keyboard events — each character gets its own
+  // keyDown + keyUp pair with a 2ms delay between characters, producing
+  // the same DOM event chain as real typing (keydown → keypress → input → keyup).
   AbpActionContext::Run(
       controller_, tab_id, "type", params,
-      // Action callback - performs the actual type
       base::BindOnce(
-          [](std::string text, AbpActionContext* ctx) {
-            AbpCdpClient* client = ctx->client();
-            if (!client) {
-              ctx->OnActionError("CDP_ERROR", "CDP client lost");
+          [](std::string text_str, AbpInputDispatcher* dispatcher,
+             AbpActionContext* ctx) {
+            if (text_str.empty()) {
+              base::Value::Dict res;
+              res.Set("status", "typed");
+              ctx->SetResult(std::move(res));
+              ctx->OnActionDispatched();
               return;
             }
-
-            // Take a scoped_refptr to keep context alive through async call
             scoped_refptr<AbpActionContext> ctx_ref(ctx);
-
-            // CDP: Input.insertText - simpler than key events
-            base::Value::Dict cdp_params;
-            cdp_params.Set("text", text);
-
-            client->SendCommand(
-                "Input.insertText", std::move(cdp_params),
-                base::BindOnce(
-                    [](scoped_refptr<AbpActionContext> action_ctx, bool success,
-                       const std::string& result) {
-                      if (!success) {
-                        action_ctx->OnActionError("CDP_ERROR", result);
-                        return;
-                      }
-
-                      base::Value::Dict res;
-                      res.Set("status", "typed");
-                      action_ctx->SetResult(std::move(res));
-                      action_ctx->OnActionDispatched();
-                    },
-                    ctx_ref));
+            dispatcher->TypeNextCharacter(ctx_ref, std::move(text_str), 0);
           },
-          std::move(text_copy)),
+          std::move(text_copy), this),
       std::move(callback));
+}
+
+void AbpInputDispatcher::TypeNextCharacter(
+    scoped_refptr<AbpActionContext> ctx,
+    std::string text,
+    size_t char_index) {
+  if (!ctx->web_contents() || char_index >= text.size()) {
+    base::Value::Dict res;
+    res.Set("status", "typed");
+    ctx->SetResult(std::move(res));
+    ctx->OnActionDispatched();
+    return;
+  }
+
+  char c = text[char_index];
+  int web_mods = 0;
+
+  // Build KeyInfo for this character
+  KeyInfo char_info;
+  char_info.text = std::string(1, c);
+
+  if (c >= 'a' && c <= 'z') {
+    char_info.key = std::string(1, c);
+    char_info.code = std::string("Key") + static_cast<char>(std::toupper(c));
+    char_info.windows_virtual_key = std::toupper(c);
+  } else if (c >= 'A' && c <= 'Z') {
+    // Uppercase: send Shift + lowercase key
+    char_info.key = std::string(1, c);
+    char_info.code = std::string("Key") + c;
+    char_info.windows_virtual_key = c;
+    web_mods = blink::WebInputEvent::kShiftKey;
+  } else if (c >= '0' && c <= '9') {
+    char_info.key = std::string(1, c);
+    char_info.code = std::string("Digit") + c;
+    char_info.windows_virtual_key = c;
+  } else if (c == ' ') {
+    char_info.key = " ";
+    char_info.code = "Space";
+    char_info.windows_virtual_key = 32;
+  } else if (c == '\n' || c == '\r') {
+    char_info.key = "Enter";
+    char_info.code = "Enter";
+    char_info.text = "\r";
+    char_info.windows_virtual_key = 13;
+  } else if (c == '\t') {
+    char_info.key = "Tab";
+    char_info.code = "Tab";
+    char_info.text = "\t";
+    char_info.windows_virtual_key = 9;
+  } else {
+    // Punctuation/symbols: use character as key, VK = character code
+    char_info.key = std::string(1, c);
+    char_info.windows_virtual_key = c;
+  }
+  char_info.native_virtual_key = char_info.windows_virtual_key;
+
+  ForwardKeyEvent(ctx->web_contents(),
+                  blink::WebInputEvent::Type::kKeyDown, char_info, web_mods);
+  ForwardKeyEvent(ctx->web_contents(),
+                  blink::WebInputEvent::Type::kKeyUp, char_info, web_mods);
+
+  // 2ms delay before next character to simulate realistic typing speed
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&AbpInputDispatcher::TypeNextCharacter,
+                     base::Unretained(this), ctx, std::move(text),
+                     char_index + 1),
+      base::Milliseconds(2));
 }
 
 void AbpInputDispatcher::Move(const std::string& tab_id,
@@ -377,267 +530,60 @@ void AbpInputDispatcher::KeyPress(const std::string& tab_id,
 
   std::string key_copy = *key;
 
-  // Use AbpActionContext for unified action flow
+  // Use AbpActionContext for unified action flow.
+  // KeyPress uses native keyboard events via ForwardKeyEvent — no CDP.
+  // All events are synchronous (ForwardKeyboardEvent dispatches immediately
+  // to the renderer via IPC), so no async chaining needed.
   AbpActionContext::Run(
       controller_, tab_id, "key_press", params,
       base::BindOnce(
           [](std::string pressed_key, std::vector<std::string> mods,
-             AbpActionContext* ctx) {
-            AbpCdpClient* client = ctx->client();
-            if (!client) {
-              ctx->OnActionError("CDP_ERROR", "CDP client lost");
+             AbpInputDispatcher* dispatcher, AbpActionContext* ctx) {
+            content::WebContents* wc = ctx->web_contents();
+            if (!wc) {
+              ctx->OnActionError("TAB_ERROR", "WebContents lost");
               return;
             }
 
-            scoped_refptr<AbpActionContext> ctx_ref(ctx);
             KeyInfo key_info = GetKeyInfo(pressed_key);
             int mod_flags = ModifiersToFlags(mods);
+            int web_mods = ModifierFlagsToWebModifiers(mod_flags);
 
-            // Helper to send a key event
-            auto send_key_event =
-                [](AbpCdpClient* cdp_client, const std::string& type,
-                   const KeyInfo& info, int modifiers,
-                   base::OnceCallback<void(bool, const std::string&)>
-                       callback) {
-                  base::Value::Dict key_params;
-                  key_params.Set("type", type);
-                  key_params.Set("key", info.key);
-                  key_params.Set("code", info.code);
-                  key_params.Set("windowsVirtualKeyCode", info.windows_virtual_key);
-                  key_params.Set("nativeVirtualKeyCode", info.native_virtual_key);
-                  key_params.Set("modifiers", modifiers);
-                  cdp_client->SendCommand("Input.dispatchKeyEvent",
-                                          std::move(key_params),
-                                          std::move(callback));
-                };
-
-            // For shortcuts with modifiers: press modifiers down, press key,
-            // release key, release modifiers
-            // For simple key press: just keyDown + keyUp
-
-            if (mods.empty()) {
-              // Simple key press: keyDown then keyUp
-              send_key_event(
-                  client, "keyDown", key_info, mod_flags,
-                  base::BindOnce(
-                      [](KeyInfo info, int flags, AbpCdpClient* cdp_client,
-                         scoped_refptr<AbpActionContext> action_ctx,
-                         bool success, const std::string& result) {
-                        if (!success) {
-                          action_ctx->OnActionError("CDP_ERROR", result);
-                          return;
-                        }
-
-                        // Now send keyUp
-                        base::Value::Dict up_params;
-                        up_params.Set("type", "keyUp");
-                        up_params.Set("key", info.key);
-                        up_params.Set("code", info.code);
-                        up_params.Set("windowsVirtualKeyCode",
-                                      info.windows_virtual_key);
-                        up_params.Set("nativeVirtualKeyCode",
-                                      info.native_virtual_key);
-                        up_params.Set("modifiers", flags);
-
-                        cdp_client->SendCommand(
-                            "Input.dispatchKeyEvent", std::move(up_params),
-                            base::BindOnce(
-                                [](std::string key_name,
-                                   scoped_refptr<AbpActionContext> ctx,
-                                   bool success, const std::string& result) {
-                                  if (!success) {
-                                    ctx->OnActionError("CDP_ERROR", result);
-                                    return;
-                                  }
-
-                                  base::Value::Dict res;
-                                  res.Set("status", "pressed");
-                                  res.Set("key", key_name);
-                                  ctx->SetResult(std::move(res));
-                                  ctx->OnActionDispatched();
-                                },
-                                info.key, action_ctx));
-                      },
-                      key_info, mod_flags, client, ctx_ref));
-            } else {
-              // Shortcut: need to press modifiers first, then key, then release
-              // in reverse. For simplicity, we'll send all modifier keyDowns,
-              // then main key down+up, then modifier keyUps
-
-              // This is a bit complex - we need to chain multiple CDP calls
-              // Let's do it step by step using a state machine approach
-
-              // State machine for chaining modifier key presses/releases.
-              // Uses static methods with unique_ptr ownership transfer
-              // through each async callback for automatic cleanup.
-              struct ShortcutState {
-                std::vector<std::string> modifiers;
-                KeyInfo main_key;
-                int mod_flags;
-                size_t mod_index = 0;
-                raw_ptr<AbpCdpClient> client;
-                scoped_refptr<AbpActionContext> ctx;
-
-                static void PressNextModifier(
-                    std::unique_ptr<ShortcutState> state) {
-                  if (state->mod_index < state->modifiers.size()) {
-                    KeyInfo mod_info =
-                        GetKeyInfo(state->modifiers[state->mod_index]);
-                    state->mod_index++;
-
-                    base::Value::Dict params;
-                    params.Set("type", "keyDown");
-                    params.Set("key", mod_info.key);
-                    params.Set("code", mod_info.code);
-                    params.Set("windowsVirtualKeyCode",
-                               mod_info.windows_virtual_key);
-                    params.Set("nativeVirtualKeyCode",
-                               mod_info.native_virtual_key);
-                    // Modifiers accumulate as we press them
-                    int current_mods = 0;
-                    for (size_t i = 0; i < state->mod_index; i++) {
-                      KeyInfo ki = GetKeyInfo(state->modifiers[i]);
-                      current_mods |= ki.modifier_flag;
-                    }
-                    params.Set("modifiers", current_mods);
-
-                    AbpCdpClient* c = state->client;
-                    c->SendCommand(
-                        "Input.dispatchKeyEvent", std::move(params),
-                        base::BindOnce(
-                            [](std::unique_ptr<ShortcutState> s, bool success,
-                               const std::string& result) {
-                              if (!success) {
-                                s->ctx->OnActionError("CDP_ERROR", result);
-                                return;
-                              }
-                              PressNextModifier(std::move(s));
-                            },
-                            std::move(state)));
-                  } else {
-                    // All modifiers pressed, now press the main key
-                    PressMainKey(std::move(state));
-                  }
-                }
-
-                static void PressMainKey(
-                    std::unique_ptr<ShortcutState> state) {
-                  base::Value::Dict params;
-                  params.Set("type", "keyDown");
-                  params.Set("key", state->main_key.key);
-                  params.Set("code", state->main_key.code);
-                  params.Set("windowsVirtualKeyCode",
-                             state->main_key.windows_virtual_key);
-                  params.Set("nativeVirtualKeyCode",
-                             state->main_key.native_virtual_key);
-                  params.Set("modifiers", state->mod_flags);
-
-                  AbpCdpClient* c = state->client;
-                  c->SendCommand(
-                      "Input.dispatchKeyEvent", std::move(params),
-                      base::BindOnce(
-                          [](std::unique_ptr<ShortcutState> s, bool success,
-                             const std::string& result) {
-                            if (!success) {
-                              s->ctx->OnActionError("CDP_ERROR", result);
-                              return;
-                            }
-                            ReleaseMainKey(std::move(s));
-                          },
-                          std::move(state)));
-                }
-
-                static void ReleaseMainKey(
-                    std::unique_ptr<ShortcutState> state) {
-                  base::Value::Dict params;
-                  params.Set("type", "keyUp");
-                  params.Set("key", state->main_key.key);
-                  params.Set("code", state->main_key.code);
-                  params.Set("windowsVirtualKeyCode",
-                             state->main_key.windows_virtual_key);
-                  params.Set("nativeVirtualKeyCode",
-                             state->main_key.native_virtual_key);
-                  params.Set("modifiers", state->mod_flags);
-
-                  AbpCdpClient* c = state->client;
-                  c->SendCommand(
-                      "Input.dispatchKeyEvent", std::move(params),
-                      base::BindOnce(
-                          [](std::unique_ptr<ShortcutState> s, bool success,
-                             const std::string& result) {
-                            if (!success) {
-                              s->ctx->OnActionError("CDP_ERROR", result);
-                              return;
-                            }
-                            s->mod_index = s->modifiers.size();
-                            ReleaseNextModifier(std::move(s));
-                          },
-                          std::move(state)));
-                }
-
-                static void ReleaseNextModifier(
-                    std::unique_ptr<ShortcutState> state) {
-                  if (state->mod_index > 0) {
-                    state->mod_index--;
-                    KeyInfo mod_info =
-                        GetKeyInfo(state->modifiers[state->mod_index]);
-
-                    // Calculate remaining modifiers
-                    int remaining_mods = 0;
-                    for (size_t i = 0; i < state->mod_index; i++) {
-                      KeyInfo ki = GetKeyInfo(state->modifiers[i]);
-                      remaining_mods |= ki.modifier_flag;
-                    }
-
-                    base::Value::Dict params;
-                    params.Set("type", "keyUp");
-                    params.Set("key", mod_info.key);
-                    params.Set("code", mod_info.code);
-                    params.Set("windowsVirtualKeyCode",
-                               mod_info.windows_virtual_key);
-                    params.Set("nativeVirtualKeyCode",
-                               mod_info.native_virtual_key);
-                    params.Set("modifiers", remaining_mods);
-
-                    AbpCdpClient* c = state->client;
-                    c->SendCommand(
-                        "Input.dispatchKeyEvent", std::move(params),
-                        base::BindOnce(
-                            [](std::unique_ptr<ShortcutState> s, bool success,
-                               const std::string& result) {
-                              if (!success) {
-                                s->ctx->OnActionError("CDP_ERROR", result);
-                                return;
-                              }
-                              ReleaseNextModifier(std::move(s));
-                            },
-                            std::move(state)));
-                  } else {
-                    // All done!
-                    base::Value::Dict res;
-                    res.Set("status", "pressed");
-                    res.Set("key", state->main_key.key);
-                    base::Value::List mod_list;
-                    for (const auto& m : state->modifiers) {
-                      mod_list.Append(m);
-                    }
-                    res.Set("modifiers", std::move(mod_list));
-                    state->ctx->SetResult(std::move(res));
-                    state->ctx->OnActionDispatched();
-                  }
-                }
-              };
-
-              auto state = std::make_unique<ShortcutState>();
-              state->modifiers = std::move(mods);
-              state->main_key = key_info;
-              state->mod_flags = mod_flags;
-              state->client = client;
-              state->ctx = ctx_ref;
-              ShortcutState::PressNextModifier(std::move(state));
+            // Press modifier keys down
+            for (const auto& mod_name : mods) {
+              KeyInfo mod_info = GetKeyInfo(mod_name);
+              dispatcher->ForwardKeyEvent(
+                  wc, blink::WebInputEvent::Type::kKeyDown, mod_info,
+                  web_mods);
             }
+
+            // Press and release the main key
+            dispatcher->ForwardKeyEvent(
+                wc, blink::WebInputEvent::Type::kKeyDown, key_info, web_mods);
+            dispatcher->ForwardKeyEvent(
+                wc, blink::WebInputEvent::Type::kKeyUp, key_info, web_mods);
+
+            // Release modifier keys in reverse order
+            for (auto it = mods.rbegin(); it != mods.rend(); ++it) {
+              KeyInfo mod_info = GetKeyInfo(*it);
+              dispatcher->ForwardKeyEvent(
+                  wc, blink::WebInputEvent::Type::kKeyUp, mod_info, 0);
+            }
+
+            base::Value::Dict res;
+            res.Set("status", "pressed");
+            res.Set("key", key_info.key);
+            if (!mods.empty()) {
+              base::Value::List mod_result;
+              for (const auto& m : mods) {
+                mod_result.Append(m);
+              }
+              res.Set("modifiers", std::move(mod_result));
+            }
+            ctx->SetResult(std::move(res));
+            ctx->OnActionDispatched();
           },
-          std::move(key_copy), std::move(modifiers)),
+          std::move(key_copy), std::move(modifiers), this),
       std::move(callback));
 }
 
@@ -652,19 +598,19 @@ void AbpInputDispatcher::KeyDown(const std::string& tab_id,
 
   std::string key_copy = *key;
 
-  // Use AbpActionContext for unified action flow
+  // Use AbpActionContext for unified action flow.
+  // KeyDown uses native keyboard events — no CDP.
   AbpActionContext::Run(
       controller_, tab_id, "key_down", params,
       base::BindOnce(
           [](std::string pressed_key, AbpController* controller,
-             AbpActionContext* ctx) {
-            AbpCdpClient* client = ctx->client();
-            if (!client) {
-              ctx->OnActionError("CDP_ERROR", "CDP client lost");
+             AbpInputDispatcher* dispatcher, AbpActionContext* ctx) {
+            content::WebContents* wc = ctx->web_contents();
+            if (!wc) {
+              ctx->OnActionError("TAB_ERROR", "WebContents lost");
               return;
             }
 
-            scoped_refptr<AbpActionContext> ctx_ref(ctx);
             KeyInfo key_info = GetKeyInfo(pressed_key);
 
             // Track the held key
@@ -675,36 +621,19 @@ void AbpInputDispatcher::KeyDown(const std::string& tab_id,
               held_state.current_modifiers |= key_info.modifier_flag;
             }
 
-            int current_mods = held_state.current_modifiers;
+            int web_mods =
+                ModifierFlagsToWebModifiers(held_state.current_modifiers);
 
-            base::Value::Dict key_params;
-            key_params.Set("type", "keyDown");
-            key_params.Set("key", key_info.key);
-            key_params.Set("code", key_info.code);
-            key_params.Set("windowsVirtualKeyCode", key_info.windows_virtual_key);
-            key_params.Set("nativeVirtualKeyCode", key_info.native_virtual_key);
-            key_params.Set("modifiers", current_mods);
+            dispatcher->ForwardKeyEvent(
+                wc, blink::WebInputEvent::Type::kKeyDown, key_info, web_mods);
 
-            client->SendCommand(
-                "Input.dispatchKeyEvent", std::move(key_params),
-                base::BindOnce(
-                    [](std::string key_name,
-                       scoped_refptr<AbpActionContext> action_ctx, bool success,
-                       const std::string& result) {
-                      if (!success) {
-                        action_ctx->OnActionError("CDP_ERROR", result);
-                        return;
-                      }
-
-                      base::Value::Dict res;
-                      res.Set("status", "key_down");
-                      res.Set("key", key_name);
-                      action_ctx->SetResult(std::move(res));
-                      action_ctx->OnActionDispatched();
-                    },
-                    pressed_key, ctx_ref));
+            base::Value::Dict res;
+            res.Set("status", "key_down");
+            res.Set("key", pressed_key);
+            ctx->SetResult(std::move(res));
+            ctx->OnActionDispatched();
           },
-          std::move(key_copy), controller_),
+          std::move(key_copy), controller_, this),
       std::move(callback));
 }
 
@@ -719,19 +648,19 @@ void AbpInputDispatcher::KeyUp(const std::string& tab_id,
 
   std::string key_copy = *key;
 
-  // Use AbpActionContext for unified action flow
+  // Use AbpActionContext for unified action flow.
+  // KeyUp uses native keyboard events — no CDP.
   AbpActionContext::Run(
       controller_, tab_id, "key_up", params,
       base::BindOnce(
           [](std::string released_key, AbpController* controller,
-             AbpActionContext* ctx) {
-            AbpCdpClient* client = ctx->client();
-            if (!client) {
-              ctx->OnActionError("CDP_ERROR", "CDP client lost");
+             AbpInputDispatcher* dispatcher, AbpActionContext* ctx) {
+            content::WebContents* wc = ctx->web_contents();
+            if (!wc) {
+              ctx->OnActionError("TAB_ERROR", "WebContents lost");
               return;
             }
 
-            scoped_refptr<AbpActionContext> ctx_ref(ctx);
             KeyInfo key_info = GetKeyInfo(released_key);
 
             // Update held key tracking
@@ -742,36 +671,19 @@ void AbpInputDispatcher::KeyUp(const std::string& tab_id,
               held_state.current_modifiers &= ~key_info.modifier_flag;
             }
 
-            int current_mods = held_state.current_modifiers;
+            int web_mods =
+                ModifierFlagsToWebModifiers(held_state.current_modifiers);
 
-            base::Value::Dict key_params;
-            key_params.Set("type", "keyUp");
-            key_params.Set("key", key_info.key);
-            key_params.Set("code", key_info.code);
-            key_params.Set("windowsVirtualKeyCode", key_info.windows_virtual_key);
-            key_params.Set("nativeVirtualKeyCode", key_info.native_virtual_key);
-            key_params.Set("modifiers", current_mods);
+            dispatcher->ForwardKeyEvent(
+                wc, blink::WebInputEvent::Type::kKeyUp, key_info, web_mods);
 
-            client->SendCommand(
-                "Input.dispatchKeyEvent", std::move(key_params),
-                base::BindOnce(
-                    [](std::string key_name,
-                       scoped_refptr<AbpActionContext> action_ctx, bool success,
-                       const std::string& result) {
-                      if (!success) {
-                        action_ctx->OnActionError("CDP_ERROR", result);
-                        return;
-                      }
-
-                      base::Value::Dict res;
-                      res.Set("status", "key_up");
-                      res.Set("key", key_name);
-                      action_ctx->SetResult(std::move(res));
-                      action_ctx->OnActionDispatched();
-                    },
-                    released_key, ctx_ref));
+            base::Value::Dict res;
+            res.Set("status", "key_up");
+            res.Set("key", released_key);
+            ctx->SetResult(std::move(res));
+            ctx->OnActionDispatched();
           },
-          std::move(key_copy), controller_),
+          std::move(key_copy), controller_, this),
       std::move(callback));
 }
 

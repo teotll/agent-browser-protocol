@@ -6,8 +6,6 @@
 #include "chrome/browser/abp/abp_event_collector.h"
 #include "chrome/browser/abp/abp_history_controller.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/render_widget_host.h"
-#include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 
 namespace abp {
@@ -327,47 +325,10 @@ void AbpActionContext::EnsureVirtualCursorVisible() {
     controller_->SetVirtualCursorEnabledViaMojo(web_contents_, true);
     controller_->SetVirtualCursorViaMojo(web_contents_, tab_state.cursor.x,
                                           tab_state.cursor.y, true);
-
-    // Wait for compositor to produce a frame with the cursor.
-    // InsertVisualStateCallback roundtrips through the compositor pipeline,
-    // guaranteeing the cursor Mojo message has been composited.
-    auto* rwhv = web_contents_->GetRenderWidgetHostView();
-    auto* rwh = rwhv ? rwhv->GetRenderWidgetHost() : nullptr;
-    if (rwh) {
-      visual_state_completed_ = false;
-
-      // 500ms timeout fallback in case compositor can't produce a frame
-      content::GetUIThreadTaskRunner({})->PostDelayedTask(
-          FROM_HERE,
-          base::BindOnce(&AbpActionContext::OnVisualStateTimeout,
-                         weak_factory_.GetWeakPtr()),
-          base::Milliseconds(500));
-
-      rwh->InsertVisualStateCallback(
-          base::BindOnce(&AbpActionContext::OnVisualStateCallbackFired,
-                         weak_factory_.GetWeakPtr()));
-      return;
-    }
   }
-  CaptureAfterScreenshot();
-}
-
-void AbpActionContext::OnVisualStateCallbackFired(bool success) {
-  if (visual_state_completed_) {
-    return;
-  }
-  visual_state_completed_ = true;
-  VLOG(1) << "ABP ActionContext: visual state callback fired (success="
-           << success << ")";
-  CaptureAfterScreenshot();
-}
-
-void AbpActionContext::OnVisualStateTimeout() {
-  if (visual_state_completed_) {
-    return;
-  }
-  visual_state_completed_ = true;
-  VLOG(1) << "ABP ActionContext: visual state timeout, proceeding with capture";
+  // ForceRedraw in CaptureActionScreenshot is on the associated Mojo pipe,
+  // guaranteed to be processed AFTER SetPosition. No InsertVisualStateCallback
+  // needed — CopyFromSurface reads the compositor surface directly.
   CaptureAfterScreenshot();
 }
 
