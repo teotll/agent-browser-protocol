@@ -6,6 +6,7 @@
 #include <vector>
 #include <cstdint>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
@@ -128,7 +129,7 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
 
   // Access to controller for action implementation
   // Use sparingly - prefer using context methods when possible
-  AbpController* controller() const { return controller_; }
+  AbpController* controller() const { return controller_.get(); }
 
   // Constructor - prefer using Run() or RunWithOptions() factory methods
   AbpActionContext(AbpController* controller,
@@ -184,7 +185,7 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   void OnActionTimeout();
 
   // State
-  raw_ptr<AbpController> controller_;
+  base::WeakPtr<AbpController> controller_;
   std::string tab_id_;
   std::string action_type_;
   base::Value::Dict params_;

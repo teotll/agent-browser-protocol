@@ -188,6 +188,10 @@ class AbpController {
   // Callback is invoked after cursor is centered (or on error)
   void CenterCursorInTab(const std::string& tab_id, base::OnceClosure callback);
 
+  base::WeakPtr<AbpController> GetWeakPtr() {
+    return weak_factory_.GetWeakPtr();
+  }
+
   // Check if browser is ready for ABP operations
   // Returns true if there's a browser window with a tab that has a valid view
   bool IsBrowserReady();

@@ -53,7 +53,7 @@ AbpActionContext::AbpActionContext(AbpController* controller,
                                    const Options& options,
                                    ActionCallback action,
                                    ResponseCallback response)
-    : controller_(controller),
+    : controller_(controller->GetWeakPtr()),
       tab_id_(tab_id),
       action_type_(action_type),
       params_(params.Clone()),
@@ -62,13 +62,15 @@ AbpActionContext::AbpActionContext(AbpController* controller,
       response_callback_(std::move(response)) {}
 
 AbpActionContext::~AbpActionContext() {
-  ReleaseDeterministicSlot();
+  if (controller_) {
+    ReleaseDeterministicSlot();
+  }
 }
 
 void AbpActionContext::RejectBeforeStart(int status,
                                          const std::string& error_code,
                                          const std::string& error_message) {
-  if (!response_callback_) {
+  if (!response_callback_ || !controller_) {
     return;
   }
   controller_->SendError(status, error_message, std::move(response_callback_));
@@ -82,6 +84,14 @@ void AbpActionContext::StartOnDeterministicSlot(uint64_t action_epoch) {
 
 void AbpActionContext::Start() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  if (!controller_) {
+    // Controller destroyed before action started -- can't send HTTP response
+    // without the controller. Just clean up and let the HTTP connection close.
+    prevent_destroy_ = nullptr;
+    return;
+  }
+
   VLOG(1) << "ABP ActionContext: Start() action=" << action_type_;
 
   // Hold a self-reference to prevent destruction during async operations
@@ -147,6 +157,9 @@ bool AbpActionContext::IsCurrentAction() const {
   if (!deterministic_slot_active_) {
     return false;
   }
+  if (!controller_) {
+    return false;
+  }
   return controller_->IsDeterministicActionCurrent(tab_id_, action_epoch_);
 }
 
@@ -155,7 +168,9 @@ void AbpActionContext::ReleaseDeterministicSlot() {
     return;
   }
   deterministic_slot_active_ = false;
-  controller_->FinishDeterministicAction(tab_id_, action_epoch_);
+  if (controller_) {
+    controller_->FinishDeterministicAction(tab_id_, action_epoch_);
+  }
 }
 
 void AbpActionContext::ResumeExecutionIfNeeded() {
@@ -342,7 +357,7 @@ void AbpActionContext::StopEventCaptureAndGetScrollPosition() {
         tab_id_,
         base::BindOnce(
             [](base::WeakPtr<AbpActionContext> ctx) {
-              if (!ctx) return;
+              if (!ctx || !ctx->controller_) return;
               ctx->controller_->GetScrollPosition(
                   ctx->tab_id_,
                   base::BindOnce(
