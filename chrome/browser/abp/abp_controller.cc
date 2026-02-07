@@ -131,7 +131,22 @@ AbpController::TabState& AbpController::GetOrCreateTabState(
 }
 
 void AbpController::CleanupTabState(const std::string& tab_id) {
-  tab_states_.erase(tab_id);
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end()) {
+    return;
+  }
+
+  // Drain queued actions — each AbpActionContext will discover the tab
+  // is gone during Start() and send a 404 error response to the client.
+  auto queued = std::move(it->second.queued_action_starters);
+  tab_states_.erase(it);
+
+  for (auto& starter : queued) {
+    // Epoch 0 is a sentinel — IsDeterministicActionCurrent will return false
+    // since the tab state no longer exists, but the AbpActionContext::Start()
+    // will run far enough to find the tab missing and send an error response.
+    std::move(starter).Run(0);
+  }
 }
 
 void AbpController::RunOrQueueDeterministicAction(
