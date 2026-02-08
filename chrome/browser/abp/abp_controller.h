@@ -13,6 +13,7 @@
 #include "base/files/file_path.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/timer/timer.h"
 #include "base/values.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/devtools_agent_host_client.h"
@@ -139,6 +140,37 @@ class AbpController {
 
   AbpController(const AbpController&) = delete;
   AbpController& operator=(const AbpController&) = delete;
+
+  // Test-only lifecycle observation for browser tests.
+  // Fires at each action lifecycle transition. Null in production.
+  enum class LifecycleStep {
+    kResumeStarted,
+    kResumeCompleted,
+    kBeforeScreenshotStarted,
+    kBeforeScreenshotCompleted,
+    kActionExecuted,
+    kWaitUntilCompleted,
+    kScrollPositionReceived,
+    kAfterScreenshotStarted,
+    kAfterScreenshotCompleted,
+    kPauseStarted,
+    kPauseConfirmed,
+    kPauseTimedOut,
+    kResponseSent,
+  };
+
+  using LifecycleObserverCallback =
+      base::RepeatingCallback<void(const std::string& tab_id,
+                                   const std::string& action_type,
+                                   LifecycleStep step)>;
+
+  void SetLifecycleObserverForTesting(LifecycleObserverCallback cb);
+  static AbpController* GetInstanceForTesting();
+
+  // Wrappers for RenderWidgetHostImpl ForceRedraw test counters.
+  // Avoids exposing content/browser internal headers to test code.
+  static int GetForceRedrawQueuedCountForTesting();
+  static void ResetForceRedrawCountersForTesting();
 
   // Result from CaptureActionScreenshot
   struct ActionScreenshotResult {
@@ -429,10 +461,8 @@ class AbpController {
       int view_width,
       int view_height);
 
-  // Internal: screenshot capture with retry support.
-  // On first ForceRedraw timeout, retries once (blink_widget_ may have been
-  // null during renderer process swap). On second timeout, falls back to
-  // direct GrabViewSnapshot.
+  // Internal: screenshot capture using ForceRedrawWithCallback + GrabViewSnapshot.
+  // ForceRedrawWithCallback queues automatically when blink_widget_ is null.
   void CaptureActionScreenshotWithRetry(
       const std::string& tab_id,
       int64_t timestamp,
@@ -442,6 +472,22 @@ class AbpController {
       const base::FilePath& history_path,
       int view_width,
       int view_height,
+      int retry_count);
+
+  // Shared state for action screenshot capture across async callbacks.
+  struct ActionSnapState {
+    ActionSnapState();
+    ~ActionSnapState();
+    bool done = false;
+    ActionScreenshotCallback cb;
+    ScreenshotOptions opts;
+    base::FilePath h_path;
+    std::string tab_id;
+  };
+
+  // Grab OS-level view snapshot with retry on blank/empty images.
+  void GrabViewSnapshotWithFreshnessCheck(
+      std::shared_ptr<ActionSnapState> snap_state,
       int retry_count);
 
   // Shared handler for action screenshot capture result (primary + fallback)
@@ -645,6 +691,14 @@ class AbpController {
     uint64_t next_action_epoch = 0;
     std::deque<base::OnceCallback<void(uint64_t)>> queued_action_starters;
 
+    // Pending callback for deterministic pause confirmation.
+    // Set during PauseExecution, fired when Debugger.paused event arrives.
+    base::OnceClosure pause_completion_callback;
+
+    // Timer for pause confirmation timeout (safety net).
+    // Wrapped in unique_ptr to keep TabState moveable.
+    std::unique_ptr<base::OneShotTimer> pause_confirmation_timer;
+
     // Check if tab has any active state
     bool IsIdle() const;
 
@@ -715,10 +769,12 @@ class AbpController {
                            base::OnceClosure then,
                            bool success,
                            const std::string& result);
-  void OnDebuggerPaused(const std::string& tab_id,
-                        base::OnceClosure then,
-                        bool success,
-                        const std::string& result);
+  void OnDebuggerPauseCommandSent(const std::string& tab_id,
+                                  base::OnceClosure then,
+                                  bool success,
+                                  const std::string& result);
+  void OnDebuggerPausedEvent(const std::string& tab_id);
+  void OnPauseConfirmationTimeout(const std::string& tab_id);
 
   // Check if wait conditions are met and fire callback if so
   void CheckActionCompleteConditions(const std::string& tab_id);
@@ -786,6 +842,12 @@ class AbpController {
 
   // Pending file choosers (keyed by chooser ID)
   std::map<std::string, base::Value::Dict> pending_file_choosers_;
+
+  // Test-only lifecycle observer callback. Null in production.
+  LifecycleObserverCallback lifecycle_observer_for_testing_;
+
+  // Static instance pointer for test access.
+  static AbpController* instance_for_testing_;
 
   base::WeakPtrFactory<AbpController> weak_factory_{this};
 };

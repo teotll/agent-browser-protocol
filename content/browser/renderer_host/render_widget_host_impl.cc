@@ -169,6 +169,10 @@ using blink::WebMouseEvent;
 using blink::WebMouseWheelEvent;
 
 namespace content {
+
+// Static test counter for ForceRedrawWithCallback queuing.
+int RenderWidgetHostImpl::force_redraw_queued_count_for_testing_ = 0;
+
 namespace {
 
 constexpr gfx::Rect kInvalidScreenRect(std::numeric_limits<int>::max(),
@@ -731,6 +735,13 @@ void RenderWidgetHostImpl::BindWidgetInterfaces(
       GetUIThreadTaskRunner({BrowserTaskType::kUserInput}));
   blink_widget_.Bind(std::move(widget),
                      GetUIThreadTaskRunner({BrowserTaskType::kUserInput}));
+
+  // Fire any pending ForceRedraw callbacks now that widget is bound.
+  std::vector<base::OnceClosure> pending =
+      std::move(pending_on_widget_bound_callbacks_);
+  for (auto& cb : pending) {
+    std::move(cb).Run();
+  }
 }
 
 void RenderWidgetHostImpl::BindPopupWidgetInterface(
@@ -3506,6 +3517,22 @@ void RenderWidgetHostImpl::RequestForceRedraw(int snapshot_id) {
   blink_widget_->ForceRedraw(
       base::BindOnce(&RenderWidgetHostImpl::GotResponseToForceRedraw,
                      base::Unretained(this), snapshot_id));
+}
+
+void RenderWidgetHostImpl::ForceRedrawWithCallback(
+    base::OnceClosure callback) {
+  if (!blink_widget_) {
+    // Widget not bound yet (cross-process navigation in progress).
+    // Queue for retry when BindWidgetInterfaces completes.
+    ++force_redraw_queued_count_for_testing_;
+    pending_on_widget_bound_callbacks_.push_back(
+        base::BindOnce(&RenderWidgetHostImpl::ForceRedrawWithCallback,
+                       weak_factory_.GetWeakPtr(), std::move(callback)));
+    return;
+  }
+  blink_widget_->ForceRedraw(
+      base::BindOnce([](base::OnceClosure cb) { std::move(cb).Run(); },
+                     std::move(callback)));
 }
 
 bool RenderWidgetHostImpl::KeyPressListenersHandleEvent(

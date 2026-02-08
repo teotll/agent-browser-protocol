@@ -175,14 +175,30 @@ void AbpActionContext::ReleaseDeterministicSlot() {
 
 void AbpActionContext::ResumeExecutionIfNeeded() {
   VLOG(1) << "ABP ActionContext: ResumeExecutionIfNeeded() action=" << action_type_;
+  if (controller_->lifecycle_observer_for_testing_) {
+    controller_->lifecycle_observer_for_testing_.Run(
+        tab_id_, action_type_,
+        AbpController::LifecycleStep::kResumeStarted);
+  }
   // Check if resume should be skipped for this action
   if (options_.skip_resume) {
     OnExecutionResumed();
     return;
   }
 
-  // Check if execution control is enabled for this tab
+  // Check if execution control is enabled globally AND for this specific tab.
+  // Only resume if this tab was explicitly paused — don't auto-enable
+  // execution control just because the global flag is set, as that would
+  // cause tabs without execution control to get paused after every action.
   if (!controller_->IsExecutionControlEnabled()) {
+    OnExecutionResumed();
+    return;
+  }
+
+  auto it = controller_->tab_states_.find(tab_id_);
+  if (it == controller_->tab_states_.end() ||
+      !it->second.execution.IsEnabled()) {
+    // Tab doesn't have execution control enabled — don't auto-enable
     OnExecutionResumed();
     return;
   }
@@ -199,15 +215,33 @@ void AbpActionContext::OnExecutionResumed() {
     return;
   }
   VLOG(1) << "ABP ActionContext: OnExecutionResumed() action=" << action_type_;
+  if (controller_->lifecycle_observer_for_testing_) {
+    controller_->lifecycle_observer_for_testing_.Run(
+        tab_id_, action_type_,
+        AbpController::LifecycleStep::kResumeCompleted);
+  }
   if (has_error_) {
     return;
   }
 
-  // Capture "before" screenshot
-  CaptureBeforeScreenshot();
+  // Give the renderer main thread time to process the debugger resume
+  // before requesting ForceRedraw. The Debugger.resume CDP response
+  // arrives at the browser before the renderer main thread is unblocked.
+  // Without this delay, ForceRedraw arrives while the main thread is
+  // still in the debugger pause and BeginMainFrame can't fire.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&AbpActionContext::CaptureBeforeScreenshot,
+                     weak_factory_.GetWeakPtr()),
+      base::Milliseconds(100));
 }
 
 void AbpActionContext::CaptureBeforeScreenshot() {
+  if (controller_->lifecycle_observer_for_testing_) {
+    controller_->lifecycle_observer_for_testing_.Run(
+        tab_id_, action_type_,
+        AbpController::LifecycleStep::kBeforeScreenshotStarted);
+  }
   AbpController::ScreenshotOptions opts;
   opts.format = screenshot_format_;
   opts.quality = screenshot_quality_;
@@ -234,6 +268,11 @@ void AbpActionContext::OnBeforeScreenshotCaptured(std::string history_path,
     return;
   }
   VLOG(1) << "ABP ActionContext: OnBeforeScreenshotCaptured() action=" << action_type_;
+  if (controller_->lifecycle_observer_for_testing_) {
+    controller_->lifecycle_observer_for_testing_.Run(
+        tab_id_, action_type_,
+        AbpController::LifecycleStep::kBeforeScreenshotCompleted);
+  }
   screenshot_before_path_ = std::move(history_path);
   screenshot_before_base64_ = std::move(base64);
   screenshot_before_width_ = width;
@@ -263,6 +302,11 @@ void AbpActionContext::OnActionDispatched() {
     return;
   }
   VLOG(1) << "ABP ActionContext: OnActionDispatched() action=" << action_type_;
+  if (controller_->lifecycle_observer_for_testing_) {
+    controller_->lifecycle_observer_for_testing_.Run(
+        tab_id_, action_type_,
+        AbpController::LifecycleStep::kActionExecuted);
+  }
   action_end_ticks_ = base::TimeTicks::Now();
 
   if (has_error_) {
@@ -326,6 +370,11 @@ void AbpActionContext::OnWaitUntilComplete() {
     return;
   }
   VLOG(1) << "ABP ActionContext: OnWaitUntilComplete() action=" << action_type_;
+  if (controller_->lifecycle_observer_for_testing_) {
+    controller_->lifecycle_observer_for_testing_.Run(
+        tab_id_, action_type_,
+        AbpController::LifecycleStep::kWaitUntilCompleted);
+  }
   wait_completed_ms_ = base::Time::Now().InMillisecondsSinceUnixEpoch();
 
   // Cursor centering already happened in OnActionDispatched (before wait).
@@ -381,6 +430,11 @@ void AbpActionContext::OnScrollPositionReceived(base::Value::Dict scroll_info) {
     return;
   }
   VLOG(1) << "ABP ActionContext: OnScrollPositionReceived() action=" << action_type_;
+  if (controller_->lifecycle_observer_for_testing_) {
+    controller_->lifecycle_observer_for_testing_.Run(
+        tab_id_, action_type_,
+        AbpController::LifecycleStep::kScrollPositionReceived);
+  }
   scroll_info_ = std::move(scroll_info);
 
   // Capture screenshots BEFORE pausing execution.  The compositor only
@@ -414,6 +468,11 @@ void AbpActionContext::EnsureVirtualCursorVisible() {
 }
 
 void AbpActionContext::CaptureAfterScreenshot() {
+  if (controller_->lifecycle_observer_for_testing_) {
+    controller_->lifecycle_observer_for_testing_.Run(
+        tab_id_, action_type_,
+        AbpController::LifecycleStep::kAfterScreenshotStarted);
+  }
   AbpController::ScreenshotOptions opts;
   opts.format = screenshot_format_;
   opts.quality = screenshot_quality_;
@@ -440,6 +499,11 @@ void AbpActionContext::OnAfterScreenshotCaptured(std::string history_path,
     return;
   }
   VLOG(1) << "ABP ActionContext: OnAfterScreenshotCaptured() action=" << action_type_;
+  if (controller_->lifecycle_observer_for_testing_) {
+    controller_->lifecycle_observer_for_testing_.Run(
+        tab_id_, action_type_,
+        AbpController::LifecycleStep::kAfterScreenshotCompleted);
+  }
   screenshot_after_path_ = std::move(history_path);
   screenshot_after_base64_ = std::move(base64);
   screenshot_after_width_ = width;
@@ -453,6 +517,11 @@ void AbpActionContext::OnAfterScreenshotCaptured(std::string history_path,
 }
 
 void AbpActionContext::PauseExecutionIfNeeded() {
+  if (controller_->lifecycle_observer_for_testing_) {
+    controller_->lifecycle_observer_for_testing_.Run(
+        tab_id_, action_type_,
+        AbpController::LifecycleStep::kPauseStarted);
+  }
   // Check if pause should be skipped for this action
   if (options_.skip_pause) {
     OnExecutionPaused();
@@ -460,6 +529,15 @@ void AbpActionContext::PauseExecutionIfNeeded() {
   }
 
   if (!controller_->IsExecutionControlEnabled()) {
+    OnExecutionPaused();
+    return;
+  }
+
+  // Only re-pause if this tab actually has execution control enabled.
+  // Don't auto-pause tabs that were never explicitly paused.
+  auto it = controller_->tab_states_.find(tab_id_);
+  if (it == controller_->tab_states_.end() ||
+      !it->second.execution.IsEnabled()) {
     OnExecutionPaused();
     return;
   }
@@ -599,6 +677,11 @@ void AbpActionContext::SendResponse() {
     }
   }
 
+  if (controller_->lifecycle_observer_for_testing_) {
+    controller_->lifecycle_observer_for_testing_.Run(
+        tab_id_, action_type_,
+        AbpController::LifecycleStep::kResponseSent);
+  }
   controller_->SendJson(200, base::Value(std::move(envelope)),
                         std::move(response_callback_));
 

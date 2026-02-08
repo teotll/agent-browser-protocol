@@ -60,3 +60,28 @@ source_set("abp") {
     frameworks = [ "IOKit.framework" ]
   }
 }
+
+source_set("browser_tests") {
+  testonly = true
+  defines = [ "HAS_OUT_OF_PROC_TEST_RUNNER" ]
+
+  sources = [
+    "abp_action_lifecycle_browsertest.cc",
+  ]
+
+  deps = [
+    ":abp",
+    "//base",
+    "//base/test:test_support",
+    "//chrome/browser",
+    "//chrome/test:test_support",
+    "//content/public/browser",
+    "//content/test:browsertest_support",
+    "//content/test:test_support",
+    "//net:test_support",
+  ]
+
+  if (is_mac) {
+    frameworks = [ "IOKit.framework" ]
+  }
+}

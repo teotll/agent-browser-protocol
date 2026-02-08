@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html><body>
+  <button id="target" style="width:100px;height:40px;margin:50px;">
+    Click me
+  </button>
+  <div id="counter">0</div>
+  <script>
+    document.getElementById('target').addEventListener('click', () => {
+      const c = document.getElementById('counter');
+      c.textContent = parseInt(c.textContent) + 1;
+    });
+  </script>
+</body></html>

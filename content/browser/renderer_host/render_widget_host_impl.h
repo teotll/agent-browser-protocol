@@ -898,6 +898,20 @@ class CONTENT_EXPORT RenderWidgetHostImpl
 
   void RequestForceRedraw(int snapshot_id);
 
+  // Force a compositor redraw and call |callback| after frame presentation.
+  // If blink_widget_ is not bound (e.g. during cross-process navigation),
+  // queues callback for when BindWidgetInterfaces completes.
+  void ForceRedrawWithCallback(base::OnceClosure callback);
+
+  // Test-only: count of ForceRedrawWithCallback calls that were queued
+  // because blink_widget_ was null (pending renderer swap).
+  static int force_redraw_queued_count_for_testing() {
+    return force_redraw_queued_count_for_testing_;
+  }
+  static void ResetForceRedrawCountersForTesting() {
+    force_redraw_queued_count_for_testing_ = 0;
+  }
+
   bool IsContentRenderingTimeoutRunning() const;
 
   enum class RendererIsUnresponsiveReason {
@@ -1605,6 +1619,14 @@ class CONTENT_EXPORT RenderWidgetHostImpl
     ui::mojom::CursorType cursor_type = ui::mojom::CursorType::kPointer;
   };
   PendingVirtualCursorState pending_virtual_cursor_state_;
+
+  // Callbacks to fire when blink_widget_ is bound (after renderer swap).
+  // Follows the same pattern as pending_virtual_cursor_state_.
+  std::vector<base::OnceClosure> pending_on_widget_bound_callbacks_;
+
+  // Test-only counter: incremented when ForceRedrawWithCallback queues
+  // because blink_widget_ is null.
+  static int force_redraw_queued_count_for_testing_;
 
   // Same-process cross-RenderFrameHost navigations may reuse the compositor
   // from the previous RenderFrameHost. While the speculative RenderWidgetHost

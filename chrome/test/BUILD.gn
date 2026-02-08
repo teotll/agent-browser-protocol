@@ -2435,6 +2435,7 @@ if (!is_android) {
       "//chrome/browser/actor:browser_tests",
       "//chrome/browser/actor:test_support",
       "//chrome/browser/actor/ui:browser_tests",
+      "//chrome/browser/abp:browser_tests",
       "//chrome/browser/affiliations",
       "//chrome/browser/ai",
       "//chrome/browser/apps/app_service",

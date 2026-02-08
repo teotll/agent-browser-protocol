@@ -51,6 +51,9 @@
 
 namespace abp {
 
+// Static instance pointer for test access.
+AbpController* AbpController::instance_for_testing_ = nullptr;
+
 // AbpPaintObserver implementation
 AbpPaintObserver::AbpPaintObserver(content::WebContents* wc,
                                     base::OnceClosure callback)
@@ -100,6 +103,9 @@ AbpController::PendingDialog& AbpController::PendingDialog::operator=(
     const PendingDialog&) = default;
 
 // TabState implementation
+AbpController::ActionSnapState::ActionSnapState() = default;
+AbpController::ActionSnapState::~ActionSnapState() = default;
+
 AbpController::TabState::TabState() = default;
 AbpController::TabState::~TabState() = default;
 AbpController::TabState::TabState(TabState&&) = default;
@@ -514,9 +520,35 @@ AbpController::ScreenshotOptions& AbpController::ScreenshotOptions::operator=(
 
 AbpController::AbpController()
     : event_collector_(std::make_unique<AbpEventCollector>(this)),
-      input_dispatcher_(std::make_unique<AbpInputDispatcher>(this)) {}
+      input_dispatcher_(std::make_unique<AbpInputDispatcher>(this)) {
+  instance_for_testing_ = this;
+}
 
-AbpController::~AbpController() = default;
+AbpController::~AbpController() {
+  if (instance_for_testing_ == this) {
+    instance_for_testing_ = nullptr;
+  }
+}
+
+void AbpController::SetLifecycleObserverForTesting(
+    LifecycleObserverCallback cb) {
+  lifecycle_observer_for_testing_ = std::move(cb);
+}
+
+// static
+AbpController* AbpController::GetInstanceForTesting() {
+  return instance_for_testing_;
+}
+
+// static
+int AbpController::GetForceRedrawQueuedCountForTesting() {
+  return content::RenderWidgetHostImpl::force_redraw_queued_count_for_testing();
+}
+
+// static
+void AbpController::ResetForceRedrawCountersForTesting() {
+  content::RenderWidgetHostImpl::ResetForceRedrawCountersForTesting();
+}
 
 void AbpController::SetHistoryController(
     AbpHistoryController* history_controller) {
@@ -845,6 +877,7 @@ void AbpController::CaptureActionScreenshot(
     base::Value::Dict js_params;
     js_params.Set("expression", script);
     js_params.Set("returnByValue", true);
+    js_params.Set("disableBreaks", true);
 
     client->SendCommand(
         "Runtime.evaluate", js_params,
@@ -918,99 +951,110 @@ void AbpController::CaptureActionScreenshotWithRetry(
     return;
   }
 
-  // Use GetSnapshotFromBrowser(from_surface=true) which internally:
-  //   1. ForceRedraw() — associated Mojo call to renderer, forces
-  //      layout+paint+composite (ordered after any prior SetPosition calls)
-  //   2. CopyFromSurface() — reads directly from viz compositor surface
-  // ~25-50ms typical. No 167ms GPU wait, no OS-level capture race.
-  // Virtual cursor (DisplayItem::kFrameOverlay) is captured by CopyFromSurface.
+  // ForceRedrawWithCallback uses the associated Widget Mojo pipe, which is
+  // ordered with VirtualCursor (also associated). This guarantees the cursor
+  // position is painted before the frame is presented.
+  // If blink_widget_ is null (cross-process navigation), the callback is
+  // automatically queued and retried when BindWidgetInterfaces fires.
   auto* rwhi = static_cast<content::RenderWidgetHostImpl*>(
       view->GetRenderWidgetHost());
-  struct SnapState {
-    bool done = false;
-    ActionScreenshotCallback cb;
-    ScreenshotOptions opts;
-    base::FilePath h_path;
-    std::string tab_id;
-  };
-  auto st = std::make_shared<SnapState>();
+  auto st = std::make_shared<ActionSnapState>();
   st->cb = std::move(callback);
   st->opts = options;
   st->h_path = history_path;
   st->tab_id = tab_id;
 
-  // Deterministic timeout: fail closed (no OS snapshot fallback).
+  // Safety-net timeout: fail closed.
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(
-          [](std::shared_ptr<SnapState> s) {
-            if (s->done) {
-              return;
-            }
+          [](std::shared_ptr<ActionSnapState> s) {
+            if (s->done) return;
             s->done = true;
             LOG(WARNING) << "ABP: CaptureActionScreenshot timed out";
             std::move(s->cb).Run(ActionScreenshotResult());
           },
           st),
-      base::Milliseconds(750));
+      base::Milliseconds(1500));
 
-  if (!rwhi->renderer_initialized()) {
-    st->done = true;
-    LOG(WARNING) << "ABP: CaptureActionScreenshot - renderer not initialized";
-    std::move(st->cb).Run(ActionScreenshotResult());
+  rwhi->ForceRedrawWithCallback(base::BindOnce(
+      [](std::shared_ptr<ActionSnapState> s,
+         base::WeakPtr<AbpController> ctrl) {
+        if (s->done) return;
+        if (!ctrl) {
+          s->done = true;
+          std::move(s->cb).Run(ActionScreenshotResult());
+          return;
+        }
+        // Wait 167ms for CoreAnimation to composite the frame to the
+        // window server buffer before OS-level capture.
+        base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+            FROM_HERE,
+            base::BindOnce(
+                &AbpController::GrabViewSnapshotWithFreshnessCheck,
+                ctrl, s, /*retry_count=*/0),
+            base::Milliseconds(167));
+      },
+      st, weak_factory_.GetWeakPtr()));
+}
+
+void AbpController::GrabViewSnapshotWithFreshnessCheck(
+    std::shared_ptr<ActionSnapState> s,
+    int retry_count) {
+  if (s->done) return;
+
+  content::WebContents* wc = FindWebContents(s->tab_id);
+  if (!wc) {
+    s->done = true;
+    std::move(s->cb).Run(ActionScreenshotResult());
     return;
   }
 
-  rwhi->InsertVisualStateCallback(base::BindOnce(
-      [](std::shared_ptr<SnapState> s,
-         base::WeakPtr<AbpController> ctrl,
-         bool ready) {
-        if (s->done) {
-          return;
-        }
-        if (!ctrl || !ready) {
-          s->done = true;
-          std::move(s->cb).Run(ActionScreenshotResult());
-          return;
-        }
+  gfx::NativeView native_view = wc->GetContentNativeView();
+  if (!native_view) {
+    s->done = true;
+    std::move(s->cb).Run(ActionScreenshotResult());
+    return;
+  }
 
-        content::WebContents* wc2 = ctrl->FindWebContents(s->tab_id);
-        if (!wc2) {
-          s->done = true;
-          std::move(s->cb).Run(ActionScreenshotResult());
-          return;
-        }
-        content::RenderWidgetHostView* view2 = wc2->GetRenderWidgetHostView();
-        if (!view2) {
-          s->done = true;
-          std::move(s->cb).Run(ActionScreenshotResult());
-          return;
-        }
+  content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
+  gfx::Rect bounds;
+  if (view) {
+    bounds = gfx::Rect(view->GetViewBounds().size());
+  }
 
-        view2->CopyFromSurface(
-            gfx::Rect(), gfx::Size(), base::Milliseconds(500),
-            base::BindOnce(
-                [](std::shared_ptr<SnapState> s,
-                   base::WeakPtr<AbpController> ctrl,
-                   const content::CopyFromSurfaceResult& result) {
-                  if (s->done) {
-                    return;
-                  }
-                  s->done = true;
-                  if (!ctrl || !result.has_value() || result->bitmap.empty()) {
-                    std::move(s->cb).Run(ActionScreenshotResult());
-                    return;
-                  }
-
-                  gfx::Image image =
-                      gfx::Image::CreateFrom1xBitmap(result->bitmap);
-                  ctrl->OnActionScreenshotCaptured(
-                      std::move(s->cb), s->opts, s->h_path, s->tab_id,
-                      std::move(image));
-                },
-                s, ctrl));
-      },
-      st, weak_factory_.GetWeakPtr()));
+  ui::GrabViewSnapshot(
+      native_view, bounds,
+      base::BindOnce(
+          [](std::shared_ptr<ActionSnapState> s,
+             base::WeakPtr<AbpController> ctrl, int retry_count,
+             gfx::Image image) {
+            if (s->done) return;
+            if (image.IsEmpty() && retry_count < 5) {
+              // Retry after 167ms — compositor may not have presented yet.
+              if (ctrl) {
+                base::SingleThreadTaskRunner::GetCurrentDefault()
+                    ->PostDelayedTask(
+                        FROM_HERE,
+                        base::BindOnce(
+                            &AbpController::
+                                GrabViewSnapshotWithFreshnessCheck,
+                            ctrl, s, retry_count + 1),
+                        base::Milliseconds(167));
+              }
+              return;
+            }
+            s->done = true;
+            if (!ctrl || image.IsEmpty()) {
+              LOG(WARNING) << "ABP: GrabViewSnapshot empty after "
+                           << retry_count << " retries";
+              std::move(s->cb).Run(ActionScreenshotResult());
+              return;
+            }
+            ctrl->OnActionScreenshotCaptured(std::move(s->cb), s->opts,
+                                             s->h_path, s->tab_id, image);
+          },
+          s, weak_factory_.GetWeakPtr(), retry_count));
 }
 
 void AbpController::OnActionScreenshotCaptured(
@@ -1029,6 +1073,7 @@ void AbpController::OnActionScreenshotCaptured(
         cleanup.Set("expression",
             "document.getElementById('abp-markup-style')?.remove()");
         cleanup.Set("returnByValue", true);
+        cleanup.Set("disableBreaks", true);
         client->SendCommand("Runtime.evaluate", cleanup,
                             base::BindOnce([](bool, const std::string&) {}));
       }
@@ -1212,6 +1257,7 @@ void AbpController::OnHistoryScreenshotCaptured(
       )";
       base::Value::Dict cleanup_params;
       cleanup_params.Set("expression", cleanup_script);
+      cleanup_params.Set("disableBreaks", true);
       client->SendCommand("Runtime.evaluate", cleanup_params,
                           base::DoNothing());
     }
@@ -1942,6 +1988,7 @@ void AbpController::Screenshot(const std::string& tab_id,
     base::Value::Dict js_params;
     js_params.Set("expression", script);
     js_params.Set("returnByValue", true);
+    js_params.Set("disableBreaks", true);
 
     client->SendCommand(
         "Runtime.evaluate", js_params,
@@ -2062,14 +2109,12 @@ void AbpController::DoCaptureScreenshotWithCursor(
     return;
   }
 
-  // Use InsertVisualStateCallback + CopyFromSurface directly.
-  // This avoids RequestForceRedraw callback orphaning when blink_widget_ is
-  // null during renderer swaps.
+  // Use ForceRedrawWithCallback (associated Widget pipe, ordered with
+  // VirtualCursor) + 167ms CoreAnimation delay + GrabViewSnapshot.
+  // ForceRedrawWithCallback auto-queues when blink_widget_ is null.
   auto* rwhi = static_cast<content::RenderWidgetHostImpl*>(
       view->GetRenderWidgetHost());
 
-  // Short timeout (500ms) — normal path should complete quickly, otherwise
-  // fall back to GrabViewSnapshot to avoid hanging MCP calls.
   struct SnapState {
     bool done = false;
     ResponseCallback cb;
@@ -2081,6 +2126,7 @@ void AbpController::DoCaptureScreenshotWithCursor(
   st->opts = options;
   st->tab_id = tab_id;
 
+  // Safety-net timeout: fall back to direct GrabViewSnapshot.
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(
@@ -2096,74 +2142,74 @@ void AbpController::DoCaptureScreenshotWithCursor(
             }
           },
           st, weak_factory_.GetWeakPtr()),
-      base::Milliseconds(500));
+      base::Milliseconds(1500));
 
-  if (!rwhi->renderer_initialized()) {
-    st->done = true;
-    LOG(WARNING) << "ABP: renderer not initialized, falling back to "
-                 << "GrabViewSnapshot";
-    DoCaptureScreenshotFallback(tab_id, std::move(st->cb), st->opts);
-    return;
-  }
-
-  rwhi->InsertVisualStateCallback(base::BindOnce(
+  rwhi->ForceRedrawWithCallback(base::BindOnce(
       [](std::shared_ptr<SnapState> s,
-         base::WeakPtr<AbpController> ctrl,
-         bool visual_state_ready) {
+         base::WeakPtr<AbpController> ctrl) {
         if (s->done) return;
         if (!ctrl) return;
 
-        if (!visual_state_ready) {
-          s->done = true;
-          LOG(WARNING) << "ABP: InsertVisualStateCallback failed, "
-                       << "falling back to GrabViewSnapshot";
-          ctrl->DoCaptureScreenshotFallback(
-              s->tab_id, std::move(s->cb), s->opts);
-          return;
-        }
-
-        content::WebContents* wc2 = ctrl->FindWebContents(s->tab_id);
-        if (!wc2) {
-          s->done = true;
-          ctrl->SendError(404, "Tab not found", std::move(s->cb));
-          return;
-        }
-
-        content::RenderWidgetHostView* view2 = wc2->GetRenderWidgetHostView();
-        if (!view2) {
-          s->done = true;
-          ctrl->DoCaptureScreenshotFallback(
-              s->tab_id, std::move(s->cb), s->opts);
-          return;
-        }
-
-        view2->CopyFromSurface(
-            gfx::Rect(), gfx::Size(), base::Milliseconds(300),
+        // Wait 167ms for CoreAnimation to composite to window server.
+        base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+            FROM_HERE,
             base::BindOnce(
                 [](std::shared_ptr<SnapState> s,
-                   base::WeakPtr<AbpController> ctrl,
-                   const content::CopyFromSurfaceResult& result) {
+                   base::WeakPtr<AbpController> ctrl) {
                   if (s->done) return;
-                  s->done = true;
                   if (!ctrl) return;
 
-                  if (!result.has_value() || result->bitmap.empty()) {
-                    LOG(WARNING) << "ABP: CopyFromSurface failed after "
-                                 << "visual-state sync, falling back to "
-                                 << "GrabViewSnapshot";
+                  content::WebContents* wc2 =
+                      ctrl->FindWebContents(s->tab_id);
+                  if (!wc2) {
+                    s->done = true;
+                    ctrl->SendError(404, "Tab not found", std::move(s->cb));
+                    return;
+                  }
+
+                  gfx::NativeView native_view = wc2->GetContentNativeView();
+                  if (!native_view) {
+                    s->done = true;
                     ctrl->DoCaptureScreenshotFallback(
                         s->tab_id, std::move(s->cb), s->opts);
                     return;
                   }
 
-                  gfx::Image image =
-                      gfx::Image::CreateFrom1xBitmap(result->bitmap);
-                  LOG(INFO) << "ABP: CopyFromSurface succeeded: " << image.Width()
-                            << "x" << image.Height();
-                  ctrl->OnGrabViewSnapshotResult(
-                      std::move(s->cb), s->opts, std::move(image));
+                  content::RenderWidgetHostView* view2 =
+                      wc2->GetRenderWidgetHostView();
+                  gfx::Rect bounds;
+                  if (view2) {
+                    bounds = gfx::Rect(view2->GetViewBounds().size());
+                  }
+
+                  ui::GrabViewSnapshot(
+                      native_view, bounds,
+                      base::BindOnce(
+                          [](std::shared_ptr<SnapState> s,
+                             base::WeakPtr<AbpController> ctrl,
+                             gfx::Image image) {
+                            if (s->done) return;
+                            s->done = true;
+                            if (!ctrl || image.IsEmpty()) {
+                              if (ctrl) {
+                                LOG(WARNING) << "ABP: GrabViewSnapshot empty "
+                                             << "after ForceRedraw, falling "
+                                             << "back";
+                                ctrl->DoCaptureScreenshotFallback(
+                                    s->tab_id, std::move(s->cb), s->opts);
+                              }
+                              return;
+                            }
+                            LOG(INFO) << "ABP: ForceRedraw+GrabViewSnapshot "
+                                      << "succeeded: " << image.Width()
+                                      << "x" << image.Height();
+                            ctrl->OnGrabViewSnapshotResult(
+                                std::move(s->cb), s->opts, std::move(image));
+                          },
+                          s, ctrl));
                 },
-                s, ctrl));
+                s, ctrl),
+            base::Milliseconds(167));
       },
       st, weak_factory_.GetWeakPtr()));
 }
@@ -2418,6 +2464,7 @@ void AbpController::OnCursorScreenshotCaptured(const std::string& tab_id,
         cleanup_params.Set("expression",
             "document.getElementById('abp-markup-style')?.remove()");
         cleanup_params.Set("returnByValue", true);
+        cleanup_params.Set("disableBreaks", true);
         client->SendCommand("Runtime.evaluate", cleanup_params,
                             base::BindOnce([](bool, const std::string&) {}));
       }
@@ -2539,6 +2586,7 @@ void AbpController::GetText(const std::string& tab_id,
   base::Value::Dict cdp_params;
   cdp_params.Set("expression", expression);
   cdp_params.Set("returnByValue", true);
+  cdp_params.Set("disableBreaks", true);
 
   client->SendCommand(
       "Runtime.evaluate", cdp_params,
@@ -2811,6 +2859,10 @@ AbpCdpClient* AbpController::GetOrCreateCdpClient(content::WebContents* wc) {
         if (controller->event_collector_) {
           controller->event_collector_->OnCdpEvent(tab, method, params);
         }
+        // Handle Debugger.paused event for deterministic pause confirmation
+        if (method == "Debugger.paused") {
+          controller->OnDebuggerPausedEvent(tab);
+        }
         // Handle dialog events for pending_dialog tracking
         if (method == "Page.javascriptDialogOpening") {
           const std::string* type = params.FindString("type");
@@ -2982,7 +3034,47 @@ void AbpController::InsertVisualStateFence(
     return;
   }
 
-  rwhi->InsertVisualStateCallback(std::move(callback));
+  // Force the compositor to produce a frame so the visual state callback fires.
+  // Without this, the compositor may be idle (no animations or pending
+  // repaints) and InsertVisualStateCallback would hang indefinitely waiting
+  // for a frame that never comes.
+  rwhi->RequestForceRedraw(/*snapshot_id=*/0);
+
+  // Use a timeout+fallback: InsertVisualStateCallback waits for the next
+  // compositor commit, but ForceRedraw goes through a different Mojo pipe
+  // (blink_widget_) than VisualStateRequest (widget_compositor_), so the
+  // commit may complete before the visual state request is registered.
+  // If the callback doesn't fire within 500ms, proceed anyway — the cursor
+  // position has already been updated via Mojo and subsequent Input.dispatch*
+  // events don't require visual rendering to be committed.
+  struct FenceState {
+    bool done = false;
+    base::OnceCallback<void(bool)> callback;
+  };
+  auto state = std::make_shared<FenceState>();
+  state->callback = std::move(callback);
+
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](std::shared_ptr<FenceState> s) {
+            if (!s->done) {
+              s->done = true;
+              VLOG(1) << "ABP InsertVisualStateFence: timeout, proceeding";
+              std::move(s->callback).Run(true);
+            }
+          },
+          state),
+      base::Milliseconds(500));
+
+  rwhi->InsertVisualStateCallback(base::BindOnce(
+      [](std::shared_ptr<FenceState> s, bool ready) {
+        if (!s->done) {
+          s->done = true;
+          std::move(s->callback).Run(ready);
+        }
+      },
+      state));
 }
 
 bool AbpController::IsExecutionControlEnabled() const {
@@ -3318,25 +3410,81 @@ void AbpController::OnVirtualTimePaused(const std::string& tab_id,
   base::Value::Dict params;
   client->SendCommand(
       "Debugger.pause", params,
-      base::BindOnce(&AbpController::OnDebuggerPaused,
+      base::BindOnce(&AbpController::OnDebuggerPauseCommandSent,
                      weak_factory_.GetWeakPtr(), tab_id, std::move(then)));
 }
 
-void AbpController::OnDebuggerPaused(const std::string& tab_id,
-                                     base::OnceClosure then,
-                                     bool success,
-                                     const std::string& result) {
+void AbpController::OnDebuggerPauseCommandSent(
+    const std::string& tab_id,
+    base::OnceClosure then,
+    bool success,
+    const std::string& result) {
   if (!success) {
-    VLOG(1) << "ABP: Debugger.pause failed: " << result;
+    VLOG(1) << "ABP: Debugger.pause command failed: " << result;
   }
 
   auto it = tab_states_.find(tab_id);
-  if (it != tab_states_.end()) {
-    it->second.execution.phase = ExecutionPhase::kPaused;
+  if (it == tab_states_.end()) {
+    std::move(then).Run();
+    return;
   }
 
-  LOG(INFO) << "ABP: Execution paused for tab " << tab_id;
-  std::move(then).Run();
+  // Don't set phase to kPaused yet — wait for Debugger.paused EVENT.
+  // Store the callback for OnDebuggerPausedEvent to fire.
+  it->second.pause_completion_callback = std::move(then);
+
+  // Start 2s safety timeout in case Debugger.paused event never arrives.
+  if (!it->second.pause_confirmation_timer) {
+    it->second.pause_confirmation_timer =
+        std::make_unique<base::OneShotTimer>();
+  }
+  it->second.pause_confirmation_timer->Start(
+      FROM_HERE, base::Seconds(2),
+      base::BindOnce(&AbpController::OnPauseConfirmationTimeout,
+                     weak_factory_.GetWeakPtr(), tab_id));
+
+  // Send Runtime.evaluate("void 0") WITHOUT disableBreaks to force V8 to
+  // execute a statement and hit the pending pause flag.
+  content::WebContents* wc = FindWebContents(tab_id);
+  AbpCdpClient* client = wc ? GetOrCreateCdpClient(wc) : nullptr;
+  if (client) {
+    base::Value::Dict params;
+    params.Set("expression", "void 0");
+    // NOTE: disableBreaks intentionally NOT set — we want this to trigger
+    // the pending Debugger.pause.
+    client->SendCommand("Runtime.evaluate", std::move(params),
+                        base::BindOnce([](bool, const std::string&) {}));
+  }
+}
+
+void AbpController::OnDebuggerPausedEvent(const std::string& tab_id) {
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end()) return;
+  if (!it->second.pause_completion_callback) return;
+
+  if (it->second.pause_confirmation_timer) {
+    it->second.pause_confirmation_timer->Stop();
+  }
+  it->second.execution.phase = ExecutionPhase::kPaused;
+  LOG(INFO) << "ABP: Debugger.paused event confirmed for tab " << tab_id;
+  if (lifecycle_observer_for_testing_) {
+    lifecycle_observer_for_testing_.Run(tab_id, "", LifecycleStep::kPauseConfirmed);
+  }
+  std::move(it->second.pause_completion_callback).Run();
+}
+
+void AbpController::OnPauseConfirmationTimeout(const std::string& tab_id) {
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end()) return;
+  if (!it->second.pause_completion_callback) return;
+
+  LOG(WARNING) << "ABP: Debugger.paused event not received within 2s for tab "
+               << tab_id << ", proceeding anyway";
+  it->second.execution.phase = ExecutionPhase::kPaused;
+  if (lifecycle_observer_for_testing_) {
+    lifecycle_observer_for_testing_.Run(tab_id, "", LifecycleStep::kPauseTimedOut);
+  }
+  std::move(it->second.pause_completion_callback).Run();
 }
 
 void AbpController::EnsureCompositorActive(const std::string& tab_id,
@@ -3911,6 +4059,7 @@ void AbpController::OnTextPollCheck(const std::string& tab_id) {
   base::Value::Dict cdp_params;
   cdp_params.Set("expression", expression);
   cdp_params.Set("returnByValue", true);
+  cdp_params.Set("disableBreaks", true);
 
   client->SendCommand(
       "Runtime.evaluate", cdp_params,
@@ -4068,6 +4217,7 @@ void AbpController::GetScrollPosition(
   base::Value::Dict eval_params;
   eval_params.Set("expression", script);
   eval_params.Set("returnByValue", true);
+  eval_params.Set("disableBreaks", true);
 
   client->SendCommand(
       "Runtime.evaluate", std::move(eval_params),

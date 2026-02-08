@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<body>
+  <div id="tick">0</div>
+  <script>
+    setInterval(() => {
+      document.getElementById('tick').textContent =
+        parseInt(document.getElementById('tick').textContent) + 1;
+    }, 50);
+  </script>
+</body>
