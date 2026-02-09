@@ -295,8 +295,17 @@ void AbpEventObserver::DevToolsAgentHostNavigated(
 
 void AbpEventObserver::DevToolsAgentHostDetached(
     content::DevToolsAgentHost* host) {
-  // Remove our event client for this host
-  event_clients_.erase(host->GetId());
+  // Do NOT erase the event client here.  This callback fires from inside
+  // DevToolsAgentHostImpl::NotifyDetached(), which is called from
+  // DetachInternal() during ForceDetachAllSessionsImpl().  Destroying
+  // the AbpCdpEventClient here would free the client object while
+  // ForceDetachAllSessionsImpl still holds a raw pointer to it and is
+  // about to call client->AgentHostClosed() — a use-after-free.
+  //
+  // The event client is safely cleaned up by:
+  //   - DetachTab() before API-driven tab closes
+  //   - Stop() during observer shutdown
+  //   - AgentHostClosed() nulling host_ (client stays in map harmlessly)
 }
 
 void AbpEventObserver::DevToolsAgentHostCrashed(
