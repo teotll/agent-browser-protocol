@@ -165,6 +165,13 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
       base::BindOnce(
           [](double coord_x, double coord_y, std::string btn, int count,
              int modifiers, AbpActionContext* ctx) {
+            // Log cursor position before the action
+            auto& tab_state = ctx->controller()->GetOrCreateTabState(ctx->tab_id());
+            LOG(INFO) << "ABP: Click action started - target=(" << coord_x << ", " << coord_y
+                      << ") button=" << btn << " count=" << count
+                      << " before_cursor=(" << tab_state.cursor.x << ", " << tab_state.cursor.y
+                      << ") active=" << tab_state.cursor.active;
+
             // Update virtual cursor state via controller
             ctx->controller()->UpdateVirtualCursorState(ctx->tab_id(), coord_x,
                                                         coord_y);
@@ -175,6 +182,8 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
               ctx->controller()->SetVirtualCursorEnabledViaMojo(wc, true);
               ctx->controller()->SetVirtualCursorViaMojo(wc, coord_x, coord_y,
                                                           true);
+            } else {
+              LOG(WARNING) << "ABP: Click action - WebContents not found for tab " << ctx->tab_id();
             }
 
             // Keep context alive through async fences + input dispatch.
@@ -185,6 +194,10 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
                     [](double x, double y, std::string button, int click_count,
                        int mods, scoped_refptr<AbpActionContext> action_ctx,
                        bool fence_ready) {
+                      LOG(INFO) << "ABP: Visual state fence "
+                                << (fence_ready ? "ready" : "failed")
+                                << " for click at (" << x << ", " << y << ")";
+
                       if (!fence_ready) {
                         action_ctx->OnActionError(
                             "VISUAL_STATE_ERROR",
@@ -208,6 +221,9 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
                       press_params.Set("clickCount", click_count);
                       press_params.Set("modifiers", mods);
 
+                      LOG(INFO) << "ABP: Sending Input.dispatchMouseEvent (mousePressed) at ("
+                                << x << ", " << y << ") button=" << button;
+
                       cdp_client->SendCommand(
                           "Input.dispatchMouseEvent", std::move(press_params),
                           base::BindOnce(
@@ -216,9 +232,12 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
                                  scoped_refptr<AbpActionContext> action_ctx,
                                  bool success, const std::string& result) {
                                 if (!success) {
+                                  LOG(ERROR) << "ABP: Input.dispatchMouseEvent (mousePressed) failed: " << result;
                                   action_ctx->OnActionError("CDP_ERROR", result);
                                   return;
                                 }
+
+                                LOG(INFO) << "ABP: Input.dispatchMouseEvent (mousePressed) succeeded";
 
                                 AbpCdpClient* cdp_client = action_ctx->client();
                                 if (!cdp_client) {
@@ -236,6 +255,9 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
                                 release_params.Set("clickCount", click_count);
                                 release_params.Set("modifiers", mods);
 
+                                LOG(INFO) << "ABP: Sending Input.dispatchMouseEvent (mouseReleased) at ("
+                                          << x << ", " << y << ")";
+
                                 cdp_client->SendCommand(
                                     "Input.dispatchMouseEvent",
                                     std::move(release_params),
@@ -244,10 +266,13 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
                                            bool success,
                                            const std::string& result) {
                                           if (!success) {
+                                            LOG(ERROR) << "ABP: Input.dispatchMouseEvent (mouseReleased) failed: " << result;
                                             c->OnActionError("CDP_ERROR",
                                                              result);
                                             return;
                                           }
+
+                                          LOG(INFO) << "ABP: Input.dispatchMouseEvent (mouseReleased) succeeded - click complete";
 
                                           base::Value::Dict res;
                                           res.Set("status", "clicked");

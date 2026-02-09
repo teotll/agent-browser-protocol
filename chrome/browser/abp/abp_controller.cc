@@ -372,53 +372,6 @@ std::vector<std::string> ParsePath(const std::string& path) {
   return segments;
 }
 
-// Process screenshot bitmap and save to file (runs on background thread)
-// Note: Cursor rendering is handled by the virtual cursor overlay layer
-// (InspectorCursorDrawer) which is captured automatically via CopyFromSurface.
-void ProcessAndSaveScreenshot(
-    const base::FilePath& screenshot_path,
-    base::OnceCallback<void(std::string path)> callback,
-    SkBitmap bitmap) {
-  // This runs on a background thread
-
-  // Use the bitmap directly - it was already copied when passed here
-  SkBitmap output_bitmap = std::move(bitmap);
-
-  // Encode as WebP
-  std::optional<std::vector<uint8_t>> encoded =
-      gfx::WebpCodec::Encode(output_bitmap, 80);
-
-  if (!encoded || encoded->empty()) {
-    LOG(WARNING) << "ABP: Failed to encode screenshot as WebP";
-    content::GetUIThreadTaskRunner({})->PostTask(
-        FROM_HERE,
-        base::BindOnce(std::move(callback), std::string()));
-    return;
-  }
-
-  // Create parent directory if needed
-  base::FilePath dir = screenshot_path.DirName();
-  if (!base::DirectoryExists(dir)) {
-    base::CreateDirectory(dir);
-  }
-
-  // Write to file
-  bool success = base::WriteFile(screenshot_path, *encoded);
-
-  if (success) {
-    LOG(INFO) << "ABP: Saved screenshot to " << screenshot_path.value();
-    content::GetUIThreadTaskRunner({})->PostTask(
-        FROM_HERE,
-        base::BindOnce(std::move(callback), screenshot_path.AsUTF8Unsafe()));
-  } else {
-    LOG(WARNING) << "ABP: Failed to write screenshot to "
-                 << screenshot_path.value();
-    content::GetUIThreadTaskRunner({})->PostTask(
-        FROM_HERE,
-        base::BindOnce(std::move(callback), std::string()));
-  }
-}
-
 }  // namespace
 
 // AbpCdpClient implementation
@@ -732,12 +685,13 @@ void AbpController::CaptureScreenshotForHistory(
     int64_t timestamp,
     bool is_before,
     base::OnceCallback<void(std::string path)> callback) {
-  VLOG(1) << "ABP: CaptureScreenshotForHistory is_before=" << is_before
-               << " history_controller=" << (history_controller_ ? "yes" : "no")
-               << " screenshots_enabled="
-               << (history_controller_ ? (history_controller_->ScreenshotsEnabled() ? "yes" : "no") : "n/a");
+  LOG(INFO) << "ABP: CaptureScreenshotForHistory tab=" << tab_id
+            << " is_before=" << is_before
+            << " history_controller=" << (history_controller_ ? "yes" : "no")
+            << " screenshots_enabled="
+            << (history_controller_ ? (history_controller_->ScreenshotsEnabled() ? "yes" : "no") : "n/a");
   if (!history_controller_ || !history_controller_->ScreenshotsEnabled()) {
-    VLOG(1) << "ABP: CaptureScreenshotForHistory - skipping (disabled)";
+    LOG(INFO) << "ABP: CaptureScreenshotForHistory - skipping (disabled)";
     std::move(callback).Run("");
     return;
   }
@@ -748,67 +702,134 @@ void AbpController::CaptureScreenshotForHistory(
     return;
   }
 
-  base::FilePath screenshot_path =
-      history_controller_->GetScreenshotPath(tab_id, timestamp, is_before);
-
-  // Use CDP Page.captureScreenshot which triggers a fresh compositor frame.
-  // CopyFromSurface hangs when virtual time has been paused/resumed because
-  // the compositor surface may be stale and no new BeginFrame signals arrive.
-  AbpCdpClient* client = GetOrCreateCdpClient(wc);
-  if (!client) {
+  content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
+  if (!view) {
+    LOG(WARNING) << "ABP: CaptureScreenshotForHistory - no RenderWidgetHostView";
     std::move(callback).Run("");
     return;
   }
 
-  base::Value::Dict cdp_params;
-  cdp_params.Set("format", "webp");
-  cdp_params.Set("quality", 80);
+  base::FilePath screenshot_path =
+      history_controller_->GetScreenshotPath(tab_id, timestamp, is_before);
 
-  client->SendCommand(
-      "Page.captureScreenshot", cdp_params,
+  // Use ForceRedrawWithCallback + GrabViewSnapshot instead of CDP
+  // Page.captureScreenshot which can hang indefinitely.
+  auto* rwhi = static_cast<content::RenderWidgetHostImpl*>(
+      view->GetRenderWidgetHost());
+
+  struct HistorySnapState {
+    bool done = false;
+    base::OnceCallback<void(std::string)> cb;
+    base::FilePath path;
+    std::string tab_id;
+  };
+  auto st = std::make_shared<HistorySnapState>();
+  st->cb = std::move(callback);
+  st->path = screenshot_path;
+  st->tab_id = tab_id;
+
+  // 1500ms safety timeout
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE,
       base::BindOnce(
-          [](base::FilePath path,
-             base::OnceCallback<void(std::string)> cb,
-             bool success, const std::string& result) {
-            if (!success) {
-              std::move(cb).Run("");
-              return;
-            }
-
-            auto parsed = base::JSONReader::Read(result, base::JSON_PARSE_RFC);
-            if (!parsed || !parsed->is_dict()) {
-              std::move(cb).Run("");
-              return;
-            }
-
-            const std::string* data = parsed->GetDict().FindString("data");
-            if (!data) {
-              std::move(cb).Run("");
-              return;
-            }
-
-            std::optional<std::vector<uint8_t>> decoded =
-                base::Base64Decode(*data);
-            if (!decoded) {
-              std::move(cb).Run("");
-              return;
-            }
-
-            // Write to file on ThreadPool
-            base::ThreadPool::PostTaskAndReplyWithResult(
-                FROM_HERE, {base::MayBlock()},
-                base::BindOnce(
-                    [](base::FilePath p,
-                       std::vector<uint8_t> content) -> std::string {
-                      if (base::WriteFile(p, content)) {
-                        return p.AsUTF8Unsafe();
-                      }
-                      return "";
-                    },
-                    std::move(path), std::move(*decoded)),
-                std::move(cb));
+          [](std::shared_ptr<HistorySnapState> s) {
+            if (s->done) return;
+            s->done = true;
+            LOG(WARNING) << "ABP: CaptureScreenshotForHistory timed out";
+            std::move(s->cb).Run("");
           },
-          screenshot_path, std::move(callback)));
+          st),
+      base::Milliseconds(1500));
+
+  LOG(INFO) << "ABP: CaptureScreenshotForHistory - calling ForceRedrawWithCallback";
+  rwhi->ForceRedrawWithCallback(base::BindOnce(
+      [](std::shared_ptr<HistorySnapState> s,
+         base::WeakPtr<AbpController> ctrl) {
+        if (s->done) return;
+        LOG(INFO) << "ABP: CaptureScreenshotForHistory - ForceRedraw callback fired";
+        if (!ctrl) {
+          s->done = true;
+          std::move(s->cb).Run("");
+          return;
+        }
+        // 167ms CoreAnimation delay for compositor to present frame.
+        base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+            FROM_HERE,
+            base::BindOnce(
+                [](std::shared_ptr<HistorySnapState> s,
+                   base::WeakPtr<AbpController> ctrl) {
+                  if (s->done) return;
+                  if (!ctrl) {
+                    s->done = true;
+                    std::move(s->cb).Run("");
+                    return;
+                  }
+                  content::WebContents* wc2 =
+                      ctrl->FindWebContents(s->tab_id);
+                  if (!wc2) {
+                    s->done = true;
+                    std::move(s->cb).Run("");
+                    return;
+                  }
+                  gfx::NativeView native_view = wc2->GetContentNativeView();
+                  if (!native_view) {
+                    s->done = true;
+                    std::move(s->cb).Run("");
+                    return;
+                  }
+                  auto* view2 = wc2->GetRenderWidgetHostView();
+                  gfx::Rect bounds;
+                  if (view2) {
+                    bounds = gfx::Rect(view2->GetViewBounds().size());
+                  }
+                  ui::GrabViewSnapshot(
+                      native_view, bounds,
+                      base::BindOnce(
+                          [](std::shared_ptr<HistorySnapState> s,
+                             gfx::Image image) {
+                            if (s->done) return;
+                            s->done = true;
+                            if (image.IsEmpty()) {
+                              LOG(WARNING) << "ABP: CaptureScreenshotForHistory"
+                                           << " - GrabViewSnapshot empty";
+                              std::move(s->cb).Run("");
+                              return;
+                            }
+                            LOG(INFO) << "ABP: CaptureScreenshotForHistory"
+                                      << " - encoding WebP";
+                            const SkBitmap& bitmap = *image.ToSkBitmap();
+                            auto encoded =
+                                gfx::WebpCodec::Encode(bitmap, 80);
+                            if (!encoded || encoded->empty()) {
+                              LOG(WARNING)
+                                  << "ABP: CaptureScreenshotForHistory"
+                                  << " - WebP encode failed";
+                              std::move(s->cb).Run("");
+                              return;
+                            }
+                            LOG(INFO) << "ABP: CaptureScreenshotForHistory"
+                                      << " - writing file "
+                                      << s->path.value();
+                            base::ThreadPool::PostTaskAndReplyWithResult(
+                                FROM_HERE, {base::MayBlock()},
+                                base::BindOnce(
+                                    [](base::FilePath p,
+                                       std::vector<uint8_t> content)
+                                        -> std::string {
+                                      if (base::WriteFile(p, content)) {
+                                        return p.AsUTF8Unsafe();
+                                      }
+                                      return "";
+                                    },
+                                    s->path, std::move(*encoded)),
+                                std::move(s->cb));
+                          },
+                          s));
+                },
+                s, ctrl),
+            base::Milliseconds(167));
+      },
+      st, weak_factory_.GetWeakPtr()));
 }
 
 void AbpController::CaptureActionScreenshot(
@@ -818,6 +839,8 @@ void AbpController::CaptureActionScreenshot(
     const ScreenshotOptions& options,
     ActionScreenshotCallback callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  LOG(INFO) << "ABP: CaptureActionScreenshot tab=" << tab_id
+            << " is_before=" << is_before << " markup=" << options.markup;
 
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
@@ -1153,172 +1176,6 @@ void AbpController::OnActionScreenshotCaptured(
 
   // No history save needed — return immediately
   std::move(callback).Run(std::move(r));
-}
-
-void AbpController::CaptureScreenshotDirect(
-    content::WebContents* web_contents,
-    const base::FilePath& screenshot_path,
-    base::OnceCallback<void(std::string path)> callback) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
-  if (!web_contents) {
-    std::move(callback).Run("");
-    return;
-  }
-
-  content::RenderWidgetHostView* rwhv =
-      web_contents->GetRenderWidgetHostView();
-  if (!rwhv) {
-    VLOG(1) << "ABP: No RenderWidgetHostView for screenshot";
-    std::move(callback).Run("");
-    return;
-  }
-
-  // Capture the surface directly with 5 second timeout
-  // Note: The virtual cursor is rendered by InspectorCursorDrawer in the
-  // inspector overlay layer, which is included automatically in CopyFromSurface.
-  VLOG(1) << "ABP: CaptureScreenshotDirect - calling CopyFromSurface";
-  rwhv->CopyFromSurface(
-      gfx::Rect(),   // empty = full viewport
-      gfx::Size(),   // empty = native resolution
-      base::Seconds(5),  // timeout
-      base::BindOnce(&AbpController::OnSurfaceCopied,
-                     weak_factory_.GetWeakPtr(),
-                     screenshot_path,
-                     std::move(callback)));
-}
-
-void AbpController::OnSurfaceCopied(
-    const base::FilePath& screenshot_path,
-    base::OnceCallback<void(std::string path)> callback,
-    const content::CopyFromSurfaceResult& result) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  VLOG(1) << "ABP: OnSurfaceCopied - callback received";
-
-  if (!result.has_value()) {
-    VLOG(1) << "ABP: CopyFromSurface failed: " << result.error();
-    std::move(callback).Run("");
-    return;
-  }
-
-  const SkBitmap& bitmap = result->bitmap;
-  if (bitmap.empty()) {
-    VLOG(1) << "ABP: CopyFromSurface returned empty bitmap";
-    std::move(callback).Run("");
-    return;
-  }
-
-  // Make a deep copy to pass to the background thread
-  SkBitmap bitmap_copy;
-  bitmap_copy.allocPixels(bitmap.info());
-  bitmap.readPixels(bitmap_copy.info(), bitmap_copy.getPixels(),
-                    bitmap_copy.rowBytes(), 0, 0);
-
-  // Process and save on a background thread (using free function in anon namespace)
-  // Note: Cursor is already in the bitmap from the virtual cursor overlay layer
-  base::ThreadPool::PostTask(
-      FROM_HERE,
-      {base::TaskPriority::USER_VISIBLE, base::MayBlock()},
-      base::BindOnce(&ProcessAndSaveScreenshot,
-                     screenshot_path,
-                     std::move(callback),
-                     std::move(bitmap_copy)));
-}
-
-void AbpController::OnHistoryMarkupInjected(
-    const std::string& tab_id,
-    const base::FilePath& screenshot_path,
-    base::OnceCallback<void(std::string path)> callback,
-    bool success,
-    const std::string& result) {
-  content::WebContents* wc = FindWebContents(tab_id);
-  if (!wc) {
-    std::move(callback).Run("");
-    return;
-  }
-
-  AbpCdpClient* client = GetOrCreateCdpClient(wc);
-  if (!client) {
-    std::move(callback).Run("");
-    return;
-  }
-
-  // Take screenshot via CDP
-  base::Value::Dict cdp_params;
-  cdp_params.Set("format", "webp");
-  cdp_params.Set("quality", 80);
-
-  client->SendCommand(
-      "Page.captureScreenshot", cdp_params,
-      base::BindOnce(&AbpController::OnHistoryScreenshotCaptured,
-                     weak_factory_.GetWeakPtr(), tab_id, screenshot_path,
-                     std::move(callback)));
-}
-
-void AbpController::OnHistoryScreenshotCaptured(
-    const std::string& tab_id,
-    const base::FilePath& screenshot_path,
-    base::OnceCallback<void(std::string path)> callback,
-    bool success,
-    const std::string& result) {
-  // Clean up injected styles
-  content::WebContents* wc = FindWebContents(tab_id);
-  if (wc) {
-    AbpCdpClient* client = GetOrCreateCdpClient(wc);
-    if (client) {
-      std::string cleanup_script = R"(
-        (function() {
-          const style = document.getElementById('abp-history-style');
-          if (style) style.remove();
-          const cursor = document.getElementById('abp-cursor-indicator');
-          if (cursor) cursor.remove();
-          return true;
-        })()
-      )";
-      base::Value::Dict cleanup_params;
-      cleanup_params.Set("expression", cleanup_script);
-      cleanup_params.Set("disableBreaks", true);
-      client->SendCommand("Runtime.evaluate", cleanup_params,
-                          base::DoNothing());
-    }
-  }
-
-  if (!success) {
-    std::move(callback).Run("");
-    return;
-  }
-
-  auto parsed = base::JSONReader::Read(result, base::JSON_PARSE_RFC);
-  if (!parsed || !parsed->is_dict()) {
-    std::move(callback).Run("");
-    return;
-  }
-
-  const std::string* data = parsed->GetDict().FindString("data");
-  if (!data) {
-    std::move(callback).Run("");
-    return;
-  }
-
-  // Decode and write file
-  std::optional<std::vector<uint8_t>> decoded = base::Base64Decode(*data);
-  if (!decoded) {
-    std::move(callback).Run("");
-    return;
-  }
-
-  // Write to file on ThreadPool
-  base::ThreadPool::PostTaskAndReplyWithResult(
-      FROM_HERE, {base::MayBlock()},
-      base::BindOnce(
-          [](base::FilePath p, std::vector<uint8_t> content) -> std::string {
-            if (base::WriteFile(p, content)) {
-              return p.AsUTF8Unsafe();
-            }
-            return "";
-          },
-          screenshot_path, std::move(*decoded)),
-      std::move(callback));
 }
 
 void AbpController::HandleRequest(const std::string& method,
@@ -1893,6 +1750,7 @@ void AbpController::GoForward(const std::string& tab_id,
 void AbpController::Screenshot(const std::string& tab_id,
                                const base::Value::Dict& params,
                                ResponseCallback callback) {
+  LOG(INFO) << "ABP: Screenshot tab=" << tab_id;
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
     SendError(404, "Tab not found", std::move(callback));
@@ -2066,6 +1924,8 @@ void AbpController::OnMarkupInjected(const std::string& tab_id,
                                      const ScreenshotOptions& options,
                                      bool success,
                                      const std::string& result) {
+  LOG(INFO) << "ABP: OnMarkupInjected tab=" << tab_id
+            << " proceeding to capture";
   // Markup overlay already injected by the JavaScript.
   // The Mojo virtual cursor is already positioned from previous input actions.
   // CopyFromSurface captures the composited frame which includes the cursor overlay.
@@ -2083,6 +1943,8 @@ void AbpController::CaptureScreenshotWithCursor(const std::string& tab_id,
     const auto& exec = tab_it->second.execution;
     restore_pause_after_capture = exec.IsPaused();
   }
+  LOG(INFO) << "ABP: CaptureScreenshotWithCursor tab=" << tab_id
+            << " restore_pause=" << restore_pause_after_capture;
 
   auto wrapped_cb = base::BindOnce(
       [](base::WeakPtr<AbpController> ctrl, std::string tid,
@@ -2957,31 +2819,30 @@ void AbpController::SetVirtualCursorViaMojo(content::WebContents* wc,
                                              float y,
                                              bool visible) {
   if (!wc) {
-    VLOG(1) << "ABP DEBUG L1: SetVirtualCursorViaMojo - wc is null";
+    LOG(WARNING) << "ABP: SetVirtualCursorViaMojo - wc is null";
     return;
   }
 
   content::RenderWidgetHostView* rwhv = wc->GetRenderWidgetHostView();
   if (!rwhv) {
-    VLOG(1) << "ABP DEBUG L1: SetVirtualCursorViaMojo - rwhv is null";
+    LOG(WARNING) << "ABP: SetVirtualCursorViaMojo - rwhv is null";
     return;
   }
 
   content::RenderWidgetHost* rwh = rwhv->GetRenderWidgetHost();
   if (!rwh) {
-    VLOG(1) << "ABP DEBUG L1: SetVirtualCursorViaMojo - rwh is null";
+    LOG(WARNING) << "ABP: SetVirtualCursorViaMojo - rwh is null";
     return;
   }
 
   // Check if the render process is alive before calling Mojo methods
   if (!rwh->GetProcess() || !rwh->GetProcess()->IsInitializedAndNotDead()) {
-    VLOG(1) << "ABP DEBUG L1: SetVirtualCursorViaMojo - render process not ready";
+    LOG(WARNING) << "ABP: SetVirtualCursorViaMojo - render process not ready";
     return;
   }
 
-  LOG(INFO) << "ABP DEBUG L1: SetVirtualCursorViaMojo"
-            << " x=" << x << " y=" << y << " visible=" << visible
-            << " rwh=valid";
+  LOG(INFO) << "ABP: SetVirtualCursorViaMojo x=" << x << " y=" << y
+            << " visible=" << visible;
   rwh->SetVirtualCursorPosition(x, y, visible);
 }
 
@@ -3083,7 +2944,7 @@ void AbpController::InsertVisualStateFence(
           [](std::shared_ptr<FenceState> s) {
             if (!s->done) {
               s->done = true;
-              VLOG(1) << "ABP InsertVisualStateFence: timeout, proceeding";
+              LOG(INFO) << "ABP: InsertVisualStateFence timeout (500ms), proceeding";
               std::move(s->callback).Run(true);
             }
           },
@@ -3094,6 +2955,7 @@ void AbpController::InsertVisualStateFence(
       [](std::shared_ptr<FenceState> s, bool ready) {
         if (!s->done) {
           s->done = true;
+          LOG(INFO) << "ABP: InsertVisualStateFence callback fired, ready=" << ready;
           std::move(s->callback).Run(ready);
         }
       },
@@ -3133,6 +2995,7 @@ void AbpController::EnableExecutionControl(
 
   // Step 1: Enable Debugger domain
   base::Value::Dict params;
+  LOG(INFO) << "ABP: Sending Debugger.enable (initial setup) for tab " << tab_id;
   client->SendCommand(
       "Debugger.enable", params,
       base::BindOnce(&AbpController::OnDebuggerEnabled,
@@ -3146,8 +3009,12 @@ void AbpController::OnDebuggerEnabled(
     base::OnceClosure then,
     bool success,
     const std::string& result) {
-  if (!success) {
-    VLOG(1) << "ABP: Debugger.enable failed: " << result;
+  // Log CDP ground truth
+  if (success) {
+    LOG(INFO) << "ABP: Debugger.enable (initial setup) succeeded for tab " << tab_id;
+  } else {
+    LOG(WARNING) << "ABP: Debugger.enable (initial setup) failed for tab " << tab_id
+                 << " - " << result;
     std::move(then).Run();
     return;
   }
@@ -3173,6 +3040,7 @@ void AbpController::OnDebuggerEnabled(
     params.Set("initialVirtualTime", *initial_virtual_time);
   }
 
+  LOG(INFO) << "ABP: Sending Emulation.setVirtualTimePolicy (pause, initial enable) for tab " << tab_id;
   client->SendCommand(
       "Emulation.setVirtualTimePolicy", params,
       base::BindOnce(&AbpController::OnVirtualTimeEnabled,
@@ -3184,14 +3052,18 @@ void AbpController::OnVirtualTimeEnabled(
     base::OnceClosure then,
     bool success,
     const std::string& result) {
-  if (!success) {
-    VLOG(1) << "ABP: setVirtualTimePolicy failed: " << result;
+  // Log CDP ground truth
+  if (success) {
+    LOG(INFO) << "ABP: Emulation.setVirtualTimePolicy (pause, initial enable) succeeded for tab " << tab_id;
+  } else {
+    LOG(WARNING) << "ABP: Emulation.setVirtualTimePolicy (pause, initial enable) failed for tab " << tab_id
+                 << " - " << result;
     std::move(then).Run();
     return;
   }
 
   auto& state = GetOrCreateTabState(tab_id).execution;
-  state.phase = ExecutionPhase::kPaused;  // Setup complete, start paused
+  state.phase = ExecutionPhase::kPausing;  // Pausing, not paused yet
 
   // Parse the result to get virtualTimeTicksBase
   auto parsed = base::JSONReader::Read(result, base::JSON_PARSE_RFC);
@@ -3203,8 +3075,13 @@ void AbpController::OnVirtualTimeEnabled(
   }
 
   LOG(INFO) << "ABP: Execution control enabled for tab " << tab_id
-            << ", virtualTimeTicksBase=" << state.virtual_time_base_ticks_ms;
-  std::move(then).Run();
+            << ", virtualTimeTicksBase=" << state.virtual_time_base_ticks_ms
+            << " (will pause deterministically)";
+
+  // Perform deterministic pause using common function.
+  // Debugger is already enabled from OnDebuggerEnabled, but
+  // SendDeterministicPause will re-enable it (idempotent).
+  SendDeterministicPause(tab_id, std::move(then));
 }
 
 void AbpController::ResumeExecution(const std::string& tab_id,
@@ -3248,6 +3125,7 @@ void AbpController::ResumeExecution(const std::string& tab_id,
 
   // Step 1: Resume debugger
   base::Value::Dict params;
+  LOG(INFO) << "ABP: Sending Debugger.resume for tab " << tab_id;
   client->SendCommand(
       "Debugger.resume", params,
       base::BindOnce(&AbpController::OnDebuggerResumed,
@@ -3258,9 +3136,12 @@ void AbpController::OnDebuggerResumed(const std::string& tab_id,
                                       base::OnceClosure then,
                                       bool success,
                                       const std::string& result) {
-  // Debugger.resume may return error if not actually paused, which is fine
-  if (!success) {
-    LOG(INFO) << "ABP: Debugger.resume: " << result << " (may not have been paused)";
+  // Log CDP ground truth
+  if (success) {
+    LOG(INFO) << "ABP: Debugger.resume succeeded for tab " << tab_id;
+  } else {
+    LOG(INFO) << "ABP: Debugger.resume failed for tab " << tab_id
+              << " - " << result << " (may not have been paused)";
   }
 
   content::WebContents* wc = FindWebContents(tab_id);
@@ -3280,25 +3161,40 @@ void AbpController::OnDebuggerResumed(const std::string& tab_id,
   // request lingers and will activate the next time JS runs, causing a
   // deadlock.  Fix: disable + re-enable the debugger to clear all state.
   if (!success) {
+    LOG(INFO) << "ABP: Debugger.resume failed, resetting debugger state for tab " << tab_id;
     base::Value::Dict empty;
+    LOG(INFO) << "ABP: Sending Debugger.disable (reset) for tab " << tab_id;
     client->SendCommand(
         "Debugger.disable", empty,
         base::BindOnce(
             [](base::WeakPtr<AbpController> ctrl, std::string tid,
-               base::OnceClosure cb, bool, const std::string&) {
+               base::OnceClosure cb, bool success, const std::string& result) {
               if (!ctrl) return;
+              if (success) {
+                LOG(INFO) << "ABP: Debugger.disable (reset) succeeded for tab " << tid;
+              } else {
+                LOG(WARNING) << "ABP: Debugger.disable (reset) failed for tab " << tid
+                             << " - " << result;
+              }
               content::WebContents* wc = ctrl->FindWebContents(tid);
               if (!wc) { std::move(cb).Run(); return; }
               AbpCdpClient* c = ctrl->GetOrCreateCdpClient(wc);
               if (!c) { std::move(cb).Run(); return; }
               // Re-enable debugger (fresh state, no pending pause)
               base::Value::Dict e;
+              LOG(INFO) << "ABP: Sending Debugger.enable (reset) for tab " << tid;
               c->SendCommand(
                   "Debugger.enable", e,
                   base::BindOnce(
                       [](base::WeakPtr<AbpController> ctrl2, std::string tid2,
-                         base::OnceClosure cb2, bool, const std::string&) {
+                         base::OnceClosure cb2, bool success, const std::string& result) {
                         if (!ctrl2) return;
+                        if (success) {
+                          LOG(INFO) << "ABP: Debugger.enable (reset) succeeded for tab " << tid2;
+                        } else {
+                          LOG(WARNING) << "ABP: Debugger.enable (reset) failed for tab " << tid2
+                                       << " - " << result;
+                        }
                         auto it = ctrl2->tab_states_.find(tid2);
                         if (it != ctrl2->tab_states_.end()) {
                           // Debugger re-enabled; phase stays kResuming
@@ -3310,6 +3206,7 @@ void AbpController::OnDebuggerResumed(const std::string& tab_id,
                         if (!c2) { std::move(cb2).Run(); return; }
                         base::Value::Dict rt;
                         rt.Set("policy", "realtime");
+                        LOG(INFO) << "ABP: Sending Emulation.setVirtualTimePolicy (realtime, after debugger reset) for tab " << tid2;
                         c2->SendCommand(
                             "Emulation.setVirtualTimePolicy", rt,
                             base::BindOnce(&AbpController::OnVirtualTimeResumed,
@@ -3325,6 +3222,7 @@ void AbpController::OnDebuggerResumed(const std::string& tab_id,
   base::Value::Dict params;
   params.Set("policy", "realtime");
 
+  LOG(INFO) << "ABP: Sending Emulation.setVirtualTimePolicy (realtime) for tab " << tab_id;
   client->SendCommand(
       "Emulation.setVirtualTimePolicy", params,
       base::BindOnce(&AbpController::OnVirtualTimeResumed,
@@ -3335,8 +3233,12 @@ void AbpController::OnVirtualTimeResumed(const std::string& tab_id,
                                          base::OnceClosure then,
                                          bool success,
                                          const std::string& result) {
-  if (!success) {
-    VLOG(1) << "ABP: setVirtualTimePolicy(realtime) failed: " << result;
+  // Log CDP ground truth
+  if (success) {
+    LOG(INFO) << "ABP: Emulation.setVirtualTimePolicy (realtime) succeeded for tab " << tab_id;
+  } else {
+    LOG(WARNING) << "ABP: Emulation.setVirtualTimePolicy (realtime) failed for tab " << tab_id
+                 << " - " << result;
   }
 
   auto it = tab_states_.find(tab_id);
@@ -3363,10 +3265,17 @@ void AbpController::OnVirtualTimeResumed(const std::string& tab_id,
       if (rwhi) {
         LOG(INFO) << "ABP: OnVirtualTimeResumed - calling ForceRedrawWithCallback"
                   << " renderer_initialized=" << rwhi->renderer_initialized();
-        rwhi->ForceRedrawWithCallback(base::BindOnce([]() {
-          LOG(INFO) << "ABP: OnVirtualTimeResumed - ForceRedraw callback fired "
-                    << "(compositor produced a frame)";
-        }));
+        // Wait for compositor frame before proceeding with action.
+        // This prevents race condition where CaptureActionScreenshot
+        // sends another ForceRedraw before this one completes.
+        rwhi->ForceRedrawWithCallback(base::BindOnce(
+            [](base::OnceClosure callback) {
+              LOG(INFO) << "ABP: OnVirtualTimeResumed - ForceRedraw callback fired "
+                        << "(compositor produced a frame)";
+              std::move(callback).Run();
+            },
+            std::move(then)));
+        return;
       } else {
         LOG(WARNING) << "ABP: OnVirtualTimeResumed - RWHI is null";
       }
@@ -3379,7 +3288,8 @@ void AbpController::OnVirtualTimeResumed(const std::string& tab_id,
                  << tab_id;
   }
 
-  LOG(INFO) << "ABP: Execution resumed for tab " << tab_id << " - calling then()";
+  // Fallback if we can't get RWHI - proceed immediately
+  LOG(INFO) << "ABP: Execution resumed for tab " << tab_id << " - calling then() (fallback)";
   std::move(then).Run();
 }
 
@@ -3424,18 +3334,71 @@ void AbpController::PauseExecution(const std::string& tab_id,
   base::Value::Dict params;
   params.Set("policy", "pause");
 
+  LOG(INFO) << "ABP: Sending Emulation.setVirtualTimePolicy (pause) for tab " << tab_id;
   client->SendCommand(
       "Emulation.setVirtualTimePolicy", params,
       base::BindOnce(&AbpController::OnVirtualTimePaused,
                      weak_factory_.GetWeakPtr(), tab_id, std::move(then)));
 }
 
+void AbpController::SendDeterministicPause(const std::string& tab_id,
+                                           base::OnceClosure then) {
+  content::WebContents* wc = FindWebContents(tab_id);
+  if (!wc) {
+    std::move(then).Run();
+    return;
+  }
+
+  AbpCdpClient* client = GetOrCreateCdpClient(wc);
+  if (!client) {
+    std::move(then).Run();
+    return;
+  }
+
+  // Step 1: Ensure Debugger domain is enabled before pausing.
+  // After cross-process navigation (e.g. chrome:// → https://), the new
+  // renderer has no CDP domains enabled. Debugger.enable is idempotent
+  // so this is safe even if already enabled.
+  base::Value::Dict enable_params;
+  LOG(INFO) << "ABP: Sending Debugger.enable (before pause) for tab " << tab_id;
+  client->SendCommand(
+      "Debugger.enable", enable_params,
+      base::BindOnce(
+          [](base::WeakPtr<AbpController> ctrl, std::string tid,
+             base::OnceClosure cb, bool success, const std::string& result) {
+            if (!ctrl) return;
+            if (success) {
+              LOG(INFO) << "ABP: Debugger.enable (before pause) succeeded for tab " << tid;
+            } else {
+              LOG(WARNING) << "ABP: Debugger.enable (before pause) failed for tab " << tid
+                           << " - " << result;
+            }
+            content::WebContents* wc = ctrl->FindWebContents(tid);
+            if (!wc) { std::move(cb).Run(); return; }
+            AbpCdpClient* c = ctrl->GetOrCreateCdpClient(wc);
+            if (!c) { std::move(cb).Run(); return; }
+
+            // Step 2: Pause debugger (halt JS)
+            base::Value::Dict params;
+            LOG(INFO) << "ABP: Sending Debugger.pause for tab " << tid;
+            c->SendCommand(
+                "Debugger.pause", params,
+                base::BindOnce(&AbpController::OnDebuggerPauseCommandSent,
+                               ctrl, tid, std::move(cb)));
+          },
+          weak_factory_.GetWeakPtr(), tab_id, std::move(then)));
+}
+
 void AbpController::OnVirtualTimePaused(const std::string& tab_id,
                                         base::OnceClosure then,
                                         bool success,
                                         const std::string& result) {
-  if (!success) {
-    VLOG(1) << "ABP: setVirtualTimePolicy(pause) failed: " << result;
+  // Log CDP ground truth
+  if (success) {
+    LOG(INFO) << "ABP: Emulation.setVirtualTimePolicy (pause) succeeded for tab " << tab_id;
+  } else {
+    LOG(WARNING) << "ABP: Emulation.setVirtualTimePolicy (pause) failed for tab " << tab_id
+                 << " - " << result;
   }
 
   // Update virtual_time_base_ticks_ms from the pause response so
@@ -3465,34 +3428,7 @@ void AbpController::OnVirtualTimePaused(const std::string& tab_id,
     return;
   }
 
-  // Step 2: Ensure Debugger domain is enabled before pausing.
-  // After cross-process navigation (e.g. chrome:// → https://), the new
-  // renderer has no CDP domains enabled.  Debugger.enable is idempotent
-  // so this is safe even if already enabled.
-  base::Value::Dict enable_params;
-  client->SendCommand(
-      "Debugger.enable", enable_params,
-      base::BindOnce(
-          [](base::WeakPtr<AbpController> ctrl, std::string tid,
-             base::OnceClosure cb, bool success, const std::string& result) {
-            if (!ctrl) return;
-            if (!success) {
-              LOG(WARNING) << "ABP: Debugger.enable failed in PauseExecution: "
-                           << result;
-            }
-            content::WebContents* wc = ctrl->FindWebContents(tid);
-            if (!wc) { std::move(cb).Run(); return; }
-            AbpCdpClient* c = ctrl->GetOrCreateCdpClient(wc);
-            if (!c) { std::move(cb).Run(); return; }
-
-            // Step 3: Pause debugger (halt JS)
-            base::Value::Dict params;
-            c->SendCommand(
-                "Debugger.pause", params,
-                base::BindOnce(&AbpController::OnDebuggerPauseCommandSent,
-                               ctrl, tid, std::move(cb)));
-          },
-          weak_factory_.GetWeakPtr(), tab_id, std::move(then)));
+  SendDeterministicPause(tab_id, std::move(then));
 }
 
 void AbpController::OnDebuggerPauseCommandSent(
@@ -3500,8 +3436,13 @@ void AbpController::OnDebuggerPauseCommandSent(
     base::OnceClosure then,
     bool success,
     const std::string& result) {
-  if (!success) {
-    VLOG(1) << "ABP: Debugger.pause command failed: " << result;
+  // Log CDP ground truth
+  if (success) {
+    LOG(INFO) << "ABP: Debugger.pause command accepted for tab " << tab_id
+              << " (waiting for Debugger.paused event)";
+  } else {
+    LOG(WARNING) << "ABP: Debugger.pause command failed for tab " << tab_id
+                 << " - " << result;
   }
 
   auto it = tab_states_.find(tab_id);
@@ -3577,7 +3518,28 @@ void AbpController::EnsureCompositorActive(const std::string& tab_id,
     return;
   }
 
-  VLOG(1) << "ABP: EnsureCompositorActive - full resume for tab " << tab_id;
+  LOG(INFO) << "ABP: EnsureCompositorActive - full resume for tab " << tab_id;
+
+  // Guard against CDP hangs with shared_ptr + done flag + 3s timeout.
+  struct GuardState {
+    bool done = false;
+    base::OnceClosure cb;
+  };
+  auto guard = std::make_shared<GuardState>();
+  guard->cb = std::move(callback);
+
+  // 3s safety timeout — ResumeExecution involves multiple CDP round-trips.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](std::shared_ptr<GuardState> g) {
+            if (g->done) return;
+            g->done = true;
+            LOG(WARNING) << "ABP: EnsureCompositorActive timed out after 3s";
+            std::move(g->cb).Run();
+          },
+          guard),
+      base::Seconds(3));
 
   // Full resume: Debugger.resume + setVirtualTimePolicy("realtime") +
   // Page.bringToFront.  The renderer main thread must be unblocked for the
@@ -3586,13 +3548,22 @@ void AbpController::EnsureCompositorActive(const std::string& tab_id,
   ResumeExecution(
       tab_id,
       base::BindOnce(
-          [](base::OnceClosure cb) {
+          [](std::shared_ptr<GuardState> g) {
+            if (g->done) return;
             // Give the compositor time to produce a frame after full resume.
             base::SingleThreadTaskRunner::GetCurrentDefault()
-                ->PostDelayedTask(FROM_HERE, std::move(cb),
-                                  base::Milliseconds(100));
+                ->PostDelayedTask(FROM_HERE,
+                    base::BindOnce(
+                        [](std::shared_ptr<GuardState> g2) {
+                          if (g2->done) return;
+                          g2->done = true;
+                          LOG(INFO) << "ABP: EnsureCompositorActive completed";
+                          std::move(g2->cb).Run();
+                        },
+                        g),
+                    base::Milliseconds(100));
           },
-          std::move(callback)));
+          guard));
 }
 
 void AbpController::RestoreVirtualTimePause(const std::string& tab_id,
@@ -3610,11 +3581,42 @@ void AbpController::RestoreVirtualTimePause(const std::string& tab_id,
     return;
   }
 
-  VLOG(1) << "ABP: RestoreVirtualTimePause - full pause for tab " << tab_id;
+  LOG(INFO) << "ABP: RestoreVirtualTimePause - full pause for tab " << tab_id;
+
+  // Guard against CDP hangs with shared_ptr + done flag + 3s timeout.
+  struct GuardState {
+    bool done = false;
+    base::OnceClosure cb;
+  };
+  auto guard = std::make_shared<GuardState>();
+  guard->cb = std::move(callback);
+
+  // 3s timeout — PauseExecution's internal 2s pause_confirmation_timer
+  // fits within this outer timeout.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](std::shared_ptr<GuardState> g) {
+            if (g->done) return;
+            g->done = true;
+            LOG(WARNING) << "ABP: RestoreVirtualTimePause timed out after 3s";
+            std::move(g->cb).Run();
+          },
+          guard),
+      base::Seconds(3));
 
   // Full pause: setVirtualTimePolicy("pause") + Debugger.pause.
   // PauseExecution sets phase to kPaused.
-  PauseExecution(tab_id, std::move(callback));
+  PauseExecution(
+      tab_id,
+      base::BindOnce(
+          [](std::shared_ptr<GuardState> g) {
+            if (g->done) return;
+            g->done = true;
+            LOG(INFO) << "ABP: RestoreVirtualTimePause completed";
+            std::move(g->cb).Run();
+          },
+          guard));
 }
 
 void AbpController::PauseAllTabs() {
@@ -4344,60 +4346,129 @@ void AbpController::GetScrollPosition(
 void AbpController::CaptureScreenshotBase64(
     const std::string& tab_id,
     base::OnceCallback<void(std::string base64, int width, int height)> callback) {
+  LOG(INFO) << "ABP: CaptureScreenshotBase64 tab=" << tab_id;
+
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
     std::move(callback).Run(std::string(), 0, 0);
     return;
   }
 
-  AbpCdpClient* client = GetOrCreateCdpClient(wc);
-  if (!client) {
+  content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
+  if (!view) {
+    LOG(WARNING) << "ABP: CaptureScreenshotBase64 - no RenderWidgetHostView";
     std::move(callback).Run(std::string(), 0, 0);
     return;
   }
 
-  // Get view dimensions for the response
-  content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
-  int view_width = 0, view_height = 0;
-  if (view) {
-    gfx::Size size = view->GetViewBounds().size();
-    view_width = size.width();
-    view_height = size.height();
-  }
+  // Use ForceRedrawWithCallback + GrabViewSnapshot instead of CDP
+  // Page.captureScreenshot which can hang indefinitely.
+  auto* rwhi = static_cast<content::RenderWidgetHostImpl*>(
+      view->GetRenderWidgetHost());
 
-  // Use CDP Page.captureScreenshot which triggers a fresh compositor frame
-  // before capturing.  CopyFromSurface grabs the existing buffer which may
-  // be stale when virtual time has been paused/resumed.
-  base::Value::Dict cdp_params;
-  cdp_params.Set("format", "webp");
-  cdp_params.Set("quality", 80);
+  struct Base64SnapState {
+    bool done = false;
+    base::OnceCallback<void(std::string, int, int)> cb;
+    std::string tab_id;
+  };
+  auto st = std::make_shared<Base64SnapState>();
+  st->cb = std::move(callback);
+  st->tab_id = tab_id;
 
-  client->SendCommand(
-      "Page.captureScreenshot", cdp_params,
+  // 1500ms safety timeout
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE,
       base::BindOnce(
-          [](base::OnceCallback<void(std::string, int, int)> cb,
-             int width, int height,
-             bool success, const std::string& result) {
-            if (!success) {
-              std::move(cb).Run(std::string(), 0, 0);
-              return;
-            }
-
-            auto parsed = base::JSONReader::Read(result, base::JSON_PARSE_RFC);
-            if (!parsed || !parsed->is_dict()) {
-              std::move(cb).Run(std::string(), 0, 0);
-              return;
-            }
-
-            const std::string* data = parsed->GetDict().FindString("data");
-            if (!data) {
-              std::move(cb).Run(std::string(), 0, 0);
-              return;
-            }
-
-            std::move(cb).Run(*data, width, height);
+          [](std::shared_ptr<Base64SnapState> s) {
+            if (s->done) return;
+            s->done = true;
+            LOG(WARNING) << "ABP: CaptureScreenshotBase64 timed out";
+            std::move(s->cb).Run(std::string(), 0, 0);
           },
-          std::move(callback), view_width, view_height));
+          st),
+      base::Milliseconds(1500));
+
+  LOG(INFO) << "ABP: CaptureScreenshotBase64 - calling ForceRedrawWithCallback";
+  rwhi->ForceRedrawWithCallback(base::BindOnce(
+      [](std::shared_ptr<Base64SnapState> s,
+         base::WeakPtr<AbpController> ctrl) {
+        if (s->done) return;
+        LOG(INFO) << "ABP: CaptureScreenshotBase64 - ForceRedraw callback fired";
+        if (!ctrl) {
+          s->done = true;
+          std::move(s->cb).Run(std::string(), 0, 0);
+          return;
+        }
+        // 167ms CoreAnimation delay
+        base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+            FROM_HERE,
+            base::BindOnce(
+                [](std::shared_ptr<Base64SnapState> s,
+                   base::WeakPtr<AbpController> ctrl) {
+                  if (s->done) return;
+                  if (!ctrl) {
+                    s->done = true;
+                    std::move(s->cb).Run(std::string(), 0, 0);
+                    return;
+                  }
+                  content::WebContents* wc2 =
+                      ctrl->FindWebContents(s->tab_id);
+                  if (!wc2) {
+                    s->done = true;
+                    std::move(s->cb).Run(std::string(), 0, 0);
+                    return;
+                  }
+                  gfx::NativeView native_view = wc2->GetContentNativeView();
+                  if (!native_view) {
+                    s->done = true;
+                    std::move(s->cb).Run(std::string(), 0, 0);
+                    return;
+                  }
+                  auto* view2 = wc2->GetRenderWidgetHostView();
+                  gfx::Rect bounds;
+                  if (view2) {
+                    bounds = gfx::Rect(view2->GetViewBounds().size());
+                  }
+                  ui::GrabViewSnapshot(
+                      native_view, bounds,
+                      base::BindOnce(
+                          [](std::shared_ptr<Base64SnapState> s,
+                             gfx::Image image) {
+                            if (s->done) return;
+                            s->done = true;
+                            if (image.IsEmpty()) {
+                              LOG(WARNING) << "ABP: CaptureScreenshotBase64"
+                                           << " - GrabViewSnapshot empty";
+                              std::move(s->cb).Run(std::string(), 0, 0);
+                              return;
+                            }
+                            LOG(INFO) << "ABP: CaptureScreenshotBase64"
+                                      << " - encoding WebP";
+                            const SkBitmap& bitmap = *image.ToSkBitmap();
+                            auto encoded =
+                                gfx::WebpCodec::Encode(bitmap, 80);
+                            if (!encoded || encoded->empty()) {
+                              LOG(WARNING)
+                                  << "ABP: CaptureScreenshotBase64"
+                                  << " - WebP encode failed";
+                              std::move(s->cb).Run(std::string(), 0, 0);
+                              return;
+                            }
+                            std::string b64 = base::Base64Encode(*encoded);
+                            LOG(INFO) << "ABP: CaptureScreenshotBase64"
+                                      << " - success "
+                                      << image.Width() << "x"
+                                      << image.Height();
+                            std::move(s->cb).Run(
+                                std::move(b64),
+                                image.Width(), image.Height());
+                          },
+                          s));
+                },
+                s, ctrl),
+            base::Milliseconds(167));
+      },
+      st, weak_factory_.GetWeakPtr()));
 }
 
 // Dialog endpoints
@@ -4676,6 +4747,7 @@ void AbpController::HandleFileChooser(const std::string& chooser_id,
 void AbpController::BinaryScreenshot(const std::string& tab_id,
                                      const std::string& query,
                                      ResponseCallback callback) {
+  LOG(INFO) << "ABP: BinaryScreenshot tab=" << tab_id;
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
     SendError(404, "Tab not found", std::move(callback));

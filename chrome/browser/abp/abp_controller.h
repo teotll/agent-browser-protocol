@@ -506,33 +506,6 @@ class AbpController {
       const std::string& tab_id,
       const gfx::Image& snapshot);
 
-  // Direct screenshot capture using CopyFromSurface (no CDP/JS injection)
-  // Note: Cursor is rendered by virtual cursor overlay and captured automatically
-  void CaptureScreenshotDirect(
-      content::WebContents* web_contents,
-      const base::FilePath& screenshot_path,
-      base::OnceCallback<void(std::string path)> callback);
-
-  // Callback when surface copy completes
-  void OnSurfaceCopied(
-      const base::FilePath& screenshot_path,
-      base::OnceCallback<void(std::string path)> callback,
-      const content::CopyFromSurfaceResult& result);
-
-  // Legacy CDP-based capture methods (kept for API screenshot endpoint)
-  void OnHistoryMarkupInjected(
-      const std::string& tab_id,
-      const base::FilePath& screenshot_path,
-      base::OnceCallback<void(std::string path)> callback,
-      bool success,
-      const std::string& result);
-  void OnHistoryScreenshotCaptured(
-      const std::string& tab_id,
-      const base::FilePath& screenshot_path,
-      base::OnceCallback<void(std::string path)> callback,
-      bool success,
-      const std::string& result);
-
   // ==========================================================================
   // Per-tab state types
   // ==========================================================================
@@ -777,6 +750,10 @@ class AbpController {
                            base::OnceClosure then,
                            bool success,
                            const std::string& result);
+  // Common deterministic pause sequence: Debugger.enable → Debugger.pause →
+  // Runtime.evaluate("void 0") → wait for Debugger.paused event.
+  // Used by both auto-pause (initial setup) and regular pause (action lifecycle).
+  void SendDeterministicPause(const std::string& tab_id, base::OnceClosure then);
   void OnDebuggerPauseCommandSent(const std::string& tab_id,
                                   base::OnceClosure then,
                                   bool success,

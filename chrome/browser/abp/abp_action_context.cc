@@ -305,16 +305,14 @@ void AbpActionContext::OnExecutionResumed() {
     return;
   }
 
-  // Give the renderer main thread time to process the debugger resume
-  // before requesting ForceRedraw. The Debugger.resume CDP response
-  // arrives at the browser before the renderer main thread is unblocked.
-  // Without this delay, ForceRedraw arrives while the main thread is
-  // still in the debugger pause and BeginMainFrame can't fire.
+  // OnVirtualTimeResumed now waits for ForceRedraw to complete before calling
+  // this callback, so the renderer is fully ready. Add a small delay to ensure
+  // any pending compositor work is flushed before we request another screenshot.
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&AbpActionContext::CaptureBeforeScreenshot,
                      weak_factory_.GetWeakPtr()),
-      base::Milliseconds(100));
+      base::Milliseconds(50));
 }
 
 void AbpActionContext::CaptureBeforeScreenshot() {
