@@ -3394,6 +3394,21 @@ void AbpController::OnVirtualTimePaused(const std::string& tab_id,
     VLOG(1) << "ABP: setVirtualTimePolicy(pause) failed: " << result;
   }
 
+  // Update virtual_time_base_ticks_ms from the pause response so
+  // GetVirtualTimeMs() reflects the time at which virtual time was frozen.
+  if (success) {
+    auto parsed = base::JSONReader::Read(result, base::JSON_PARSE_RFC);
+    if (parsed && parsed->is_dict()) {
+      auto ticks_base = parsed->GetDict().FindDouble("virtualTimeTicksBase");
+      if (ticks_base) {
+        auto it = tab_states_.find(tab_id);
+        if (it != tab_states_.end()) {
+          it->second.execution.virtual_time_base_ticks_ms = *ticks_base;
+        }
+      }
+    }
+  }
+
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
     std::move(then).Run();

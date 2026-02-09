@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compositor Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            background: #ffffff;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 18px;
+        }
+        #color-block {
+            position: absolute;
+            top: 100px;
+            left: 100px;
+            width: 400px;
+            height: 400px;
+            background-color: red;
+            border: 2px solid #333;
+        }
+        #dynamic-content {
+            position: absolute;
+            top: 550px;
+            left: 100px;
+        }
+        .dynamic-element {
+            width: 200px;
+            height: 200px;
+            display: inline-block;
+            margin-right: 10px;
+            border: 2px solid #333;
+        }
+    </style>
+</head>
+<body>
+    <h1>Compositor Test Page</h1>
+    <div id="color-block"></div>
+    <div id="dynamic-content"></div>
+
+    <script>
+        window.compositorTest = {
+            setColor: function(color) {
+                document.getElementById('color-block').style.backgroundColor = color;
+                return color;
+            },
+
+            addElement: function(id, color) {
+                var el = document.createElement('div');
+                el.id = id;
+                el.className = 'dynamic-element';
+                el.style.backgroundColor = color;
+                document.getElementById('dynamic-content').appendChild(el);
+                return id;
+            },
+
+            removeElement: function(id) {
+                var el = document.getElementById(id);
+                if (el) {
+                    el.parentNode.removeChild(el);
+                    return true;
+                }
+                return false;
+            },
+
+            getColor: function() {
+                return document.getElementById('color-block').style.backgroundColor ||
+                       getComputedStyle(document.getElementById('color-block')).backgroundColor;
+            },
+
+            getContentHash: function() {
+                return document.getElementById('dynamic-content').innerHTML.length;
+            }
+        };
+    </script>
+</body>
+</html>

@@ -1172,7 +1172,8 @@ void AbpMcpHandler::OnControllerResponse(base::Value request_id,
 
     // Extract screenshot image data if present.
     // Formats:
-    //   Action envelope (new): {"screenshot_before": {"data": "...", "format": "webp"}, "screenshot_after": {"data": "...", "format": "webp"}}
+    //   Action envelope (new): {"screenshot_before": {...}, "screenshot_after": {"data": "...", "format": "webp"}}
+    //   Only the after screenshot is sent to MCP clients; before screenshot data is stripped.
     //   Action envelope (legacy): {"screenshot": {"data": "...", "format": "webp", ...}}
     //   Screenshot endpoint: {"data": "...", "mimeType": "image/webp", ...}
 
@@ -1192,24 +1193,26 @@ void AbpMcpHandler::OnControllerResponse(base::Value request_id,
       }
     };
 
-    std::string before_data, before_mime;
     std::string after_data, after_mime;
     std::string single_data, single_mime;
 
-    // Check new before/after format
-    extract_image(response_dict.FindDict("screenshot_before"),
-                  before_data, before_mime);
+    // Strip before screenshot data from the response (not sent to MCP clients)
+    if (auto* before_dict = response_dict.FindDict("screenshot_before")) {
+      before_dict->Remove("data");
+    }
+
+    // Check new after format
     extract_image(response_dict.FindDict("screenshot_after"),
                   after_data, after_mime);
 
     // Fallback: legacy single "screenshot" dict
-    if (before_data.empty() && after_data.empty()) {
+    if (after_data.empty()) {
       extract_image(response_dict.FindDict("screenshot"),
                     single_data, single_mime);
     }
 
     // Fallback: direct screenshot endpoint format
-    if (before_data.empty() && after_data.empty() && single_data.empty()) {
+    if (after_data.empty() && single_data.empty()) {
       std::string* data = response_dict.FindString("data");
       const std::string* top_mime = response_dict.FindString("mimeType");
       if (data && !data->empty()) {
@@ -1228,14 +1231,7 @@ void AbpMcpHandler::OnControllerResponse(base::Value request_id,
     text_content.Set("text", pretty_json);
     content.Append(std::move(text_content));
 
-    // Add image content blocks: before first, then after
-    if (!before_data.empty()) {
-      base::Value::Dict img;
-      img.Set("type", "image");
-      img.Set("data", std::move(before_data));
-      img.Set("mimeType", before_mime);
-      content.Append(std::move(img));
-    }
+    // Add after screenshot as image content block
     if (!after_data.empty()) {
       base::Value::Dict img;
       img.Set("type", "image");

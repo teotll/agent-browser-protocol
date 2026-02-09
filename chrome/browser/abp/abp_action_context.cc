@@ -4,10 +4,91 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 #include "chrome/browser/abp/abp_controller.h"
+#include "ui/base/cursor/mojom/cursor_type.mojom.h"
 #include "chrome/browser/abp/abp_event_collector.h"
 #include "chrome/browser/abp/abp_history_controller.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
+
+namespace {
+
+std::string CursorTypeToString(ui::mojom::CursorType type) {
+  switch (type) {
+    case ui::mojom::CursorType::kPointer:
+    case ui::mojom::CursorType::kNull:
+      return "pointer";
+    case ui::mojom::CursorType::kHand:
+      return "hand";
+    case ui::mojom::CursorType::kIBeam:
+      return "text";
+    case ui::mojom::CursorType::kCross:
+      return "crosshair";
+    case ui::mojom::CursorType::kWait:
+      return "wait";
+    case ui::mojom::CursorType::kHelp:
+      return "help";
+    case ui::mojom::CursorType::kMove:
+      return "move";
+    case ui::mojom::CursorType::kProgress:
+      return "progress";
+    case ui::mojom::CursorType::kNotAllowed:
+      return "not-allowed";
+    case ui::mojom::CursorType::kNoDrop:
+      return "no-drop";
+    case ui::mojom::CursorType::kGrab:
+      return "grab";
+    case ui::mojom::CursorType::kGrabbing:
+      return "grabbing";
+    case ui::mojom::CursorType::kZoomIn:
+      return "zoom-in";
+    case ui::mojom::CursorType::kZoomOut:
+      return "zoom-out";
+    case ui::mojom::CursorType::kContextMenu:
+      return "context-menu";
+    case ui::mojom::CursorType::kCell:
+      return "cell";
+    case ui::mojom::CursorType::kAlias:
+      return "alias";
+    case ui::mojom::CursorType::kCopy:
+      return "copy";
+    case ui::mojom::CursorType::kNone:
+      return "none";
+    case ui::mojom::CursorType::kVerticalText:
+      return "vertical-text";
+    case ui::mojom::CursorType::kColumnResize:
+      return "col-resize";
+    case ui::mojom::CursorType::kRowResize:
+      return "row-resize";
+    case ui::mojom::CursorType::kNorthResize:
+      return "n-resize";
+    case ui::mojom::CursorType::kSouthResize:
+      return "s-resize";
+    case ui::mojom::CursorType::kEastResize:
+      return "e-resize";
+    case ui::mojom::CursorType::kWestResize:
+      return "w-resize";
+    case ui::mojom::CursorType::kNorthEastResize:
+      return "ne-resize";
+    case ui::mojom::CursorType::kNorthWestResize:
+      return "nw-resize";
+    case ui::mojom::CursorType::kSouthEastResize:
+      return "se-resize";
+    case ui::mojom::CursorType::kSouthWestResize:
+      return "sw-resize";
+    case ui::mojom::CursorType::kNorthSouthResize:
+      return "ns-resize";
+    case ui::mojom::CursorType::kEastWestResize:
+      return "ew-resize";
+    case ui::mojom::CursorType::kNorthEastSouthWestResize:
+      return "nesw-resize";
+    case ui::mojom::CursorType::kNorthWestSouthEastResize:
+      return "nwse-resize";
+    default:
+      return "pointer";
+  }
+}
+
+}  // namespace
 
 namespace abp {
 
@@ -674,6 +755,19 @@ void AbpActionContext::SendResponse() {
       virtual_time.Set("paused", exec.IsPaused());
       virtual_time.Set("base_ticks_ms", exec.virtual_time_base_ticks_ms);
       envelope.Set("virtual_time", std::move(virtual_time));
+    }
+  }
+
+  // 8. Add virtual cursor position
+  {
+    auto it = controller_->tab_states_.find(tab_id_);
+    if (it != controller_->tab_states_.end()) {
+      const auto& cursor = it->second.cursor;
+      base::Value::Dict cursor_dict;
+      cursor_dict.Set("x", cursor.x);
+      cursor_dict.Set("y", cursor.y);
+      cursor_dict.Set("cursor_type", CursorTypeToString(cursor.cursor_type));
+      envelope.Set("cursor", std::move(cursor_dict));
     }
   }
 
