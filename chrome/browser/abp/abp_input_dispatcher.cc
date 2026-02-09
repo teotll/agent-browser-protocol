@@ -15,6 +15,7 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "third_party/blink/public/common/input/web_keyboard_event.h"
+#include "third_party/blink/public/common/input/synthetic_web_input_event_builders.h"
 #include "ui/events/keycodes/dom/keycode_converter.h"
 
 namespace abp {
@@ -47,6 +48,10 @@ void AbpInputDispatcher::ForwardKeyEvent(content::WebContents* wc,
                                          blink::WebInputEvent::Type type,
                                          const KeyInfo& info,
                                          int web_modifiers) {
+  // Mark as debugger-originated so ABP's system input filter in
+  // RenderInputRouter allows the event through (same as CDP mouse events).
+  web_modifiers |= blink::WebInputEvent::kFromDebugger;
+
   auto* rwhv = wc->GetRenderWidgetHostView();
   if (!rwhv)
     return;
@@ -88,9 +93,12 @@ void AbpInputDispatcher::ForwardKeyEvent(content::WebContents* wc,
     rwhi->ForwardKeyboardEvent(raw_down);
 
     // 2. Send kChar (generates DOM "keypress") — only if key produces text
+    //    Use a distinct timestamp so the input pipeline doesn't coalesce it
+    //    with the preceding kRawKeyDown.
     if (!info.text.empty()) {
+      base::TimeTicks char_time = now + base::Microseconds(1);
       input::NativeWebKeyboardEvent char_event(
-          blink::WebInputEvent::Type::kChar, web_modifiers, now);
+          blink::WebInputEvent::Type::kChar, web_modifiers, char_time);
       char_event.windows_key_code = info.windows_virtual_key;
       char_event.native_key_code = info.native_virtual_key;
       char_event.dom_code = static_cast<int>(
@@ -115,6 +123,42 @@ void AbpInputDispatcher::ForwardKeyEvent(content::WebContents* wc,
     event.skip_if_unhandled = true;
     rwhi->ForwardKeyboardEvent(event);
   }
+}
+
+void AbpInputDispatcher::ForwardWheelEvent(content::WebContents* wc,
+                                           double x,
+                                           double y,
+                                           double delta_x,
+                                           double delta_y) {
+  auto* rwhv = wc->GetRenderWidgetHostView();
+  if (!rwhv)
+    return;
+  auto* rwhi = static_cast<content::RenderWidgetHostImpl*>(
+      rwhv->GetRenderWidgetHost());
+  if (!rwhi)
+    return;
+
+  // Get the focused widget (handles iframes, etc.)
+  if (rwhi->delegate()) {
+    auto* target = rwhi->delegate()->GetFocusedRenderWidgetHost(rwhi);
+    if (target)
+      rwhi = target;
+  }
+
+  // Create a synthetic wheel event using pixel-based scrolling
+  blink::WebMouseWheelEvent wheel_event =
+      blink::SyntheticWebMouseWheelEventBuilder::Build(
+          static_cast<float>(x), static_cast<float>(y),
+          static_cast<float>(delta_x), static_cast<float>(delta_y),
+          0,  // no modifiers
+          ui::ScrollGranularity::kScrollByPrecisePixel);
+
+  // Set the phase to "changed" to indicate an active scroll
+  wheel_event.phase = blink::WebMouseWheelEvent::kPhaseChanged;
+  wheel_event.dispatch_type = blink::WebMouseWheelEvent::DispatchType::kBlocking;
+
+  // Forward the event to the renderer
+  rwhi->ForwardWheelEvent(wheel_event);
 }
 
 void AbpInputDispatcher::Click(const std::string& tab_id,
@@ -491,13 +535,17 @@ void AbpInputDispatcher::Move(const std::string& tab_id,
 void AbpInputDispatcher::Scroll(const std::string& tab_id,
                                 const base::Value::Dict& params,
                                 ResponseCallback callback) {
-  // Default scroll coordinates to virtual cursor's last known position,
-  // simulating human behavior (scroll wheel fires where the mouse is).
-  auto& tab_state = controller_->GetOrCreateTabState(tab_id);
-  double default_x = tab_state.cursor.active ? tab_state.cursor.x : 500;
-  double default_y = tab_state.cursor.active ? tab_state.cursor.y : 500;
-  double x = params.FindDouble("x").value_or(default_x);
-  double y = params.FindDouble("y").value_or(default_y);
+  // x, y specify the center of the element to scroll (where the scroll wheel
+  // event is dispatched). Required to simulate real mouse-over-element behavior.
+  auto x_opt = params.FindDouble("x");
+  auto y_opt = params.FindDouble("y");
+  if (!x_opt || !y_opt) {
+    controller_->SendError(400, "Missing required 'x' or 'y' parameter",
+                           std::move(callback));
+    return;
+  }
+  double x = *x_opt;
+  double y = *y_opt;
   double delta_x = params.FindDouble("delta_x").value_or(0);
   double delta_y = params.FindDouble("delta_y").value_or(0);
 
@@ -509,60 +557,36 @@ void AbpInputDispatcher::Scroll(const std::string& tab_id,
   }
 
   // Use AbpActionContext for consistent resume/pause/screenshot flow.
-  // Use window.scrollBy() via Runtime.evaluate instead of
-  // Input.dispatchMouseEvent(mouseWheel) which hangs when virtual time
-  // has been active (Chromium renderer ack issue).
+  // Use native mouse wheel events for both vertical and horizontal scrolling.
+  // This simulates real user behavior: moving mouse over element and scrolling.
   AbpActionContext::Options options;
   options.min_wait_time = base::Milliseconds(500);
   AbpActionContext::RunWithOptions(
       controller_, tab_id, "scroll", params, options,
-      // Action callback - performs the scroll via JS
+      // Action callback - performs the scroll via mouse wheel
       base::BindOnce(
           [](double scroll_x, double scroll_y, double dx, double dy,
-             AbpActionContext* ctx) {
-            AbpCdpClient* client = ctx->client();
-            if (!client) {
-              ctx->OnActionError("CDP_ERROR", "CDP client lost");
+             AbpInputDispatcher* dispatcher, AbpActionContext* ctx) {
+            content::WebContents* wc = ctx->web_contents();
+            if (!wc) {
+              ctx->OnActionError("TAB_ERROR", "WebContents lost");
               return;
             }
 
-            scoped_refptr<AbpActionContext> ctx_ref(ctx);
+            // Dispatch mouse wheel event at the specified coordinates
+            // This simulates scrolling while the mouse is over the element
+            dispatcher->ForwardWheelEvent(wc, scroll_x, scroll_y, dx, dy);
 
-            // Use Runtime.evaluate with window.scrollBy for reliable scrolling
-            std::string script =
-                "window.scrollBy(" + base::NumberToString(dx) + "," +
-                base::NumberToString(dy) +
-                "); JSON.stringify({scrollX: window.scrollX, scrollY: "
-                "window.scrollY})";
-
-            base::Value::Dict eval_params;
-            eval_params.Set("expression", script);
-            eval_params.Set("returnByValue", true);
-
-            client->SendCommand(
-                "Runtime.evaluate", std::move(eval_params),
-                base::BindOnce(
-                    [](double final_x, double final_y, double final_dx,
-                       double final_dy,
-                       scoped_refptr<AbpActionContext> action_ctx, bool success,
-                       const std::string& result) {
-                      if (!success) {
-                        action_ctx->OnActionError("CDP_ERROR", result);
-                        return;
-                      }
-
-                      base::Value::Dict res;
-                      res.Set("status", "scrolled");
-                      res.Set("x", final_x);
-                      res.Set("y", final_y);
-                      res.Set("delta_x", final_dx);
-                      res.Set("delta_y", final_dy);
-                      action_ctx->SetResult(std::move(res));
-                      action_ctx->OnActionDispatched();
-                    },
-                    scroll_x, scroll_y, dx, dy, ctx_ref));
+            base::Value::Dict res;
+            res.Set("status", "scrolled");
+            res.Set("x", scroll_x);
+            res.Set("y", scroll_y);
+            res.Set("delta_x", dx);
+            res.Set("delta_y", dy);
+            ctx->SetResult(std::move(res));
+            ctx->OnActionDispatched();
           },
-          x, y, delta_x, delta_y),
+          x, y, delta_x, delta_y, this),
       std::move(callback));
 }
 

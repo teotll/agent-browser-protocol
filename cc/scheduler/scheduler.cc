@@ -18,6 +18,7 @@
 #include "base/task/delay_policy.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
+#include "base/time/time_override.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/traced_value.h"
 #include "cc/base/devtools_instrumentation.h"
@@ -503,12 +504,31 @@ void Scheduler::HandlePendingBeginFrame() {
   BeginImplFrameWithDeadline(args);
 }
 
-void Scheduler::BeginImplFrameWithDeadline(const viz::BeginFrameArgs& args) {
+void Scheduler::BeginImplFrameWithDeadline(
+    const viz::BeginFrameArgs& args_in) {
   DCHECK(pending_begin_frame_task_.IsCancelled());
   DCHECK(!pending_begin_frame_args_.IsValid());
 
   DCHECK_EQ(state_machine_.begin_impl_frame_state(),
             SchedulerStateMachine::BeginImplFrameState::IDLE);
+
+  // Translate BeginFrameArgs from viz (real wall-clock time) to virtual time.
+  // When virtual time override is active, base::TimeTicks::Now() returns
+  // virtual time which may lag behind wall-clock time by the accumulated
+  // pause duration. viz sends BeginFrameArgs with real-time deadlines, so
+  // deadline delay computation (deadline - Now()) yields a huge value.
+  // Translating args to virtual time fixes scheduling while keeping CSS
+  // animations consistent with blink's virtual time.
+  viz::BeginFrameArgs args = args_in;
+  {
+    auto real_ticks = base::subtle::TimeTicksNowIgnoringOverride();
+    auto virtual_ticks = Now();
+    if (real_ticks != virtual_ticks) {
+      base::TimeDelta offset = real_ticks - virtual_ticks;
+      args.frame_time -= offset;
+      args.deadline -= offset;
+    }
+  }
 
   bool main_thread_is_in_high_latency_mode =
       state_machine_.main_thread_missed_last_deadline();

@@ -914,7 +914,7 @@ Moves mouse to coordinates.
 POST /tabs/{tab_id}/scroll
 ```
 
-Performs mouse wheel scroll.
+Scrolls the page using native mouse wheel events at the specified coordinates. Simulates a real user moving their mouse over an element and scrolling with the mouse wheel.
 
 **Request:**
 ```json
@@ -922,12 +922,19 @@ Performs mouse wheel scroll.
   "x": 100,
   "y": 200,
   "delta_x": 0,
-  "delta_y": -300,
-  "modifiers": []
+  "delta_y": -300
 }
 ```
 
-Negative `delta_y` scrolls down, positive scrolls up.
+**Parameters:**
+- `x` (required): X coordinate of the element center to scroll. The mouse wheel event fires at this position.
+- `y` (required): Y coordinate of the element center to scroll. The mouse wheel event fires at this position.
+- `delta_x` (optional): Horizontal scroll amount in pixels. Positive = scroll right, negative = scroll left. Default: 0.
+- `delta_y` (optional): Vertical scroll amount in pixels. Negative = scroll up, positive = scroll down. Default: 0.
+
+At least one of `delta_x` or `delta_y` must be non-zero.
+
+**Note:** Unlike keyboard-based scrolling (PageUp/PageDown), mouse wheel scrolling occurs at a specific coordinate, allowing scrolling of specific scrollable elements (overflow divs, iframes, etc.) by targeting their center point.
 
 ---
 

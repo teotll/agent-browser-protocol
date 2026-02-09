@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ABP Keyboard Input Test</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    #text-input { font-size: 18px; padding: 8px; width: 400px; }
+    #log { margin-top: 16px; max-height: 400px; overflow-y: auto; font-size: 13px; border: 1px solid #ccc; padding: 8px; }
+    .event { margin: 2px 0; }
+  </style>
+</head>
+<body>
+  <h2>Keyboard Input Test</h2>
+  <input id="text-input" type="text" placeholder="Type here..." autofocus>
+  <div>Value: <span id="current-value"></span></div>
+  <div id="log"></div>
+  <script>
+    const input = document.getElementById('text-input');
+    const log = document.getElementById('log');
+    const valueDisplay = document.getElementById('current-value');
+
+    function logEvent(e) {
+      const div = document.createElement('div');
+      div.className = 'event';
+      const props = {
+        type: e.type,
+        key: e.key,
+        code: e.code,
+        keyCode: e.keyCode,
+        timestamp: e.timeStamp,
+      };
+      if (e.type === 'input' || e.type === 'beforeinput') {
+        props.inputType = e.inputType;
+        props.data = e.data;
+      }
+      props.value = input.value;
+      div.textContent = JSON.stringify(props);
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+      valueDisplay.textContent = input.value;
+    }
+
+    ['keydown', 'keypress', 'keyup', 'input', 'beforeinput'].forEach(type => {
+      input.addEventListener(type, logEvent);
+    });
+  </script>
+</body>
+</html>

@@ -746,6 +746,14 @@ class AbpController {
                             base::OnceClosure then,
                             bool success,
                             const std::string& result);
+  // Two-phase resume: Force a compositor frame while virtual time fences are
+  // still up (fast, no task flood), then switch to realtime policy.
+  void ForceRedrawThenResumeVirtualTime(const std::string& tab_id,
+                                         base::OnceClosure then);
+  // Helper: sends Emulation.setVirtualTimePolicy("realtime") and chains to
+  // OnVirtualTimeResumed.
+  void SwitchToRealtimeVirtualTime(const std::string& tab_id,
+                                    base::OnceClosure then);
   void OnVirtualTimePaused(const std::string& tab_id,
                            base::OnceClosure then,
                            bool success,

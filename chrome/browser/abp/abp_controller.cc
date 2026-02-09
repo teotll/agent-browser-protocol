@@ -3199,18 +3199,10 @@ void AbpController::OnDebuggerResumed(const std::string& tab_id,
                         if (it != ctrl2->tab_states_.end()) {
                           // Debugger re-enabled; phase stays kResuming
                         }
-                        // Now resume virtual time
-                        content::WebContents* wc2 = ctrl2->FindWebContents(tid2);
-                        if (!wc2) { std::move(cb2).Run(); return; }
-                        AbpCdpClient* c2 = ctrl2->GetOrCreateCdpClient(wc2);
-                        if (!c2) { std::move(cb2).Run(); return; }
-                        base::Value::Dict rt;
-                        rt.Set("policy", "realtime");
-                        LOG(INFO) << "ABP: Sending Emulation.setVirtualTimePolicy (realtime, after debugger reset) for tab " << tid2;
-                        c2->SendCommand(
-                            "Emulation.setVirtualTimePolicy", rt,
-                            base::BindOnce(&AbpController::OnVirtualTimeResumed,
-                                           ctrl2, tid2, std::move(cb2)));
+                        // Two-phase resume: ForceRedraw while fences still up,
+                        // then switch to realtime.
+                        ctrl2->ForceRedrawThenResumeVirtualTime(
+                            tid2, std::move(cb2));
                       },
                       ctrl, tid, std::move(cb)));
             },
@@ -3218,22 +3210,15 @@ void AbpController::OnDebuggerResumed(const std::string& tab_id,
     return;
   }
 
-  // Step 2: Resume virtual time (realtime policy for smooth animations)
-  base::Value::Dict params;
-  params.Set("policy", "realtime");
-
-  LOG(INFO) << "ABP: Sending Emulation.setVirtualTimePolicy (realtime) for tab " << tab_id;
-  client->SendCommand(
-      "Emulation.setVirtualTimePolicy", params,
-      base::BindOnce(&AbpController::OnVirtualTimeResumed,
-                     weak_factory_.GetWeakPtr(), tab_id, std::move(then)));
+  // Step 2: Two-phase resume — ForceRedraw while fences are still up (fast),
+  // then switch to realtime virtual time policy.
+  ForceRedrawThenResumeVirtualTime(tab_id, std::move(then));
 }
 
 void AbpController::OnVirtualTimeResumed(const std::string& tab_id,
                                          base::OnceClosure then,
                                          bool success,
                                          const std::string& result) {
-  // Log CDP ground truth
   if (success) {
     LOG(INFO) << "ABP: Emulation.setVirtualTimePolicy (realtime) succeeded for tab " << tab_id;
   } else {
@@ -3246,51 +3231,122 @@ void AbpController::OnVirtualTimeResumed(const std::string& tab_id,
     it->second.execution.phase = ExecutionPhase::kRunning;
   }
 
-  // Kick-start the compositor after virtual time resumes.
-  content::WebContents* wc = FindWebContents(tab_id);
-  if (wc) {
-    LOG(INFO) << "ABP: OnVirtualTimeResumed - sending Page.bringToFront for tab "
-              << tab_id;
-    AbpCdpClient* client = GetOrCreateCdpClient(wc);
-    if (client) {
-      base::Value::Dict empty;
-      client->SendCommand("Page.bringToFront", empty, base::DoNothing());
-    }
+  // ForceRedraw + Page.bringToFront already happened in the pre-resume phase
+  // (ForceRedrawThenResumeVirtualTime), so just proceed.
+  LOG(INFO) << "ABP: Execution resumed for tab " << tab_id;
+  std::move(then).Run();
+}
 
-    // Explicitly force a compositor frame after resume.
-    content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
-    if (view) {
-      auto* rwhi = static_cast<content::RenderWidgetHostImpl*>(
-          view->GetRenderWidgetHost());
-      if (rwhi) {
-        LOG(INFO) << "ABP: OnVirtualTimeResumed - calling ForceRedrawWithCallback"
-                  << " renderer_initialized=" << rwhi->renderer_initialized();
-        // Wait for compositor frame before proceeding with action.
-        // This prevents race condition where CaptureActionScreenshot
-        // sends another ForceRedraw before this one completes.
-        rwhi->ForceRedrawWithCallback(base::BindOnce(
-            [](base::OnceClosure callback) {
-              LOG(INFO) << "ABP: OnVirtualTimeResumed - ForceRedraw callback fired "
-                        << "(compositor produced a frame)";
-              std::move(callback).Run();
-            },
-            std::move(then)));
-        return;
-      } else {
-        LOG(WARNING) << "ABP: OnVirtualTimeResumed - RWHI is null";
-      }
-    } else {
-      LOG(WARNING) << "ABP: OnVirtualTimeResumed - RWHV is null for tab "
-                   << tab_id;
-    }
-  } else {
-    LOG(WARNING) << "ABP: OnVirtualTimeResumed - WebContents not found for tab "
-                 << tab_id;
+void AbpController::ForceRedrawThenResumeVirtualTime(
+    const std::string& tab_id,
+    base::OnceClosure then) {
+  content::WebContents* wc = FindWebContents(tab_id);
+  if (!wc) {
+    LOG(WARNING) << "ABP: ForceRedrawThenResumeVirtualTime - WebContents not found, "
+                 << "switching to realtime directly for tab " << tab_id;
+    SwitchToRealtimeVirtualTime(tab_id, std::move(then));
+    return;
   }
 
-  // Fallback if we can't get RWHI - proceed immediately
-  LOG(INFO) << "ABP: Execution resumed for tab " << tab_id << " - calling then() (fallback)";
-  std::move(then).Run();
+  // Page.bringToFront ensures the tab is focused for compositor.
+  AbpCdpClient* client = GetOrCreateCdpClient(wc);
+  if (client) {
+    LOG(INFO) << "ABP: ForceRedrawThenResumeVirtualTime - Page.bringToFront for tab "
+              << tab_id;
+    base::Value::Dict empty;
+    client->SendCommand("Page.bringToFront", empty, base::DoNothing());
+  }
+
+  content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
+  if (!view) {
+    LOG(WARNING) << "ABP: ForceRedrawThenResumeVirtualTime - RWHV null, "
+                 << "switching to realtime directly for tab " << tab_id;
+    SwitchToRealtimeVirtualTime(tab_id, std::move(then));
+    return;
+  }
+
+  auto* rwhi = static_cast<content::RenderWidgetHostImpl*>(
+      view->GetRenderWidgetHost());
+  if (!rwhi) {
+    LOG(WARNING) << "ABP: ForceRedrawThenResumeVirtualTime - RWHI null, "
+                 << "switching to realtime directly for tab " << tab_id;
+    SwitchToRealtimeVirtualTime(tab_id, std::move(then));
+    return;
+  }
+
+  LOG(INFO) << "ABP: ForceRedrawThenResumeVirtualTime - ForceRedraw with fences up"
+            << " renderer_initialized=" << rwhi->renderer_initialized()
+            << " for tab " << tab_id;
+
+  // Guard with 3s timeout. ForceRedraw should be very fast since the main
+  // thread is free (debugger resumed but virtual time fences still block
+  // blink task queues, keeping the main thread uncluttered).
+  struct GuardState {
+    bool done = false;
+    base::OnceClosure cb;
+    base::WeakPtr<AbpController> ctrl;
+    std::string tab_id;
+  };
+  auto guard = std::make_shared<GuardState>();
+  guard->cb = std::move(then);
+  guard->ctrl = weak_factory_.GetWeakPtr();
+  guard->tab_id = tab_id;
+
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](std::shared_ptr<GuardState> g) {
+            if (g->done) return;
+            g->done = true;
+            LOG(WARNING) << "ABP: ForceRedrawThenResumeVirtualTime timed out (3s)"
+                         << " for tab " << g->tab_id;
+            if (g->ctrl) {
+              g->ctrl->SwitchToRealtimeVirtualTime(g->tab_id, std::move(g->cb));
+            } else {
+              std::move(g->cb).Run();
+            }
+          },
+          guard),
+      base::Seconds(3));
+
+  rwhi->ForceRedrawWithCallback(base::BindOnce(
+      [](std::shared_ptr<GuardState> g) {
+        if (g->done) return;
+        g->done = true;
+        LOG(INFO) << "ABP: ForceRedrawThenResumeVirtualTime - ForceRedraw done"
+                  << " for tab " << g->tab_id;
+        if (g->ctrl) {
+          g->ctrl->SwitchToRealtimeVirtualTime(g->tab_id, std::move(g->cb));
+        } else {
+          std::move(g->cb).Run();
+        }
+      },
+      guard));
+}
+
+void AbpController::SwitchToRealtimeVirtualTime(
+    const std::string& tab_id,
+    base::OnceClosure then) {
+  content::WebContents* wc = FindWebContents(tab_id);
+  if (!wc) {
+    std::move(then).Run();
+    return;
+  }
+
+  AbpCdpClient* client = GetOrCreateCdpClient(wc);
+  if (!client) {
+    std::move(then).Run();
+    return;
+  }
+
+  base::Value::Dict params;
+  params.Set("policy", "realtime");
+  LOG(INFO) << "ABP: Sending Emulation.setVirtualTimePolicy (realtime) for tab "
+            << tab_id;
+  client->SendCommand(
+      "Emulation.setVirtualTimePolicy", params,
+      base::BindOnce(&AbpController::OnVirtualTimeResumed,
+                     weak_factory_.GetWeakPtr(), tab_id, std::move(then)));
 }
 
 void AbpController::PauseExecution(const std::string& tab_id,

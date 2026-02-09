@@ -129,12 +129,12 @@ base::Value::List GetToolDefinitions() {
           .Build());
 
   tools.Append(ToolBuilder("browser_scroll")
-                   .Description("Scroll the page using mouse wheel")
+                   .Description("Scroll using mouse wheel at element coordinates. Simulates moving mouse over element and scrolling. At least one of delta_x or delta_y must be non-zero.")
                    .OptionalString("tab_id", "Target tab ID")
-                   .RequiredNumber("delta_y", "Vertical scroll amount")
-                   .OptionalNumber("x", "X coordinate for scroll position")
-                   .OptionalNumber("y", "Y coordinate for scroll position")
-                   .OptionalNumber("delta_x", "Horizontal scroll amount")
+                   .RequiredNumber("x", "X coordinate of element center (where mouse wheel event fires)")
+                   .RequiredNumber("y", "Y coordinate of element center (where mouse wheel event fires)")
+                   .OptionalNumber("delta_x", "Horizontal scroll in pixels (positive=right, negative=left, default=0)")
+                   .OptionalNumber("delta_y", "Vertical scroll in pixels (negative=up, positive=down, default=0)")
                    .Build());
 
   tools.Append(ToolBuilder("browser_mouse_move")
