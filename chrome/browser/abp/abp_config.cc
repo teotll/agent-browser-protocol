@@ -146,7 +146,7 @@ AbpConfig LoadAbpConfigFromFile(const base::FilePath& config_path) {
     }
   }
 
-  LOG(INFO) << "ABP: Loaded config from " << config_path;
+  VLOG(1) << "ABP: Loaded config from " << config_path;
   return config;
 }
 

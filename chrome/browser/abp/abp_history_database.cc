@@ -176,7 +176,7 @@ void AbpHistoryDatabase::InitializeOnDB() {
     return;
   }
 
-  LOG(INFO) << "ABP: History database initialized at " << database_path_;
+  VLOG(1) << "ABP: History database initialized at " << database_path_;
 }
 
 bool AbpHistoryDatabase::CreateTables() {

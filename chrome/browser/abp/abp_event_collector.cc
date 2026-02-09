@@ -25,7 +25,7 @@ void AbpEventCollector::StartCapturing(const std::string& tab_id) {
   capturing_ = true;
   capturing_tab_id_ = tab_id;
   captured_events_.clear();
-  LOG(INFO) << "ABP: Started event capturing for tab " << tab_id;
+  VLOG(1) << "ABP: Started event capturing for tab " << tab_id;
 }
 
 std::vector<AbpEvent> AbpEventCollector::StopCapturing() {
@@ -33,7 +33,7 @@ std::vector<AbpEvent> AbpEventCollector::StopCapturing() {
   std::vector<AbpEvent> events = std::move(captured_events_);
   captured_events_.clear();
   capturing_tab_id_.clear();
-  LOG(INFO) << "ABP: Stopped event capturing, captured " << events.size()
+  VLOG(1) << "ABP: Stopped event capturing, captured " << events.size()
             << " events";
   return events;
 }
@@ -53,7 +53,7 @@ void AbpEventCollector::AddEvent(const std::string& type,
 
   int64_t virtual_time = GetVirtualTimeMs();
   captured_events_.emplace_back(type, virtual_time, std::move(data));
-  LOG(INFO) << "ABP: Captured event type=" << type
+  VLOG(1) << "ABP: Captured event type=" << type
             << " virtual_time=" << virtual_time;
 }
 

@@ -252,7 +252,7 @@ void AbpEventObserver::Start() {
     }
   }
 
-  LOG(INFO) << "ABP: Event observer started";
+  VLOG(1) << "ABP: Event observer started";
 }
 
 void AbpEventObserver::Stop() {
@@ -268,7 +268,7 @@ void AbpEventObserver::Stop() {
   // Clear all event clients
   event_clients_.clear();
 
-  LOG(INFO) << "ABP: Event observer stopped";
+  VLOG(1) << "ABP: Event observer stopped";
 }
 
 void AbpEventObserver::DetachTab(const std::string& tab_id) {

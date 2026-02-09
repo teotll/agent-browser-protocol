@@ -138,7 +138,7 @@ void AbpHistoryController::Initialize() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   if (!enabled_) {
-    LOG(INFO) << "ABP: History is disabled";
+    VLOG(1) << "ABP: History is disabled";
     return;
   }
 
@@ -165,7 +165,7 @@ void AbpHistoryController::Initialize() {
 
         self->database_->InsertSession(session, base::DoNothing());
 
-        LOG(INFO) << "ABP: History session started: " << self->session_id_;
+        VLOG(1) << "ABP: History session started: " << self->session_id_;
       },
       weak_factory_.GetWeakPtr()));
 
@@ -197,7 +197,7 @@ void AbpHistoryController::Shutdown() {
   // Flush pending writes
   database_->FlushOnShutdown();
 
-  LOG(INFO) << "ABP: History session ended: " << session_id_;
+  VLOG(1) << "ABP: History session ended: " << session_id_;
 }
 
 void AbpHistoryController::RecordAction(const std::string& tab_id,

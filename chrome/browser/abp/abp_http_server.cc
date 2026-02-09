@@ -93,7 +93,7 @@ void AbpHttpServer::Start() {
   AbpConfig config = LoadAbpConfig();
 
   // Print session directory at startup
-  LOG(INFO) << "ABP: Session directory: " << config.session_dir.value();
+  VLOG(1) << "ABP: Session directory: " << config.session_dir.value();
 
   // Create history controller
   history_controller_ = std::make_unique<AbpHistoryController>(config);
@@ -137,7 +137,7 @@ void AbpHttpServer::Start() {
       kIOPMAssertionTypePreventUserIdleDisplaySleep,
       kIOPMAssertionLevelOn, reason, &display_sleep_assertion_);
   if (result == kIOReturnSuccess) {
-    LOG(INFO) << "ABP: Display wake + sleep prevention enabled";
+    VLOG(1) << "ABP: Display wake + sleep prevention enabled";
   } else {
     LOG(WARNING) << "ABP: Failed to prevent display sleep: " << result;
     display_sleep_assertion_ = kIOPMNullAssertionID;
@@ -154,7 +154,7 @@ void AbpHttpServer::Start() {
   // poll for browser readiness and center the mouse cursor when ready
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kAllowSystemInputs)) {
-    LOG(INFO) << "ABP: System inputs blocked, will center mouse when ready";
+    VLOG(1) << "ABP: System inputs blocked, will center mouse when ready";
     // Start polling after a short initial delay
     content::GetUIThreadTaskRunner({})->PostDelayedTask(
         FROM_HERE,
@@ -172,7 +172,7 @@ void AbpHttpServer::PollForReadyAndCenterCursor() {
   }
 
   if (controller_->IsBrowserReady()) {
-    LOG(INFO) << "ABP: Browser ready, centering cursor";
+    VLOG(1) << "ABP: Browser ready, centering cursor";
     cursor_centered_ = true;
     std::string tab_id = controller_->GetActiveTabId();
     if (!tab_id.empty()) {
@@ -196,7 +196,7 @@ void AbpHttpServer::PollForReadyAndCenterCursor() {
 
 void AbpHttpServer::AutoPauseAllTabs() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  LOG(INFO) << "ABP: Auto-pausing all tabs (5s startup delay elapsed)";
+  VLOG(1) << "ABP: Auto-pausing all tabs (5s startup delay elapsed)";
   // Re-center cursor with settled viewport dimensions before pausing
   std::string tab_id = controller_->GetActiveTabId();
   if (!tab_id.empty()) {
@@ -220,7 +220,7 @@ void AbpHttpServer::StartOnIO() {
   }
 
   server_ = std::make_unique<net::HttpServer>(std::move(socket), this);
-  LOG(INFO) << "ABP: HTTP server started on http://localhost:" << port_;
+  VLOG(1) << "ABP: HTTP server started on http://localhost:" << port_;
 }
 
 void AbpHttpServer::OnConnect(int connection_id) {}

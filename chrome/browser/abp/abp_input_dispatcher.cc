@@ -211,7 +211,7 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
              int modifiers, AbpActionContext* ctx) {
             // Log cursor position before the action
             auto& tab_state = ctx->controller()->GetOrCreateTabState(ctx->tab_id());
-            LOG(INFO) << "ABP: Click action started - target=(" << coord_x << ", " << coord_y
+            VLOG(1) << "ABP: Click action started - target=(" << coord_x << ", " << coord_y
                       << ") button=" << btn << " count=" << count
                       << " before_cursor=(" << tab_state.cursor.x << ", " << tab_state.cursor.y
                       << ") active=" << tab_state.cursor.active;
@@ -238,7 +238,7 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
                     [](double x, double y, std::string button, int click_count,
                        int mods, scoped_refptr<AbpActionContext> action_ctx,
                        bool fence_ready) {
-                      LOG(INFO) << "ABP: Visual state fence "
+                      VLOG(1) << "ABP: Visual state fence "
                                 << (fence_ready ? "ready" : "failed")
                                 << " for click at (" << x << ", " << y << ")";
 
@@ -265,7 +265,7 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
                       press_params.Set("clickCount", click_count);
                       press_params.Set("modifiers", mods);
 
-                      LOG(INFO) << "ABP: Sending Input.dispatchMouseEvent (mousePressed) at ("
+                      VLOG(1) << "ABP: Sending Input.dispatchMouseEvent (mousePressed) at ("
                                 << x << ", " << y << ") button=" << button;
 
                       cdp_client->SendCommand(
@@ -281,7 +281,7 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
                                   return;
                                 }
 
-                                LOG(INFO) << "ABP: Input.dispatchMouseEvent (mousePressed) succeeded";
+                                VLOG(1) << "ABP: Input.dispatchMouseEvent (mousePressed) succeeded";
 
                                 AbpCdpClient* cdp_client = action_ctx->client();
                                 if (!cdp_client) {
@@ -299,7 +299,7 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
                                 release_params.Set("clickCount", click_count);
                                 release_params.Set("modifiers", mods);
 
-                                LOG(INFO) << "ABP: Sending Input.dispatchMouseEvent (mouseReleased) at ("
+                                VLOG(1) << "ABP: Sending Input.dispatchMouseEvent (mouseReleased) at ("
                                           << x << ", " << y << ")";
 
                                 cdp_client->SendCommand(
@@ -316,7 +316,7 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
                                             return;
                                           }
 
-                                          LOG(INFO) << "ABP: Input.dispatchMouseEvent (mouseReleased) succeeded - click complete";
+                                          VLOG(1) << "ABP: Input.dispatchMouseEvent (mouseReleased) succeeded - click complete";
 
                                           base::Value::Dict res;
                                           res.Set("status", "clicked");

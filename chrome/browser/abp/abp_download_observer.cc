@@ -34,7 +34,7 @@ void AbpDownloadObserver::Start() {
       download_manager_ = profile->GetDownloadManager();
       if (download_manager_) {
         download_manager_->AddObserver(this);
-        LOG(INFO) << "ABP: Download observer started";
+        VLOG(1) << "ABP: Download observer started";
         return;
       }
     }
@@ -95,7 +95,7 @@ void AbpDownloadObserver::OnDownloadCreated(content::DownloadManager* manager,
 
   tracked_downloads_[id] = std::move(download);
 
-  LOG(INFO) << "ABP: Download created id=" << id << " url=" << download.url;
+  VLOG(1) << "ABP: Download created id=" << id << " url=" << download.url;
 }
 
 void AbpDownloadObserver::OnDownloadUpdated(download::DownloadItem* item) {
@@ -130,7 +130,7 @@ void AbpDownloadObserver::UpdateTrackedDownload(download::DownloadItem* item) {
       item->GetState() == download::DownloadItem::CANCELLED ||
       item->GetState() == download::DownloadItem::INTERRUPTED) {
     download.end_time_ms = base::Time::Now().InMillisecondsSinceUnixEpoch();
-    LOG(INFO) << "ABP: Download finished id=" << id
+    VLOG(1) << "ABP: Download finished id=" << id
               << " state=" << download.state;
   }
 }
