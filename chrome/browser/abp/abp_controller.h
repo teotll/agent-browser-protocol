@@ -423,36 +423,6 @@ class AbpController {
                       ResponseCallback callback);
 
   // CDP callbacks
-  void OnScreenshotResult(ResponseCallback callback,
-                          const ScreenshotOptions& options,
-                          bool success,
-                          const std::string& result);
-  void OnMarkupInjected(const std::string& tab_id,
-                        ResponseCallback callback,
-                        const ScreenshotOptions& options,
-                        bool success,
-                        const std::string& result);
-  void CaptureScreenshotWithCursor(const std::string& tab_id,
-                                   ResponseCallback callback,
-                                   const ScreenshotOptions& options);
-  void DoCaptureScreenshotWithCursor(const std::string& tab_id,
-                                     ResponseCallback callback,
-                                     const ScreenshotOptions& options);
-  void DoCaptureScreenshotFallback(const std::string& tab_id,
-                                   ResponseCallback callback,
-                                   const ScreenshotOptions& options);
-  void OnGrabViewSnapshotResult(ResponseCallback callback,
-                                const ScreenshotOptions& options,
-                                gfx::Image snapshot);
-  void OnCopyFromSurfaceResult(const std::string& tab_id,
-                               ResponseCallback callback,
-                               const ScreenshotOptions& options,
-                               int retry_count,
-                               const content::CopyFromSurfaceResult& result);
-  void OnCursorScreenshotCaptured(const std::string& tab_id,
-                                  ResponseCallback callback,
-                                  const ScreenshotOptions& options,
-                                  const content::CopyFromSurfaceResult& result);
   void OnExecuteScriptResult(ResponseCallback callback,
                              bool success,
                              const std::string& result);
