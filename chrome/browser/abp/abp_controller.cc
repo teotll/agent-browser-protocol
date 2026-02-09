@@ -994,10 +994,13 @@ void AbpController::CaptureActionScreenshotWithRetry(
           st),
       base::Milliseconds(1500));
 
+  LOG(INFO) << "ABP: CaptureActionScreenshot - calling ForceRedrawWithCallback"
+            << " renderer_initialized=" << rwhi->renderer_initialized();
   rwhi->ForceRedrawWithCallback(base::BindOnce(
       [](std::shared_ptr<ActionSnapState> s,
          base::WeakPtr<AbpController> ctrl) {
         if (s->done) return;
+        LOG(INFO) << "ABP: CaptureActionScreenshot - ForceRedraw callback fired";
         if (!ctrl) {
           s->done = true;
           std::move(s->cb).Run(ActionScreenshotResult());
@@ -2161,10 +2164,13 @@ void AbpController::DoCaptureScreenshotWithCursor(
           st, weak_factory_.GetWeakPtr()),
       base::Milliseconds(1500));
 
+  LOG(INFO) << "ABP: DoCaptureScreenshotWithCursor - calling ForceRedrawWithCallback"
+            << " renderer_initialized=" << rwhi->renderer_initialized();
   rwhi->ForceRedrawWithCallback(base::BindOnce(
       [](std::shared_ptr<SnapState> s,
          base::WeakPtr<AbpController> ctrl) {
         if (s->done) return;
+        LOG(INFO) << "ABP: DoCaptureScreenshotWithCursor - ForceRedraw callback fired";
         if (!ctrl) return;
 
         // Wait 167ms for CoreAnimation to composite to window server.
@@ -3339,20 +3345,41 @@ void AbpController::OnVirtualTimeResumed(const std::string& tab_id,
   }
 
   // Kick-start the compositor after virtual time resumes.
-  // setVirtualTimePolicy("realtime") does not automatically restart
-  // BeginFrame signals, so the compositor stays frozen until something
-  // explicitly requests a new frame.  Page.bringToFront forces the page
-  // to become the active target which triggers compositor activity.
   content::WebContents* wc = FindWebContents(tab_id);
   if (wc) {
+    LOG(INFO) << "ABP: OnVirtualTimeResumed - sending Page.bringToFront for tab "
+              << tab_id;
     AbpCdpClient* client = GetOrCreateCdpClient(wc);
     if (client) {
       base::Value::Dict empty;
       client->SendCommand("Page.bringToFront", empty, base::DoNothing());
     }
+
+    // Explicitly force a compositor frame after resume.
+    content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
+    if (view) {
+      auto* rwhi = static_cast<content::RenderWidgetHostImpl*>(
+          view->GetRenderWidgetHost());
+      if (rwhi) {
+        LOG(INFO) << "ABP: OnVirtualTimeResumed - calling ForceRedrawWithCallback"
+                  << " renderer_initialized=" << rwhi->renderer_initialized();
+        rwhi->ForceRedrawWithCallback(base::BindOnce([]() {
+          LOG(INFO) << "ABP: OnVirtualTimeResumed - ForceRedraw callback fired "
+                    << "(compositor produced a frame)";
+        }));
+      } else {
+        LOG(WARNING) << "ABP: OnVirtualTimeResumed - RWHI is null";
+      }
+    } else {
+      LOG(WARNING) << "ABP: OnVirtualTimeResumed - RWHV is null for tab "
+                   << tab_id;
+    }
+  } else {
+    LOG(WARNING) << "ABP: OnVirtualTimeResumed - WebContents not found for tab "
+                 << tab_id;
   }
 
-  VLOG(1) << "ABP: Execution resumed for tab " << tab_id << " - calling then()";
+  LOG(INFO) << "ABP: Execution resumed for tab " << tab_id << " - calling then()";
   std::move(then).Run();
 }
 
@@ -3438,12 +3465,34 @@ void AbpController::OnVirtualTimePaused(const std::string& tab_id,
     return;
   }
 
-  // Step 2: Pause debugger (halt JS)
-  base::Value::Dict params;
+  // Step 2: Ensure Debugger domain is enabled before pausing.
+  // After cross-process navigation (e.g. chrome:// → https://), the new
+  // renderer has no CDP domains enabled.  Debugger.enable is idempotent
+  // so this is safe even if already enabled.
+  base::Value::Dict enable_params;
   client->SendCommand(
-      "Debugger.pause", params,
-      base::BindOnce(&AbpController::OnDebuggerPauseCommandSent,
-                     weak_factory_.GetWeakPtr(), tab_id, std::move(then)));
+      "Debugger.enable", enable_params,
+      base::BindOnce(
+          [](base::WeakPtr<AbpController> ctrl, std::string tid,
+             base::OnceClosure cb, bool success, const std::string& result) {
+            if (!ctrl) return;
+            if (!success) {
+              LOG(WARNING) << "ABP: Debugger.enable failed in PauseExecution: "
+                           << result;
+            }
+            content::WebContents* wc = ctrl->FindWebContents(tid);
+            if (!wc) { std::move(cb).Run(); return; }
+            AbpCdpClient* c = ctrl->GetOrCreateCdpClient(wc);
+            if (!c) { std::move(cb).Run(); return; }
+
+            // Step 3: Pause debugger (halt JS)
+            base::Value::Dict params;
+            c->SendCommand(
+                "Debugger.pause", params,
+                base::BindOnce(&AbpController::OnDebuggerPauseCommandSent,
+                               ctrl, tid, std::move(cb)));
+          },
+          weak_factory_.GetWeakPtr(), tab_id, std::move(then)));
 }
 
 void AbpController::OnDebuggerPauseCommandSent(

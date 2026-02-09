@@ -739,6 +739,10 @@ void RenderWidgetHostImpl::BindWidgetInterfaces(
   // Fire any pending ForceRedraw callbacks now that widget is bound.
   std::vector<base::OnceClosure> pending =
       std::move(pending_on_widget_bound_callbacks_);
+  if (!pending.empty()) {
+    LOG(INFO) << "ABP: BindWidgetInterfaces - firing " << pending.size()
+              << " pending ForceRedraw callbacks";
+  }
   for (auto& cb : pending) {
     std::move(cb).Run();
   }
@@ -3525,14 +3529,24 @@ void RenderWidgetHostImpl::ForceRedrawWithCallback(
     // Widget not bound yet (cross-process navigation in progress).
     // Queue for retry when BindWidgetInterfaces completes.
     ++force_redraw_queued_count_for_testing_;
+    LOG(INFO) << "ABP: ForceRedrawWithCallback - blink_widget_ is NULL, "
+              << "queuing callback (queued="
+              << pending_on_widget_bound_callbacks_.size() + 1 << ")";
     pending_on_widget_bound_callbacks_.push_back(
         base::BindOnce(&RenderWidgetHostImpl::ForceRedrawWithCallback,
                        weak_factory_.GetWeakPtr(), std::move(callback)));
     return;
   }
+  LOG(INFO) << "ABP: ForceRedrawWithCallback - blink_widget_ bound, "
+            << "sending ForceRedraw to renderer";
   blink_widget_->ForceRedraw(
-      base::BindOnce([](base::OnceClosure cb) { std::move(cb).Run(); },
-                     std::move(callback)));
+      base::BindOnce(
+          [](base::OnceClosure cb) {
+            LOG(INFO) << "ABP: ForceRedrawWithCallback - renderer responded, "
+                      << "firing callback";
+            std::move(cb).Run();
+          },
+          std::move(callback)));
 }
 
 bool RenderWidgetHostImpl::KeyPressListenersHandleEvent(
