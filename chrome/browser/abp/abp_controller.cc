@@ -54,16 +54,33 @@ namespace abp {
 // Static instance pointer for test access.
 AbpController* AbpController::instance_for_testing_ = nullptr;
 
-// AbpPaintObserver implementation
-AbpPaintObserver::AbpPaintObserver(content::WebContents* wc,
-                                    base::OnceClosure callback)
+// AbpPageLoadObserver implementation
+AbpPageLoadObserver::AbpPageLoadObserver(content::WebContents* wc,
+                                          LoadCallback callback)
     : content::WebContentsObserver(wc), callback_(std::move(callback)) {}
 
-AbpPaintObserver::~AbpPaintObserver() = default;
+AbpPageLoadObserver::~AbpPageLoadObserver() = default;
 
-void AbpPaintObserver::DidFirstVisuallyNonEmptyPaint() {
+void AbpPageLoadObserver::DOMContentLoaded(
+    content::RenderFrameHost* render_frame_host) {
+  // Only track main frame events.
+  if (render_frame_host->IsInPrimaryMainFrame() && callback_) {
+    callback_.Run("dom_content_loaded");
+  }
+}
+
+void AbpPageLoadObserver::DidFinishLoad(
+    content::RenderFrameHost* render_frame_host,
+    const GURL& validated_url) {
+  // Only track main frame events.
+  if (render_frame_host->IsInPrimaryMainFrame() && callback_) {
+    callback_.Run("load");
+  }
+}
+
+void AbpPageLoadObserver::DidFirstVisuallyNonEmptyPaint() {
   if (callback_) {
-    std::move(callback_).Run();
+    callback_.Run("first_paint");
   }
 }
 
@@ -3717,12 +3734,6 @@ void AbpController::WaitForActionComplete(const std::string& tab_id,
     return;
   }
 
-  AbpCdpClient* client = GetOrCreateCdpClient(wc);
-  if (!client) {
-    std::move(on_complete).Run();
-    return;
-  }
-
   // Create waiter state
   auto waiter = std::make_unique<ActionCompleteWaiter>();
   waiter->tab_id = tab_id;
@@ -3740,21 +3751,14 @@ void AbpController::WaitForActionComplete(const std::string& tab_id,
     waiter->first_paint_fired = true;
   }
 
-  // Create paint observer to watch for DidFirstVisuallyNonEmptyPaint
-  waiter->paint_observer = std::make_unique<AbpPaintObserver>(
-      wc, base::BindOnce(&AbpController::OnFirstPaintForWait,
-                          weak_factory_.GetWeakPtr(), tab_id));
+  // Create page load observer for load lifecycle events.  Uses browser-side
+  // WebContentsObserver callbacks instead of CDP Page domain events, avoiding
+  // race conditions with DevToolsSession message suspension during navigation.
+  waiter->page_load_observer = std::make_unique<AbpPageLoadObserver>(
+      wc, base::BindRepeating(&AbpController::OnPageLifecycleEvent,
+                               weak_factory_.GetWeakPtr(), tab_id));
 
   GetOrCreateTabState(tab_id).action_waiter = std::move(waiter);
-
-  // The existing event listener (set up in GetOrCreateCdpClient) already
-  // forwards events to OnCdpEventForWait when a waiter is active.
-  // No need to replace the listener here.
-
-  // Enable Page domain for load events
-  base::Value::Dict empty_params;
-  client->SendCommand("Page.enable", empty_params,
-                      base::BindOnce([](bool, const std::string&) {}));
 
   // Min wait timer starts in MaybeStartMinWaitTimer once all base conditions
   // (load + dom_content_loaded + first_paint) are met. Check now in case
@@ -3792,36 +3796,38 @@ void AbpController::OnCdpEventForWait(const std::string& tab_id,
     waiter->last_network_activity = base::TimeTicks::Now();
   }
 
-  // Track page load events
-  if (method == "Page.loadEventFired") {
-    waiter->load_fired = true;
-    // For time wait, start the deferred timer when load fires
-    if (waiter->wait_type == "time" && !waiter->time_wait_started &&
-        waiter->dom_content_loaded_fired) {
-      OnLoadFiredForTimeWait(tab_id);
-    }
-    MaybeStartMinWaitTimer(tab_id);
-    CheckActionCompleteConditions(tab_id);
-  } else if (method == "Page.domContentEventFired") {
-    waiter->dom_content_loaded_fired = true;
-    // For time wait, start the deferred timer when both load events fired
-    if (waiter->wait_type == "time" && !waiter->time_wait_started &&
-        waiter->load_fired) {
-      OnLoadFiredForTimeWait(tab_id);
-    }
-    MaybeStartMinWaitTimer(tab_id);
-    CheckActionCompleteConditions(tab_id);
-  }
 }
 
-void AbpController::OnFirstPaintForWait(const std::string& tab_id) {
+void AbpController::OnPageLifecycleEvent(const std::string& tab_id,
+                                          const std::string& event) {
   auto it = tab_states_.find(tab_id);
   if (it == tab_states_.end() || !it->second.action_waiter) {
     return;
   }
 
-  it->second.action_waiter->first_paint_fired = true;
-  VLOG(1) << "ABP: first paint fired for tab " << tab_id;
+  ActionCompleteWaiter* waiter = it->second.action_waiter.get();
+
+  if (event == "load") {
+    waiter->load_fired = true;
+    VLOG(1) << "ABP: load fired for tab " << tab_id << " (WebContents observer)";
+    if (waiter->wait_type == "time" && !waiter->time_wait_started &&
+        waiter->dom_content_loaded_fired) {
+      OnLoadFiredForTimeWait(tab_id);
+    }
+  } else if (event == "dom_content_loaded") {
+    waiter->dom_content_loaded_fired = true;
+    VLOG(1) << "ABP: DOMContentLoaded fired for tab " << tab_id
+            << " (WebContents observer)";
+    if (waiter->wait_type == "time" && !waiter->time_wait_started &&
+        waiter->load_fired) {
+      OnLoadFiredForTimeWait(tab_id);
+    }
+  } else if (event == "first_paint") {
+    waiter->first_paint_fired = true;
+    VLOG(1) << "ABP: first paint fired for tab " << tab_id
+            << " (WebContents observer)";
+  }
+
   MaybeStartMinWaitTimer(tab_id);
   CheckActionCompleteConditions(tab_id);
 }

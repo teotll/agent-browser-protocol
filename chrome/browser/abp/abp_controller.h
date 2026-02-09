@@ -20,6 +20,7 @@
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "url/gurl.h"
 #include "chrome/browser/abp/abp_types.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/image/image.h"
@@ -106,21 +107,28 @@ class AbpCdpClient : public content::DevToolsAgentHostClient {
   base::WeakPtrFactory<AbpCdpClient> weak_factory_{this};
 };
 
-// Per-tab observer for first paint events during action waits.
-// Created when a waiter starts, destroyed when waiter completes.
-class AbpPaintObserver : public content::WebContentsObserver {
+// Per-tab observer for page lifecycle events during action waits.
+// Uses WebContentsObserver (browser-side) instead of CDP Page domain events,
+// which avoids race conditions with DevToolsSession message suspension during
+// cross-process navigation.
+class AbpPageLoadObserver : public content::WebContentsObserver {
  public:
-  AbpPaintObserver(content::WebContents* wc, base::OnceClosure callback);
-  ~AbpPaintObserver() override;
+  using LoadCallback = base::RepeatingCallback<void(const std::string& event)>;
 
-  AbpPaintObserver(const AbpPaintObserver&) = delete;
-  AbpPaintObserver& operator=(const AbpPaintObserver&) = delete;
+  AbpPageLoadObserver(content::WebContents* wc, LoadCallback callback);
+  ~AbpPageLoadObserver() override;
+
+  AbpPageLoadObserver(const AbpPageLoadObserver&) = delete;
+  AbpPageLoadObserver& operator=(const AbpPageLoadObserver&) = delete;
 
   // content::WebContentsObserver:
+  void DOMContentLoaded(content::RenderFrameHost* render_frame_host) override;
+  void DidFinishLoad(content::RenderFrameHost* render_frame_host,
+                     const GURL& validated_url) override;
   void DidFirstVisuallyNonEmptyPaint() override;
 
  private:
-  base::OnceClosure callback_;
+  LoadCallback callback_;
 };
 
 // Handles ABP REST API requests on the UI thread.
@@ -610,8 +618,8 @@ class AbpController {
     bool min_time_elapsed = false;
     bool min_wait_timer_started = false;
 
-    // Observer for DidFirstVisuallyNonEmptyPaint (destroyed with waiter)
-    std::unique_ptr<AbpPaintObserver> paint_observer;
+    // Observer for page lifecycle events (destroyed with waiter)
+    std::unique_ptr<AbpPageLoadObserver> page_load_observer;
 
     // Network tracking (networkidle2 = ≤2 connections for 500ms)
     int active_requests = 0;
@@ -785,7 +793,8 @@ class AbpController {
                          const base::Value::Dict& params);
 
   // Called when DidFirstVisuallyNonEmptyPaint fires during an action wait
-  void OnFirstPaintForWait(const std::string& tab_id);
+  void OnPageLifecycleEvent(const std::string& tab_id,
+                            const std::string& event);
 
   // Start the min_wait timer once all base conditions are met
   void MaybeStartMinWaitTimer(const std::string& tab_id);
