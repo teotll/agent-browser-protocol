@@ -38,8 +38,6 @@ base::Value::List GetToolDefinitions() {
   tools.Append(ToolBuilder("browser_new_tab")
                    .Description("Create a new browser tab")
                    .OptionalString("url", "URL to navigate to")
-                   .OptionalBoolean("active", "Whether to activate the new tab")
-                   .OptionalNumber("index", "Position in tab strip")
                    .Build());
 
   tools.Append(ToolBuilder("browser_close_tab")
@@ -57,7 +55,6 @@ base::Value::List GetToolDefinitions() {
                    .Description("Navigate to a URL")
                    .OptionalString("tab_id", "Target tab ID")
                    .RequiredString("url", "URL to navigate to")
-                   .OptionalString("referrer", "Referrer URL")
                    .Build());
 
   tools.Append(ToolBuilder("browser_go_back")
@@ -73,7 +70,6 @@ base::Value::List GetToolDefinitions() {
   tools.Append(ToolBuilder("browser_reload")
                    .Description("Reload the current page")
                    .OptionalString("tab_id", "Target tab ID")
-                   .OptionalBoolean("ignore_cache", "Force refresh ignoring cache")
                    .Build());
 
   // Input actions
@@ -93,20 +89,20 @@ base::Value::List GetToolDefinitions() {
                    .Description("Type text at current focus position")
                    .OptionalString("tab_id", "Target tab ID")
                    .RequiredString("text", "Text to type")
-                   .OptionalNumber("delay_ms", "Delay between keystrokes in ms")
                    .Build());
 
   tools.Append(
       ToolBuilder("browser_screenshot")
-          .Description("Take a screenshot of the page")
+          .Description(
+              "Take a screenshot. Also acts as a wait: resumes page "
+              "execution, waits for rendering to settle, captures the "
+              "viewport, then re-pauses execution. Use this when you need "
+              "to let the page load or update before your next action.")
           .OptionalString("tab_id", "Target tab ID")
           .OptionalString("markup",
                           "Element markup overlay: none, interactive, "
                           "clickable, typeable, inputs")
           .OptionalString("format", "Image format: png, webp, jpeg")
-          .OptionalString("area", "Capture area: none, viewport")
-          .OptionalBoolean("cursor", "Include virtual cursor in screenshot")
-          .OptionalBoolean("full_page", "Capture full scrollable page")
           .Build());
 
   tools.Append(
@@ -114,8 +110,6 @@ base::Value::List GetToolDefinitions() {
           .Description("Execute JavaScript in the page context")
           .OptionalString("tab_id", "Target tab ID")
           .RequiredString("expression", "JavaScript expression to evaluate")
-          .OptionalBoolean("await_promise", "Wait for promise resolution")
-          .OptionalNumber("timeout_ms", "Timeout for promise resolution in ms")
           .Build());
 
   tools.Append(
@@ -142,7 +136,6 @@ base::Value::List GetToolDefinitions() {
                    .OptionalString("tab_id", "Target tab ID")
                    .RequiredNumber("x", "X coordinate")
                    .RequiredNumber("y", "Y coordinate")
-                   .OptionalNumber("steps", "Intermediate steps for smooth movement")
                    .Build());
 
   // Tab control
@@ -243,6 +236,83 @@ base::Value::List GetToolDefinitions() {
   return tools;
 }
 
+// Guide content served via resources/read for abp://guide
+constexpr char kGuideContent[] = R"md(# ABP Browser Control Guide
+
+## How ABP Works
+
+ABP **pauses JavaScript and virtual time** between your actions. The page is frozen until your next tool call.
+
+When you call any action tool (click, type, navigate, scroll, etc.):
+1. ABP **resumes** JS execution
+2. ABP dispatches your action
+3. ABP **waits ~500ms** for the page to settle (rendering, network, scripts)
+4. ABP captures **before and after screenshots** automatically
+5. ABP **re-pauses** JS execution
+6. You receive the response with both screenshots
+
+**One tool call = one complete turn.** Screenshots are included automatically with every action response. There is no need to take a separate screenshot after performing an action.
+
+## Waiting for Slow Content
+
+Sometimes 500ms isn't enough for the page to finish loading (AJAX, animations, redirects). When the after screenshot shows incomplete content:
+
+**Call `browser_screenshot` to wait and observe.** It runs the same resume-wait-capture-pause cycle without performing any action, giving the page another chance to settle. Repeat until the content appears.
+
+## Markup Overlays
+
+Pass `markup: "interactive"` to `browser_screenshot` to see numbered labels overlaid on all interactive elements. Each label shows the element's coordinates for targeting clicks and typing.
+
+## Tool Reference
+
+All `tab_id` parameters are optional and default to the active tab.
+
+**Tab Management:** `browser_get_status`, `browser_list_tabs`, `browser_new_tab` (url), `browser_close_tab`, `browser_get_tab_info`, `browser_activate_tab`, `browser_stop_loading`
+
+**Navigation:** `browser_navigate` (url required), `browser_go_back`, `browser_go_forward`, `browser_reload`
+
+**Input:** `browser_click` (x, y required), `browser_type` (text required), `browser_keyboard_press` (key required, modifiers), `browser_keyboard_down` (key), `browser_keyboard_up` (key), `browser_scroll` (x, y required; delta_x, delta_y), `browser_mouse_move` (x, y required)
+
+**Content:** `browser_screenshot` (markup, format), `browser_execute_javascript` (expression required), `browser_get_text` (selector)
+
+**Dialogs:** `browser_get_dialog`, `browser_accept_dialog` (prompt_text), `browser_dismiss_dialog`
+
+**Downloads:** `browser_list_downloads` (state, limit), `browser_get_download` (download_id), `browser_cancel_download` (download_id)
+
+**File Chooser:** `browser_provide_files` (chooser_id required, files, path, cancel)
+
+**Execution Control:** `browser_get_execution_state`, `browser_set_execution_state` (paused required)
+
+**Browser:** `browser_shutdown` (timeout_ms)
+
+## Debugging
+
+Session data is stored in the session directory (set via `--abp-session-dir` or defaults to `/tmp/abp-<UUID>/`):
+
+```
+sessions/<timestamp>/
+├── history.db           # SQLite database with sessions, actions, events
+└── screenshots/         # Auto-saved before/after WebP screenshots per action
+```
+
+Query the database:
+```sql
+-- Recent actions
+SELECT id, type, status, url, error FROM actions ORDER BY id DESC LIMIT 10;
+-- Events for an action
+SELECT * FROM events WHERE action_id = <id>;
+-- Screenshot paths
+SELECT screenshot_before_path, screenshot_after_path FROM actions WHERE id = <id>;
+```
+
+## Tips
+
+- `browser_execute_javascript` uses `expression` as its parameter name (not `script`)
+- `browser_scroll` requires `x`, `y` coordinates where the mouse wheel fires — target the element center
+- Scroll direction: `delta_y` positive = scroll down, negative = scroll up
+- JS is paused between actions — timers and animations don't advance until your next tool call
+)md";
+
 }  // namespace
 
 AbpMcpHandler::AbpMcpHandler(AbpController* controller)
@@ -334,6 +404,10 @@ void AbpMcpHandler::HandleRequest(
     HandleToolsList(std::move(request_id), std::move(callback));
   } else if (*rpc_method == "tools/call") {
     HandleToolsCall(*params, std::move(request_id), std::move(callback));
+  } else if (*rpc_method == "resources/list") {
+    HandleResourcesList(std::move(request_id), std::move(callback));
+  } else if (*rpc_method == "resources/read") {
+    HandleResourcesRead(*params, std::move(request_id), std::move(callback));
   } else if (*rpc_method == "ping") {
     // Simple ping/pong
     base::Value::Dict result;
@@ -375,6 +449,8 @@ void AbpMcpHandler::HandleInitialize(const base::Value::Dict& params,
   base::Value::Dict capabilities;
   base::Value::Dict tools_cap;
   capabilities.Set("tools", std::move(tools_cap));
+  base::Value::Dict resources_cap;
+  capabilities.Set("resources", std::move(resources_cap));
   result.Set("capabilities", std::move(capabilities));
 
   // Build JSON-RPC response
@@ -481,6 +557,56 @@ void AbpMcpHandler::HandleToolsCall(const base::Value::Dict& params,
     SendJsonRpcError(std::move(request_id), kMethodNotFound,
                      "Unknown tool: " + *name, std::move(callback));
   }
+}
+
+void AbpMcpHandler::HandleResourcesList(base::Value request_id,
+                                        ResponseWithHeadersCallback callback) {
+  base::Value::Dict result;
+  base::Value::List resources;
+
+  base::Value::Dict guide;
+  guide.Set("uri", "abp://guide");
+  guide.Set("name", "ABP Usage Guide");
+  guide.Set("description",
+            "How to use ABP browser tools effectively - covers the "
+            "pause/resume execution model, screenshot behavior, tool "
+            "reference, and debugging");
+  guide.Set("mimeType", "text/markdown");
+  resources.Append(std::move(guide));
+
+  result.Set("resources", std::move(resources));
+  SendJsonRpcResult(std::move(request_id), base::Value(std::move(result)),
+                    std::move(callback));
+}
+
+void AbpMcpHandler::HandleResourcesRead(const base::Value::Dict& params,
+                                        base::Value request_id,
+                                        ResponseWithHeadersCallback callback) {
+  const std::string* uri = params.FindString("uri");
+  if (!uri) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing uri",
+                     std::move(callback));
+    return;
+  }
+
+  if (*uri != "abp://guide") {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "Unknown resource: " + *uri, std::move(callback));
+    return;
+  }
+
+  base::Value::Dict result;
+  base::Value::List contents;
+
+  base::Value::Dict content;
+  content.Set("uri", "abp://guide");
+  content.Set("mimeType", "text/markdown");
+  content.Set("text", kGuideContent);
+  contents.Append(std::move(content));
+
+  result.Set("contents", std::move(contents));
+  SendJsonRpcResult(std::move(request_id), base::Value(std::move(result)),
+                    std::move(callback));
 }
 
 void AbpMcpHandler::CallBrowserGetStatus(const base::Value::Dict& args,
@@ -707,15 +833,6 @@ void AbpMcpHandler::CallBrowserScreenshot(const base::Value::Dict& args,
   if (const std::string* format = args.FindString("format")) {
     screenshot_opts.Set("format", *format);
   }
-  if (const std::string* area = args.FindString("area")) {
-    screenshot_opts.Set("area", *area);
-  }
-  if (auto cursor = args.FindBool("cursor")) {
-    screenshot_opts.Set("cursor", *cursor);
-  }
-  if (auto full_page = args.FindBool("full_page")) {
-    screenshot_opts.Set("full_page", *full_page);
-  }
   body_dict.Set("screenshot", std::move(screenshot_opts));
 
   std::string body;
@@ -739,16 +856,10 @@ void AbpMcpHandler::CallBrowserExecuteJavascript(const base::Value::Dict& args,
     return;
   }
 
-  // Map MCP "expression" to REST "script", forward other params
+  // Map MCP "expression" to REST "script"
   base::Value::Dict body_dict;
   if (const std::string* expression = args.FindString("expression")) {
     body_dict.Set("script", *expression);
-  }
-  if (auto await_promise = args.FindBool("await_promise")) {
-    body_dict.Set("await_promise", *await_promise);
-  }
-  if (auto timeout_ms = args.FindDouble("timeout_ms")) {
-    body_dict.Set("timeout_ms", static_cast<int>(*timeout_ms));
   }
 
   std::string body;

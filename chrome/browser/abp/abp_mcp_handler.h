@@ -44,6 +44,11 @@ class AbpMcpHandler {
   void HandleToolsCall(const base::Value::Dict& params,
                        base::Value request_id,
                        ResponseWithHeadersCallback callback);
+  void HandleResourcesList(base::Value request_id,
+                           ResponseWithHeadersCallback callback);
+  void HandleResourcesRead(const base::Value::Dict& params,
+                           base::Value request_id,
+                           ResponseWithHeadersCallback callback);
 
   // Tool implementations (delegate to AbpController)
   void CallBrowserGetStatus(const base::Value::Dict& args,
