@@ -285,8 +285,9 @@ void MouseWheelEventQueue::OnGestureScrollEvent(
 void MouseWheelEventQueue::TryForwardNextEventToRenderer() {
   TRACE_EVENT0("input", "MouseWheelEventQueue::TryForwardNextEventToRenderer");
 
-  if (wheel_queue_.empty() || event_sent_for_gesture_ack_)
+  if (wheel_queue_.empty() || event_sent_for_gesture_ack_) {
     return;
+  }
 
   event_sent_for_gesture_ack_ = std::move(wheel_queue_.front());
   wheel_queue_.pop_front();

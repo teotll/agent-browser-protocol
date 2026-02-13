@@ -145,20 +145,35 @@ void AbpInputDispatcher::ForwardWheelEvent(content::WebContents* wc,
       rwhi = target;
   }
 
-  // Create a synthetic wheel event using pixel-based scrolling
-  blink::WebMouseWheelEvent wheel_event =
+  float fx = static_cast<float>(x);
+  float fy = static_cast<float>(y);
+  // Negate deltas: ABP API convention (positive = down/right) is opposite
+  // to WebMouseWheelEvent convention (positive = up/left).
+  float fdx = -static_cast<float>(delta_x);
+  float fdy = -static_cast<float>(delta_y);
+
+  // Mark as kFromDebugger so ABP's input filter in RenderInputRouter allows
+  // the event through (ABP blocks non-debugger input when --enable-abp).
+  int modifiers = blink::WebInputEvent::kFromDebugger;
+
+  // macOS scroll handling requires the full gesture phase sequence:
+  // kPhaseBegan -> kPhaseEnded. A lone kPhaseChanged is dropped.
+
+  // 1. Send kPhaseBegan with the scroll deltas
+  blink::WebMouseWheelEvent begin_event =
       blink::SyntheticWebMouseWheelEventBuilder::Build(
-          static_cast<float>(x), static_cast<float>(y),
-          static_cast<float>(delta_x), static_cast<float>(delta_y),
-          0,  // no modifiers
+          fx, fy, fdx, fdy, modifiers,
           ui::ScrollGranularity::kScrollByPrecisePixel);
+  begin_event.phase = blink::WebMouseWheelEvent::kPhaseBegan;
+  rwhi->ForwardWheelEvent(begin_event);
 
-  // Set the phase to "changed" to indicate an active scroll
-  wheel_event.phase = blink::WebMouseWheelEvent::kPhaseChanged;
-  wheel_event.dispatch_type = blink::WebMouseWheelEvent::DispatchType::kBlocking;
-
-  // Forward the event to the renderer
-  rwhi->ForwardWheelEvent(wheel_event);
+  // 2. Send kPhaseEnded with zero deltas to close the gesture
+  blink::WebMouseWheelEvent end_event =
+      blink::SyntheticWebMouseWheelEventBuilder::Build(
+          fx, fy, 0, 0, modifiers,
+          ui::ScrollGranularity::kScrollByPrecisePixel);
+  end_event.phase = blink::WebMouseWheelEvent::kPhaseEnded;
+  rwhi->ForwardWheelEvent(end_event);
 }
 
 void AbpInputDispatcher::Click(const std::string& tab_id,
