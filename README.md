@@ -73,9 +73,18 @@ Extensions can't fix this (sandboxed). CDP can't fix this (designed for DevTools
 
 ## Quick Start
 
-### Pre-built Binaries
+### Pre-built Binaries (macOS)
 
-Coming soon. For now, build from source.
+Download a signed and notarized build from the [`dist/`](dist/) folder:
+
+- **`abp-0.1.0-chrome-146.0.7635.0-mac-arm64.zip`** — Apple Silicon (M1/M2/M3/M4)
+- **`abp-0.1.0-chrome-146.0.7635.0-mac-universal.zip`** — Universal (Apple Silicon + Intel)
+
+Unzip and run:
+```bash
+unzip abp-0.1.0-chrome-146.0.7635.0-mac-arm64.zip
+./Chromium.app/Contents/MacOS/Chromium --enable-abp
+```
 
 ### Run ABP Chromium
 
@@ -148,8 +157,13 @@ Every action returns what the agent needs to make the next decision:
 
 ```json
 {
-  "result": {"x": 450, "y": 320, "button": "left"},
-  "screenshot": {
+  "result": {"status": "clicked"},
+  "screenshot_before": {
+    "data": "base64-webp...",
+    "width": 1920,
+    "height": 1080
+  },
+  "screenshot_after": {
     "data": "base64-webp...",
     "width": 1920,
     "height": 1080
@@ -275,11 +289,10 @@ Base URL: `http://localhost:8222/api/v1`
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/tabs/{id}/screenshot` | Get screenshot (binary) |
-| POST | `/tabs/{id}/screenshot` | Get screenshot (base64 + metadata) |
+| GET | `/tabs/{id}/screenshot` | Get screenshot (binary WebP) |
+| POST | `/tabs/{id}/screenshot` | Get screenshot (action envelope) |
 | POST | `/tabs/{id}/execute` | Execute JavaScript |
-| GET | `/tabs/{id}/content/html` | Get page HTML |
-| GET | `/tabs/{id}/content/text` | Get page text |
+| POST | `/tabs/{id}/text` | Get page text |
 
 ### Events and Dialogs
 
@@ -297,6 +310,12 @@ Base URL: `http://localhost:8222/api/v1`
 | GET | `/tabs/{id}/execution` | Get execution state |
 | POST | `/tabs/{id}/execution` | Pause/resume JavaScript |
 
+### Wait
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/tabs/{id}/wait` | Wait for duration (ms) |
+
 ### Downloads
 
 | Method | Endpoint | Description |
@@ -304,6 +323,29 @@ Base URL: `http://localhost:8222/api/v1`
 | GET | `/downloads` | List downloads |
 | GET | `/downloads/{id}` | Get download status |
 | POST | `/downloads/{id}/cancel` | Cancel download |
+
+### History
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/history/sessions` | List sessions |
+| GET | `/history/sessions/current` | Get current session |
+| GET | `/history/sessions/{id}` | Get session by ID |
+| GET | `/history/sessions/{id}/export` | Export session |
+| GET | `/history/actions` | List actions |
+| GET | `/history/actions/{id}` | Get action by ID |
+| GET | `/history/actions/{id}/screenshot` | Get action screenshot |
+| DELETE | `/history/actions` | Delete actions |
+| GET | `/history/events` | List events |
+| GET | `/history/events/{id}` | Get event by ID |
+| DELETE | `/history/events` | Delete events |
+| DELETE | `/history` | Delete all history |
+
+### Browser
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/browser/shutdown` | Graceful shutdown |
 
 See [plans/API.md](plans/API.md) for complete specification.
 
@@ -328,7 +370,7 @@ Configure in Claude Desktop (`claude_desktop_config.json`):
 
 Then ask Claude: "Go to news.ycombinator.com and find the top post about AI."
 
-**Available tools (30 total):**
+**Available tools (31 total):**
 
 *Tab Management:* `browser_list_tabs`, `browser_new_tab`, `browser_close_tab`, `browser_get_tab_info`, `browser_activate_tab`, `browser_stop_loading`
 
@@ -340,7 +382,7 @@ Then ask Claude: "Go to news.ycombinator.com and find the top post about AI."
 
 *Screenshots:* `browser_screenshot`
 
-*JavaScript:* `browser_execute_javascript`
+*JavaScript & Content:* `browser_execute_javascript`, `browser_get_text`
 
 *Dialogs:* `browser_get_dialog`, `browser_accept_dialog`, `browser_dismiss_dialog`
 
@@ -409,24 +451,32 @@ First build takes 4-6 hours. Incremental builds take seconds to minutes.
 | `--abp-port=8222` | API port (default: 8222) |
 | `--abp-session-dir=PATH` | Session data directory |
 | `--abp-disable-pause` | Disable automatic JS pause between actions |
-| `--abp-auth-token=TOKEN` | Require bearer token authentication |
-| `--abp-allow-remote` | Allow non-localhost connections |
 
 ---
 
 ## Project Structure
 
 ```
-chrome/browser/abp/           # Core ABP implementation
-  abp_http_server.cc/h        # HTTP server (IO thread)
-  abp_controller.cc/h         # Request handling (UI thread)
-  abp_mcp_handler.cc/h        # Embedded MCP server (JSON-RPC over HTTP)
-  abp_switches.cc/h           # Command line flags
+chrome/browser/abp/                 # Core ABP implementation
+  abp_http_server.cc/h              # HTTP server (IO thread)
+  abp_controller.cc/h               # Request handling (UI thread)
+  abp_action_context.cc/h           # Action lifecycle (pause/resume/screenshot)
+  abp_input_dispatcher.cc/h         # Native input dispatch (click/scroll/keys)
+  abp_event_observer.cc/h           # CDP event client per tab
+  abp_event_collector.cc/h          # Event collection during actions
+  abp_mcp_handler.cc/h              # Embedded MCP server (JSON-RPC over HTTP)
+  abp_tool_builder.cc/h             # MCP tool schema builder
+  abp_history_controller.cc/h       # Session/action history API
+  abp_history_database.cc/h         # SQLite history storage
+  abp_download_observer.cc/h        # Download tracking
+  abp_config.cc/h                   # Runtime configuration
+  abp_types.h                       # Shared type definitions
+  abp_switches.cc/h                 # Command line flags
 
-plans/                        # Design documents
-  API.md                      # REST API specification
-  agent-browser-protocol.md   # Architecture
-  mcp.md                      # MCP specification
+plans/                              # Design documents
+  API.md                            # REST API specification
+  agent-browser-protocol.md         # Architecture
+  mcp.md                            # MCP specification
 ```
 
 ---
@@ -436,19 +486,22 @@ plans/                        # Design documents
 ABP is under active development. Current implementation:
 
 **Working:**
-- Tab management (list, create, close, activate)
-- Navigation (URL, back, forward, reload, stop)
-- Screenshots with element markup
-- Mouse input (click, move, scroll)
-- Keyboard input (type, press, key down/up)
+- Tab management (list, create, close, activate, stop)
+- Navigation (URL, back, forward, reload)
+- Screenshots with element markup and virtual cursor
+- Mouse input (click, move, scroll via native wheel events)
+- Keyboard input (type, press, key down/up with modifiers)
 - JavaScript execution
-- Dialog handling (alert, confirm, prompt)
+- Text extraction (full page or CSS selector)
+- Duration wait with action envelope
+- Dialog handling (alert, confirm, prompt, beforeunload)
 - File chooser support
 - Download management
 - Execution control (JS pause/resume, virtual time)
-- History tracking with SQLite
-- Virtual cursor rendering
-- MCP server with 30 tools (full REST API parity)
+- History tracking with SQLite (sessions, actions, events)
+- Virtual cursor rendering (compositor layer)
+- Browser management (status, shutdown)
+- MCP server with 31 tools at `/mcp`
 
 **Not yet implemented:**
 - Action success/failure tracking

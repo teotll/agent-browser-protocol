@@ -10,17 +10,20 @@ This document specifies the complete ABP REST API. The following table shows cur
 | Navigation | navigate, back, forward, reload | - |
 | Mouse | click, move, scroll | drag, hover, mouse down/up |
 | Keyboard | type, press, down, up | shortcut, insert |
-| Screenshots | viewport (GET/POST), markup | full-page, region |
+| Screenshots | viewport (GET/POST), markup, cursor | full-page, region |
 | JavaScript | execute | - |
+| Text | get text (full page or selector) | - |
 | Dialogs | get, accept, dismiss | - |
 | Downloads | list, get, cancel | configure, wait, resume |
 | File Chooser | provide files | configure, get pending |
 | Browser | status, shutdown | get info |
 | Execution Control | get/set state | - |
+| History | sessions, actions, events, export | - |
 | Network | - | intercept, requests |
 | Window | - | bounds, state |
 | Cookies | - | get, set, clear |
 | Wait | duration wait | navigation, network idle |
+| MCP | 30 tools via /mcp endpoint | - |
 
 Features marked "Planned" are documented below but not yet implemented.
 
@@ -465,11 +468,7 @@ GET endpoints return data directly without the action envelope (no screenshot/ev
 { ... }
 ```
 
-For list endpoints, arrays are returned directly:
-
-```json
-[ ... ]
-```
+For tab listing, the response is a bare JSON array. Other list endpoints (e.g., downloads) wrap results in an object.
 
 ---
 
@@ -501,63 +500,52 @@ Returns initialization status. Poll this endpoint to wait for ABP to be ready af
 **Response (initializing):**
 ```json
 {
-  "ready": false,
-  "state": "initializing",
-  "components": {
-    "http_server": true,
-    "browser_window": false,
-    "devtools": false
-  },
-  "message": "Waiting for browser window"
+  "success": true,
+  "data": {
+    "ready": false,
+    "state": "initializing",
+    "components": {
+      "http_server": true,
+      "browser_window": false,
+      "devtools": false
+    },
+    "message": "Waiting for browser window"
+  }
 }
 ```
 
 **Response (ready):**
 ```json
 {
-  "ready": true,
-  "state": "ready",
-  "components": {
-    "http_server": true,
-    "browser_window": true,
-    "devtools": true
-  },
-  "uptime_ms": 1234
-}
-```
-
-**Response (error):**
-```json
-{
-  "ready": false,
-  "state": "error",
-  "components": {
-    "http_server": true,
-    "browser_window": true,
-    "devtools": false
-  },
-  "message": "DevTools connection failed",
-  "error_code": "DEVTOOLS_INIT_FAILED"
+  "success": true,
+  "data": {
+    "ready": true,
+    "state": "ready",
+    "components": {
+      "http_server": true,
+      "browser_window": true,
+      "devtools": true
+    }
+  }
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `ready` | boolean | `true` when ABP is fully initialized and ready to accept commands |
-| `state` | string | Current state: `initializing`, `ready`, `error` |
-| `components.http_server` | boolean | HTTP server is listening |
-| `components.browser_window` | boolean | Browser window is created and active |
-| `components.devtools` | boolean | DevTools connection is established |
-| `message` | string | Human-readable status message (present when not ready) |
-| `error_code` | string | Error code (present when state is `error`) |
-| `uptime_ms` | number | Milliseconds since ABP became ready (present when ready) |
+| `success` | boolean | Always `true` for this endpoint |
+| `data.ready` | boolean | `true` when ABP is fully initialized and ready to accept commands |
+| `data.state` | string | Current state: `initializing`, `ready` |
+| `data.components.http_server` | boolean | HTTP server is listening |
+| `data.components.browser_window` | boolean | Browser window is created and active |
+| `data.components.devtools` | boolean | DevTools connection is established |
+| `data.message` | string | Human-readable status message (present when not ready) |
 
 **Polling example:**
 ```bash
 # Wait for browser to be ready (bash)
 while true; do
   response=$(curl -s http://localhost:8222/api/v1/browser/status)
-  ready=$(echo "$response" | jq -r '.ready')
+  ready=$(echo "$response" | jq -r '.data.ready')
   if [ "$ready" = "true" ]; then
     echo "Browser ready"
     break
@@ -600,8 +588,7 @@ Returns all open tabs as an array.
     "id": "tab_abc123",
     "url": "https://example.com",
     "title": "Example Domain",
-    "active": true,
-    "loading": false
+    "active": true
   }
 ]
 ```
@@ -643,13 +630,11 @@ Creates a new tab.
 
 All fields optional. Defaults to blank tab at end, made active.
 
-**Response:**
+**Response (201 Created):**
 ```json
 {
   "id": "tab_xyz789",
-  "url": "about:blank",
-  "title": "",
-  "active": true
+  "url": "about:blank"
 }
 ```
 
@@ -677,8 +662,9 @@ Switches to the specified tab.
 **Response:**
 ```json
 {
-  "id": "tab_xyz789",
-  "active": true
+  "status": "activated",
+  "tab_id": "tab_xyz789",
+  "index": 0
 }
 ```
 
@@ -708,8 +694,8 @@ POST /tabs/{tab_id}/navigate
 ```json
 {
   "result": {
-    "url": "https://example.com",
-    "title": "Example Domain"
+    "status": "navigated",
+    "url": "https://example.com"
   },
   "screenshot_before": {
     "data": "UklGRlYAAABXRUJQVlA4I...",
@@ -763,10 +749,14 @@ POST /tabs/{tab_id}/back
 **Request:**
 ```json
 {
-  "wait_until": "load",
-  "timeout_ms": 30000
+  "wait_until": {
+    "type": "action_complete",
+    "timeout_ms": 30000
+  }
 }
 ```
+
+Returns 400 if there is no back history.
 
 ### Go Forward
 
@@ -777,10 +767,14 @@ POST /tabs/{tab_id}/forward
 **Request:**
 ```json
 {
-  "wait_until": "load",
-  "timeout_ms": 30000
+  "wait_until": {
+    "type": "action_complete",
+    "timeout_ms": 30000
+  }
 }
 ```
+
+Returns 400 if there is no forward history.
 
 ### Reload
 
@@ -788,12 +782,15 @@ POST /tabs/{tab_id}/forward
 POST /tabs/{tab_id}/reload
 ```
 
+Reloads the page. Always uses normal reload (not cache-bypassing).
+
 **Request:**
 ```json
 {
-  "ignore_cache": false,
-  "wait_until": "load",
-  "timeout_ms": 30000
+  "wait_until": {
+    "type": "action_complete",
+    "timeout_ms": 30000
+  }
 }
 ```
 
@@ -801,6 +798,14 @@ POST /tabs/{tab_id}/reload
 
 ```
 POST /tabs/{tab_id}/stop
+```
+
+**Response:**
+```json
+{
+  "status": "stopped",
+  "tab_id": "tab_abc123"
+}
 ```
 
 ---
@@ -832,7 +837,7 @@ Performs a mouse click at the specified coordinates.
 
 **button options:** `"left"`, `"right"`, `"middle"`
 
-**modifiers options:** `"shift"`, `"ctrl"`, `"alt"`, `"meta"`
+**modifiers options:** `"Shift"`, `"Control"`, `"Alt"`, `"Meta"` (also accepts left/right variants like `"ShiftLeft"`, `"ControlRight"`)
 
 **click_count:** 1 for single click, 2 for double click, 3 for triple click
 
@@ -840,9 +845,7 @@ Performs a mouse click at the specified coordinates.
 ```json
 {
   "result": {
-    "x": 100,
-    "y": 200,
-    "button": "left"
+    "status": "clicked"
   },
   "screenshot_before": {
     "data": "UklGRlYAAABXRUJQVlA4I...",
@@ -895,18 +898,15 @@ Performs a mouse click at the specified coordinates.
 POST /tabs/{tab_id}/move
 ```
 
-Moves mouse to coordinates.
+Moves mouse to coordinates (single move, no interpolation).
 
 **Request:**
 ```json
 {
   "x": 100,
-  "y": 200,
-  "steps": 10
+  "y": 200
 }
 ```
-
-**steps:** Number of intermediate mousemove events (for smooth movement)
 
 ### Scroll (Wheel)
 
@@ -946,17 +946,14 @@ At least one of `delta_x` or `delta_y` must be non-zero.
 POST /tabs/{tab_id}/type
 ```
 
-Types text as if entered by user. Generates keydown, keypress, and keyup events.
+Types text as if entered by user. Generates keydown, char, and keyup events with a fixed 2ms delay between keystrokes.
 
 **Request:**
 ```json
 {
-  "text": "Hello, World!",
-  "delay_ms": 50
+  "text": "Hello, World!"
 }
 ```
-
-**delay_ms:** Delay between keystrokes (0 for instant)
 
 **Response:** Standard action envelope with `result` containing the typed text.
 
@@ -1063,17 +1060,15 @@ Execute JavaScript in the page context and retrieve results.
 **Request:**
 ```json
 {
-  "expression": "document.querySelectorAll('a').length",
-  "await_promise": true,
-  "timeout_ms": 5000
+  "script": "document.querySelectorAll('a').length"
 }
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `expression` | string | required | JavaScript expression to evaluate |
-| `await_promise` | boolean | true | Wait for promise resolution if result is a promise |
-| `timeout_ms` | number | 5000 | Timeout for promise resolution |
+| `script` | string | required | JavaScript expression to evaluate |
+
+**Note:** The MCP tool `browser_execute_javascript` uses `expression` as the parameter name and maps it to `script` internally.
 
 **Response:**
 ```json
@@ -1119,39 +1114,100 @@ Execute JavaScript in the page context and retrieve results.
 
 All screenshots are returned as WebP format at quality 80.
 
-### Full Page Screenshot
+### Viewport Screenshot (Binary)
 
 ```
 GET /tabs/{tab_id}/screenshot
 ```
 
 **Query params:**
-- `full_page=false` - Capture full scrollable page
+- `markup=interactive` - Optional element markup overlay (`none`, `interactive`, `clickable`, `typeable`, `inputs`)
 
 **Response:** Binary WebP image data with `Content-Type: image/webp` header.
 
-### Screenshot to Base64
+### Screenshot via Action Envelope
 
 ```
 POST /tabs/{tab_id}/screenshot
 ```
 
+Uses the standard action envelope. Screenshots are returned in `screenshot_before` and `screenshot_after` fields.
+
 **Request:**
 ```json
 {
-  "full_page": false,
-  "encoding": "base64"
+  "screenshot": {
+    "markup": "interactive",
+    "format": "webp",
+    "cursor": true
+  }
 }
 ```
+
+**Response:** Standard action envelope with screenshot data in `screenshot_before`/`screenshot_after`.
+
+---
+
+## Text Extraction
+
+### Get Page Text
+
+```
+POST /tabs/{tab_id}/text
+```
+
+Extracts text content from the page or a specific element.
+
+**Request:**
+```json
+{
+  "selector": ".main-content"
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `selector` | string | No | CSS selector to extract text from. If omitted, returns `document.body.innerText` |
 
 **Response:**
 ```json
 {
-  "data": "UklGRlYAAABXRUJQ...",
-  "mimeType": "image/webp",
-  "format": "webp",
-  "width": 1920,
-  "height": 1080
+  "text": "The extracted text content..."
+}
+```
+
+Returns `{"text": null}` if the selector matches no element.
+
+---
+
+## Wait
+
+### Duration Wait
+
+```
+POST /tabs/{tab_id}/wait
+```
+
+Waits for a specified duration. Uses the action envelope, so the page resumes execution during the wait and is paused again afterward.
+
+**Request:**
+```json
+{
+  "ms": 2000
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `ms` | integer | Yes | Duration to wait in milliseconds (0-60000) |
+
+**Response:** Standard action envelope with:
+```json
+{
+  "result": {
+    "status": "waited",
+    "ms": 2000
+  }
 }
 ```
 
@@ -1165,13 +1221,20 @@ POST /tabs/{tab_id}/screenshot
 GET /tabs/{tab_id}/dialog
 ```
 
-**Response:**
+**Response (dialog present):**
 ```json
 {
   "present": true,
-  "type": "confirm",
+  "dialog_type": "confirm",
   "message": "Are you sure you want to delete this item?",
   "default_prompt": ""
+}
+```
+
+**Response (no dialog):**
+```json
+{
+  "present": false
 }
 ```
 
@@ -1188,10 +1251,24 @@ POST /tabs/{tab_id}/dialog/accept
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true
+}
+```
+
 ### Dismiss Dialog
 
 ```
 POST /tabs/{tab_id}/dialog/dismiss
+```
+
+**Response:**
+```json
+{
+  "success": true
+}
 ```
 
 ---
@@ -1212,20 +1289,22 @@ GET /downloads
 
 **Response:**
 ```json
-[
-  {
-    "id": "dl_123",
-    "url": "https://example.com/file.pdf",
-    "filename": "file.pdf",
-    "path": "/downloads/file.pdf",
-    "state": "completed",
-    "bytes_received": 102400,
-    "total_bytes": 102400,
-    "mime_type": "application/pdf",
-    "start_time": 1699999999000,
-    "end_time": 1699999999500
-  }
-]
+{
+  "downloads": [
+    {
+      "id": "dl_123",
+      "url": "https://example.com/file.pdf",
+      "filename": "file.pdf",
+      "path": "/downloads/file.pdf",
+      "state": "completed",
+      "bytes_received": 102400,
+      "total_bytes": 102400,
+      "mime_type": "application/pdf",
+      "start_time": 1699999999000,
+      "end_time": 1699999999500
+    }
+  ]
+}
 ```
 
 ### Get Download Status
@@ -1263,8 +1342,8 @@ Cancels an in-progress download.
 **Response:**
 ```json
 {
-  "id": "dl_123",
-  "state": "cancelled"
+  "success": true,
+  "message": "Download cancelled"
 }
 ```
 
@@ -1334,12 +1413,18 @@ Provides files to a pending file chooser dialog.
 }
 ```
 
-**Response:**
+**Response (files provided):**
 ```json
 {
-  "id": "fc_abc123",
-  "files_provided": ["/path/to/document.pdf"],
-  "closed": true
+  "success": true
+}
+```
+
+**Response (cancelled):**
+```json
+{
+  "success": true,
+  "cancelled": true
 }
 ```
 
@@ -1349,6 +1434,108 @@ Provides files to a pending file chooser dialog.
   "error": "File chooser fc_abc123 not found or already closed"
 }
 ```
+
+---
+
+## History
+
+Session and action history is stored in a SQLite database within the session directory. All history endpoints are under `/api/v1/history/`.
+
+### List Sessions
+
+```
+GET /history/sessions
+```
+
+Returns all recorded sessions.
+
+### Get Current Session
+
+```
+GET /history/sessions/current
+```
+
+Returns the currently active session.
+
+### Get Session
+
+```
+GET /history/sessions/{session_id}
+```
+
+Returns details for a specific session.
+
+### Export Session
+
+```
+GET /history/sessions/{session_id}/export
+```
+
+Exports a session with all its actions and events.
+
+### List Actions
+
+```
+GET /history/actions
+```
+
+Returns recorded actions. Supports query filtering.
+
+### Get Action
+
+```
+GET /history/actions/{action_id}
+```
+
+Returns details for a specific action.
+
+### Get Action Screenshot
+
+```
+GET /history/actions/{action_id}/screenshot
+```
+
+Returns the screenshot associated with an action as binary image data.
+
+### Delete Actions
+
+```
+DELETE /history/actions
+```
+
+Deletes action history records.
+
+### List Events
+
+```
+GET /history/events
+```
+
+Returns recorded events.
+
+### Get Event
+
+```
+GET /history/events/{event_id}
+```
+
+Returns details for a specific event.
+
+### Delete Events
+
+```
+DELETE /history/events
+```
+
+Deletes event history records.
+
+### Delete All History
+
+```
+DELETE /history
+```
+
+Deletes all history (sessions, actions, and events).
 
 ---
 

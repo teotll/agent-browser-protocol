@@ -5,24 +5,34 @@ A Chromium fork implementing the Agent Browser Protocol (ABP) - a REST-based API
 ## Current Implementation Status
 
 ### Working Features
-- **Tab Management**: List, create, close, get info
+- **Tab Management**: List, create, close, get info, activate, stop loading
 - **Navigation**: Navigate to URL, back, forward, reload
-- **Screenshots**: Capture viewport with optional element markup overlays
-- **Input**: Click at coordinates, type text (via CDP Input.dispatch*)
+- **Screenshots**: Capture viewport with optional element markup overlays (GET binary or POST with action envelope)
+- **Mouse Input**: Click, move, scroll (native mouse wheel events via RenderWidgetHost)
+- **Keyboard Input**: Type text, press/down/up key events with modifier support
 - **JavaScript Execution**: Execute scripts and get results (via CDP Runtime.evaluate)
+- **Text Extraction**: Get page text or text from a CSS selector
+- **Dialogs**: Get pending dialog info, accept, dismiss (alert/confirm/prompt/beforeunload)
+- **Downloads**: List, get status, cancel
+- **File Chooser**: Provide files to native file picker dialogs
+- **Execution Control**: Pause/resume JS execution with virtual time for deterministic state
+- **Wait**: Duration-based wait with action envelope
+- **History**: Session, action, and event history with SQLite storage
+- **Browser Management**: Status check, graceful shutdown
+- **MCP Server**: Embedded MCP (JSON-RPC over HTTP) with 30 tools at `/mcp`
 
 ### Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
-│              HTTP Client (curl/agent)        │
+│         HTTP Client (curl/agent/MCP)        │
 └─────────────────┬───────────────────────────┘
-                  │ GET/POST /api/v1/*
+                  │ GET/POST /api/v1/* or /mcp
                   ▼
 ┌─────────────────────────────────────────────┐
 │  AbpHttpServer (IO thread)                  │
 │  - net::HttpServer on localhost:8222        │
-│  - Routes requests, sends JSON responses    │
+│  - Routes REST + MCP requests               │
 └─────────────────┬───────────────────────────┘
                   │ PostTask to UI thread
                   ▼
@@ -30,6 +40,14 @@ A Chromium fork implementing the Agent Browser Protocol (ABP) - a REST-based API
 │  AbpController (UI thread)                  │
 │  - Direct access to Browser, TabStripModel  │
 │  - Uses DevToolsAgentHost for CDP commands  │
+│  - AbpActionContext for action lifecycle    │
+│  - AbpInputDispatcher for native input      │
+│  - AbpEventObserver for CDP event streams   │
+│  - AbpEventCollector for action events      │
+├─────────────────────────────────────────────┤
+│  AbpMcpHandler - Embedded MCP server        │
+│  AbpHistoryController - Session/action log  │
+│  AbpDownloadObserver - Download tracking    │
 └─────────────────────────────────────────────┘
 ```
 
@@ -39,11 +57,21 @@ A Chromium fork implementing the Agent Browser Protocol (ABP) - a REST-based API
 
 ```
 chrome/browser/abp/
-├── BUILD.gn              # Build configuration
-├── abp_switches.h/cc     # --enable-abp, --abp-port flags
-├── abp_http_server.h/cc  # HTTP server (IO thread)
-├── abp_controller.h/cc   # Request handler + CDP client (UI thread)
-└── abp_mcp_handler.h/cc  # Embedded MCP server (JSON-RPC over HTTP)
+├── BUILD.gn                     # Build configuration
+├── abp_switches.h/cc            # --enable-abp, --abp-port flags
+├── abp_http_server.h/cc         # HTTP server (IO thread)
+├── abp_controller.h/cc          # Request handler + CDP client (UI thread)
+├── abp_action_context.h/cc      # Action lifecycle (pause/resume/screenshot)
+├── abp_input_dispatcher.h/cc    # Native input dispatch (click/scroll/keys)
+├── abp_event_observer.h/cc      # CDP event client per tab
+├── abp_event_collector.h/cc     # Collects events during actions
+├── abp_mcp_handler.h/cc         # Embedded MCP server (JSON-RPC over HTTP)
+├── abp_tool_builder.h/cc        # MCP tool schema builder
+├── abp_history_controller.h/cc  # Session/action history API
+├── abp_history_database.h/cc    # SQLite history storage
+├── abp_download_observer.h/cc   # Download tracking
+├── abp_config.h/cc              # Runtime configuration
+└── abp_types.h                  # Shared type definitions
 ```
 
 ### Design Documentation
@@ -128,6 +156,9 @@ To use the default `/tmp/abp-<UUID>/` directory instead:
 ### REST API Examples
 
 ```bash
+# Check browser readiness
+curl http://localhost:8222/api/v1/browser/status
+
 # List all tabs
 curl http://localhost:8222/api/v1/tabs
 
@@ -146,6 +177,9 @@ curl -X POST http://localhost:8222/api/v1/tabs/{tab_id}/screenshot \
   -H "Content-Type: application/json" \
   -d '{"screenshot":{"markup":"interactive","format":"webp"}}'
 
+# Binary screenshot (returns image/webp)
+curl http://localhost:8222/api/v1/tabs/{tab_id}/screenshot?markup=interactive -o screenshot.webp
+
 # Click at coordinates
 curl -X POST http://localhost:8222/api/v1/tabs/{tab_id}/click \
   -H "Content-Type: application/json" \
@@ -156,10 +190,25 @@ curl -X POST http://localhost:8222/api/v1/tabs/{tab_id}/type \
   -H "Content-Type: application/json" \
   -d '{"text":"hello world"}'
 
-# Execute JavaScript
+# Press key combo (Ctrl+A)
+curl -X POST http://localhost:8222/api/v1/tabs/{tab_id}/keyboard/press \
+  -H "Content-Type: application/json" \
+  -d '{"key":"a","modifiers":["Control"]}'
+
+# Scroll down at coordinates
+curl -X POST http://localhost:8222/api/v1/tabs/{tab_id}/scroll \
+  -H "Content-Type: application/json" \
+  -d '{"x":500,"y":400,"delta_y":300}'
+
+# Execute JavaScript (note: parameter is "script", not "expression")
 curl -X POST http://localhost:8222/api/v1/tabs/{tab_id}/execute \
   -H "Content-Type: application/json" \
   -d '{"script":"document.title"}'
+
+# Get page text
+curl -X POST http://localhost:8222/api/v1/tabs/{tab_id}/text \
+  -H "Content-Type: application/json" \
+  -d '{}'
 
 # Close tab
 curl -X DELETE http://localhost:8222/api/v1/tabs/{tab_id}
@@ -196,22 +245,70 @@ curl -X POST http://localhost:8222/mcp \
 
 ## API Reference
 
-See `plans/API.md` for the complete REST API specification. Key endpoints:
+See `plans/API.md` for the complete REST API specification. All endpoints:
 
 | Method | Path | Description |
 |--------|------|-------------|
+| **Browser** | | |
+| GET | `/api/v1/browser/status` | Get browser readiness status |
+| POST | `/api/v1/browser/shutdown` | Graceful shutdown |
+| **Tabs** | | |
 | GET | `/api/v1/tabs` | List all tabs |
 | GET | `/api/v1/tabs/{id}` | Get tab details |
 | POST | `/api/v1/tabs` | Create new tab |
 | DELETE | `/api/v1/tabs/{id}` | Close tab |
+| POST | `/api/v1/tabs/{id}/activate` | Switch to tab |
+| POST | `/api/v1/tabs/{id}/stop` | Stop loading |
+| **Navigation** | | |
 | POST | `/api/v1/tabs/{id}/navigate` | Navigate to URL |
 | POST | `/api/v1/tabs/{id}/reload` | Reload page |
 | POST | `/api/v1/tabs/{id}/back` | Go back |
 | POST | `/api/v1/tabs/{id}/forward` | Go forward |
-| POST | `/api/v1/tabs/{id}/screenshot` | Capture screenshot |
-| POST | `/api/v1/tabs/{id}/execute` | Execute JavaScript |
+| **Mouse** | | |
 | POST | `/api/v1/tabs/{id}/click` | Click at coordinates |
+| POST | `/api/v1/tabs/{id}/move` | Mouse move |
+| POST | `/api/v1/tabs/{id}/scroll` | Scroll (mouse wheel) |
+| **Keyboard** | | |
 | POST | `/api/v1/tabs/{id}/type` | Type text |
+| POST | `/api/v1/tabs/{id}/keyboard/press` | Press key combo |
+| POST | `/api/v1/tabs/{id}/keyboard/down` | Key down |
+| POST | `/api/v1/tabs/{id}/keyboard/up` | Key up |
+| **Screenshots** | | |
+| GET | `/api/v1/tabs/{id}/screenshot` | Binary WebP screenshot |
+| POST | `/api/v1/tabs/{id}/screenshot` | Screenshot via action envelope |
+| **Content** | | |
+| POST | `/api/v1/tabs/{id}/execute` | Execute JavaScript |
+| POST | `/api/v1/tabs/{id}/text` | Get page text |
+| **Wait** | | |
+| POST | `/api/v1/tabs/{id}/wait` | Wait for duration |
+| **Dialogs** | | |
+| GET | `/api/v1/tabs/{id}/dialog` | Get pending dialog |
+| POST | `/api/v1/tabs/{id}/dialog/accept` | Accept dialog |
+| POST | `/api/v1/tabs/{id}/dialog/dismiss` | Dismiss dialog |
+| **Execution Control** | | |
+| GET | `/api/v1/tabs/{id}/execution` | Get execution state |
+| POST | `/api/v1/tabs/{id}/execution` | Set execution state |
+| **Downloads** | | |
+| GET | `/api/v1/downloads` | List downloads |
+| GET | `/api/v1/downloads/{id}` | Get download status |
+| POST | `/api/v1/downloads/{id}/cancel` | Cancel download |
+| **File Chooser** | | |
+| POST | `/api/v1/file-chooser/{id}` | Provide files to dialog |
+| **History** | | |
+| GET | `/api/v1/history/sessions` | List sessions |
+| GET | `/api/v1/history/sessions/current` | Get current session |
+| GET | `/api/v1/history/sessions/{id}` | Get session by ID |
+| GET | `/api/v1/history/sessions/{id}/export` | Export session |
+| GET | `/api/v1/history/actions` | List actions |
+| GET | `/api/v1/history/actions/{id}` | Get action by ID |
+| GET | `/api/v1/history/actions/{id}/screenshot` | Get action screenshot |
+| DELETE | `/api/v1/history/actions` | Delete actions |
+| GET | `/api/v1/history/events` | List events |
+| GET | `/api/v1/history/events/{id}` | Get event by ID |
+| DELETE | `/api/v1/history/events` | Delete events |
+| DELETE | `/api/v1/history` | Delete all history |
+| **MCP** | | |
+| POST | `/mcp` | MCP JSON-RPC endpoint (30 tools) |
 
 ## Development Notes
 
@@ -219,5 +316,9 @@ See `plans/API.md` for the complete REST API specification. Key endpoints:
 - Build output at `out/Default/`
 - Use `autoninja` (not `ninja`) for automatic parallelism
 - Run `gclient sync` after pulling changes to update dependencies
-- ABP uses CDP (Chrome DevTools Protocol) internally for screenshots, input, and JS execution
+- ABP uses CDP (Chrome DevTools Protocol) internally for JS evaluation and debugger control
+- Mouse/keyboard input is dispatched natively via `RenderWidgetHost` (bypasses CDP)
+- Screenshots use `ForceRedraw` + `GrabViewSnapshot` (not CDP `Page.captureScreenshot`)
 - Tab IDs are DevToolsAgentHost IDs (stable for the session)
+- Execution control uses `Debugger.pause/resume` + `Emulation.setVirtualTimePolicy` for deterministic state
+- Session history is stored in SQLite via `AbpHistoryDatabase`
