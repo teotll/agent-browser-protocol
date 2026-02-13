@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build, validate, sign, and package ABP Chrome for macOS
+# Build, validate, sign, notarize, and package ABP Chrome for macOS
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,6 +21,35 @@ fi
 BUILD_ARCH="${BUILD_ARCH:-all}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-Developer ID Application: Han Wang (72YUDGUH4G)}"
 ENTITLEMENTS="$CHROMIUM_SRC/chrome/app/app-entitlements.plist"
+
+# Notarization credentials (required unless SKIP_NOTARIZATION=1)
+# NOTARIZE_KEY       - Path to App Store Connect API key (.p8 file)
+# NOTARIZE_KEY_ID    - API key ID
+# NOTARIZE_ISSUER    - API key issuer ID (from App Store Connect > Users and Access > Integrations > Team Key)
+if [[ "${SKIP_NOTARIZATION:-}" != "1" && "${SKIP_SIGNING:-}" != "1" ]]; then
+    missing=()
+    [[ -z "${NOTARIZE_KEY:-}" ]] && missing+=("NOTARIZE_KEY")
+    [[ -z "${NOTARIZE_KEY_ID:-}" ]] && missing+=("NOTARIZE_KEY_ID")
+    [[ -z "${NOTARIZE_ISSUER:-}" ]] && missing+=("NOTARIZE_ISSUER")
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "ERROR: Missing notarization environment variables: ${missing[*]}"
+        echo ""
+        echo "Required:"
+        echo "  NOTARIZE_KEY      - Path to App Store Connect API key (.p8 file)"
+        echo "  NOTARIZE_KEY_ID   - API key ID"
+        echo "  NOTARIZE_ISSUER   - API key issuer ID"
+        echo ""
+        echo "Generate at: App Store Connect > Users and Access > Integrations > Team Keys"
+        echo "Set SKIP_NOTARIZATION=1 to skip notarization."
+        exit 1
+    fi
+    # Expand ~ in path
+    NOTARIZE_KEY="${NOTARIZE_KEY/#\~/$HOME}"
+    if [[ ! -f "$NOTARIZE_KEY" ]]; then
+        echo "ERROR: API key file not found: $NOTARIZE_KEY"
+        exit 1
+    fi
+fi
 
 sign_app() {
     local build_dir=$1
@@ -92,6 +121,44 @@ sign_app() {
     echo "    Signature valid."
 }
 
+notarize_app() {
+    local build_dir=$1
+    local arch=$2
+    local app="$build_dir/Chromium.app"
+    local notarize_zip="$build_dir/Chromium-notarize.zip"
+
+    echo ">>> Notarizing $app..."
+
+    if [[ ! -d "$app" ]]; then
+        echo "ERROR: Chromium.app not found at $app"
+        exit 1
+    fi
+
+    # Create a zip for notarization submission (separate from distribution zip)
+    echo "    Creating submission archive..."
+    ditto -c -k --keepParent "$app" "$notarize_zip"
+
+    # Submit for notarization
+    echo "    Submitting to Apple notary service..."
+    xcrun notarytool submit "$notarize_zip" \
+        --key "$NOTARIZE_KEY" \
+        --key-id "$NOTARIZE_KEY_ID" \
+        --issuer "$NOTARIZE_ISSUER" \
+        --wait
+
+    # Clean up submission zip
+    rm -f "$notarize_zip"
+
+    # Staple the notarization ticket to the app
+    echo "    Stapling notarization ticket..."
+    xcrun stapler staple "$app"
+
+    # Verify staple
+    echo "    Verifying notarization..."
+    xcrun stapler validate "$app"
+    echo "    Notarization complete."
+}
+
 release_arch() {
     local arch=$1
     local build_dir="$CHROMIUM_SRC/out/Release-$arch"
@@ -113,7 +180,6 @@ release_arch() {
     else
         echo ""
         echo ">>> Validating $arch..."
-        # macOS app bundle has different binary path
         local chrome_bin="$build_dir/Chromium.app/Contents/MacOS/Chromium"
         if ! "$SCRIPT_DIR/common/validate.sh" "$chrome_bin"; then
             echo "ERROR: Validation failed for $arch"
@@ -130,7 +196,16 @@ release_arch() {
         sign_app "$build_dir"
     fi
 
-    # Package
+    # Notarize (requires signing)
+    if [[ "${SKIP_NOTARIZATION:-}" == "1" || "${SKIP_SIGNING:-}" == "1" ]]; then
+        echo ""
+        echo ">>> Notarization SKIPPED"
+    else
+        echo ""
+        notarize_app "$build_dir" "$arch"
+    fi
+
+    # Package (after notarization so the stapled ticket is included in the zip)
     echo ""
     echo ">>> Packaging $arch..."
     BUILD_ARCH="$arch" "$SCRIPT_DIR/package-mac.sh"
@@ -158,7 +233,7 @@ case "$BUILD_ARCH" in
         # Build all architectures (arm64 + x64 + merge into universal)
         BUILD_ARCH="all" "$SCRIPT_DIR/build-mac.sh"
 
-        # Validate, sign, and package each output
+        # Validate, sign, notarize, and package each output
         for arch in arm64 universal; do
             local_build_dir="$CHROMIUM_SRC/out/Release-$arch"
 
@@ -190,7 +265,16 @@ case "$BUILD_ARCH" in
                 sign_app "$local_build_dir"
             fi
 
-            # Package
+            # Notarize
+            if [[ "${SKIP_NOTARIZATION:-}" == "1" || "${SKIP_SIGNING:-}" == "1" ]]; then
+                echo ""
+                echo ">>> Notarization SKIPPED"
+            else
+                echo ""
+                notarize_app "$local_build_dir" "$arch"
+            fi
+
+            # Package (after notarization so stapled ticket is included)
             echo ""
             echo ">>> Packaging $arch..."
             BUILD_ARCH="$arch" "$SCRIPT_DIR/package-mac.sh"
