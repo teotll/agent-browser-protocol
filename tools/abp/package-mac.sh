@@ -43,7 +43,7 @@ package_arch() {
     # Create archive (zip preserves macOS app bundle structure)
     echo "=== Creating archive ==="
     cd "$build_dir"
-    zip -r -q "$DIST_DIR/$archive_name" "Chromium.app"
+    zip -r -y -q "$DIST_DIR/$archive_name" "Chromium.app"
 
     # Report results
     SIZE=$(du -h "$DIST_DIR/$archive_name" | cut -f1)
@@ -56,6 +56,9 @@ case "$BUILD_ARCH" in
     arm64)
         package_arch "arm64"
         ;;
+    x64)
+        package_arch "x64"
+        ;;
     universal)
         package_arch "universal"
         ;;
@@ -65,7 +68,7 @@ case "$BUILD_ARCH" in
         ;;
     *)
         echo "ERROR: Invalid BUILD_ARCH: $BUILD_ARCH"
-        echo "Valid values: arm64, universal, all"
+        echo "Valid values: arm64, x64, universal, all"
         exit 1
         ;;
 esac
