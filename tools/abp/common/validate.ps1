@@ -18,8 +18,8 @@ Write-Host "Binary: $ChromeBinary"
 Write-Host "Timeout: ${TimeoutSeconds}s"
 
 # Start Chrome with ABP in headless mode
-Write-Host "Starting Chrome with --enable-abp..."
-$chromeProcess = Start-Process -FilePath $ChromeBinary -ArgumentList "--enable-abp", "--headless=new", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=0" -PassThru
+Write-Host "Starting ABP..."
+$chromeProcess = Start-Process -FilePath $ChromeBinary -ArgumentList "--headless=new", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=0" -PassThru
 
 try {
     # Wait for ABP endpoint to be ready

@@ -38,8 +38,8 @@ GN_ARGS='is_debug=false is_component_build=false symbol_level=0 is_official_buil
 echo "=== Configuring build with GN ==="
 gn gen out/Release --args="$GN_ARGS"
 
-echo "=== Building Chrome ==="
-autoninja -C out/Release chrome
+echo "=== Building ABP ==="
+autoninja -C out/Release abp
 
 echo "=== Build complete ==="
-echo "Output: $CHROMIUM_SRC/out/Release/chrome"
+echo "Output: $CHROMIUM_SRC/out/Release/abp"

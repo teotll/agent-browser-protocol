@@ -38,9 +38,9 @@ Write-Host "=== Configuring build with GN ===" -ForegroundColor Cyan
 & cmd /c "gn gen out/Release --args=`"$GnArgs`""
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "=== Building Chrome ===" -ForegroundColor Cyan
-& cmd /c "autoninja -C out/Release chrome"
+Write-Host "=== Building ABP ===" -ForegroundColor Cyan
+& cmd /c "autoninja -C out/Release abp"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "=== Build complete ===" -ForegroundColor Green
-Write-Host "Output: $ChromiumSrc\out\Release\chrome.exe"
+Write-Host "Output: $ChromiumSrc\out\Release\abp.exe"

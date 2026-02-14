@@ -40,7 +40,7 @@ if [[ "${SKIP_VALIDATION:-}" == "1" ]]; then
 else
     echo ""
     echo ">>> Step 2/3: Validating..."
-    if ! "$SCRIPT_DIR/common/validate.sh" "$CHROMIUM_SRC/out/Release/chrome"; then
+    if ! "$SCRIPT_DIR/common/validate.sh" "$CHROMIUM_SRC/out/Release/abp"; then
         echo "ERROR: Validation failed"
         exit 3
     fi

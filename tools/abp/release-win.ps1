@@ -40,7 +40,7 @@ if ($env:SKIP_VALIDATION -eq "1") {
 } else {
     Write-Host ""
     Write-Host ">>> Step 2/3: Validating..." -ForegroundColor Yellow
-    & "$ScriptDir\common\validate.ps1" -ChromeBinary "$ChromiumSrc\out\Release\chrome.exe"
+    & "$ScriptDir\common\validate.ps1" -ChromeBinary "$ChromiumSrc\out\Release\abp.exe"
     if ($LASTEXITCODE -ne 0) {
         Write-Error "ERROR: Validation failed"
         exit 3

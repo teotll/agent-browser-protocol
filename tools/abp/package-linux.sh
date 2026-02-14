@@ -21,8 +21,8 @@ DIST_DIR="$CHROMIUM_SRC/dist"
 ARCHIVE_NAME="abp-${ABP_VERSION}-chrome-${CHROME_VERSION}-linux-x64.tar.gz"
 
 # Validate build exists
-if [[ ! -f "$BUILD_DIR/chrome" ]]; then
-    echo "ERROR: Chrome binary not found at $BUILD_DIR/chrome"
+if [[ ! -f "$BUILD_DIR/abp" ]]; then
+    echo "ERROR: ABP binary not found at $BUILD_DIR/abp"
     echo "Run build-linux.sh first"
     exit 1
 fi
@@ -46,7 +46,7 @@ trap cleanup EXIT
 echo "=== Copying files ==="
 
 # Core binary
-cp "$BUILD_DIR/chrome" "$STAGING_APP/"
+cp "$BUILD_DIR/abp" "$STAGING_APP/"
 
 # Chrome sandbox (if exists)
 if [[ -f "$BUILD_DIR/chrome_sandbox" ]]; then

@@ -21,8 +21,8 @@ echo "Binary: $CHROME_BINARY"
 echo "Timeout: ${TIMEOUT_SECONDS}s"
 
 # Start Chrome with ABP in headless mode
-echo "Starting Chrome with --enable-abp..."
-"$CHROME_BINARY" --enable-abp --headless=new --no-sandbox --disable-gpu --remote-debugging-port=0 &
+echo "Starting ABP..."
+"$CHROME_BINARY" --headless=new --no-sandbox --disable-gpu --remote-debugging-port=0 &
 CHROME_PID=$!
 
 cleanup() {
