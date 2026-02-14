@@ -149,7 +149,7 @@ if (!is_android && !is_mac) {
   }
 
   if (is_win) {
-    _chrome_output_name = "initialexe/chrome"
+    _chrome_output_name = "initialexe/abp"
   } else {
     _chrome_output_name = "abp"
   }
@@ -409,7 +409,7 @@ if (is_win) {
       "app/startup_timestamps.h",
     ]
 
-    output_name = "chrome"
+    output_name = "abp"
 
     deps = [
       ":chrome_dll_manifest",
