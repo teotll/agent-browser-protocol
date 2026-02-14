@@ -78,8 +78,7 @@ AbpConfig AbpConfig::GetDefaultsWithSessionDir(
 
   config.history.enabled = true;
   config.history.database_path = session_dir.AppendASCII("history.db");
-  // TODO(abp): Re-enable history screenshots after fixing CopyFromSurface hang
-  config.history.screenshots.enabled = false;
+  config.history.screenshots.enabled = true;
   config.history.screenshots.directory = session_dir.AppendASCII("screenshots");
 
   return config;
