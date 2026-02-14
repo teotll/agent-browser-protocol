@@ -20,7 +20,7 @@ from pathlib import Path
 import requests
 
 # Configuration
-CHROME_PATH = "/home/paladin/src/chromium/out/Default/chrome"
+CHROME_PATH = "/home/paladin/src/chromium/out/Default/abp"
 ABP_PORT = 8222
 ABP_BASE_URL = f"http://localhost:{ABP_PORT}/api/v1"
 
@@ -156,9 +156,9 @@ def wait_for_page_load(tab_id, expected_url_part, timeout=15):
 def cleanup_existing_chrome():
     """Kill any existing Chrome ABP processes and free up the port."""
     try:
-        # Kill Chrome processes with ABP flag
+        # Kill ABP processes
         subprocess.run(
-            ["pkill", "-f", "chrome.*--enable-abp"],
+            ["pkill", "-f", "abp.*--abp-port"],
             capture_output=True,
             timeout=5
         )
@@ -195,11 +195,10 @@ def run_tests():
     conn.commit()
 
     try:
-        # Launch Chrome with ABP
-        print("\n[1] Launching Chrome with ABP enabled...")
+        # Launch ABP
+        print("\n[1] Launching ABP...")
         chrome_args = [
             CHROME_PATH,
-            "--enable-abp",
             f"--abp-port={ABP_PORT}",
             "--headless=new",  # Headless mode for cursor rendering via CopyFromSurface
         ]
