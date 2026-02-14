@@ -1625,10 +1625,10 @@ void ChromeBrowserMainParts::PostBrowserStart() {
   webnn::SchedulePlatformRuntimeInstallationIfRequired();
 #endif
 
-  // Start ABP HTTP server if enabled via command line
+  // Start ABP HTTP server (always-on, skip in browser tests)
   {
     auto* command_line = base::CommandLine::ForCurrentProcess();
-    if (command_line->HasSwitch(abp::switches::kEnableAbp)) {
+    if (command_line->GetSwitchValueASCII("test-type") != "browser") {
       int port = 8222;
       if (command_line->HasSwitch(abp::switches::kAbpPort)) {
         base::StringToInt(
