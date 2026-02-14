@@ -569,6 +569,27 @@ Gracefully shuts down the browser.
 }
 ```
 
+### Get Session Data
+
+```
+GET /browser/session-data
+```
+
+Returns file paths for the current session's data storage (database, screenshots directory).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "session_dir": "/tmp/abp-abc123",
+    "database_path": "/tmp/abp-abc123/history.db",
+    "screenshots_dir": "/tmp/abp-abc123/screenshots",
+    "screenshots_enabled": false
+  }
+}
+```
+
 ---
 
 ## Tab Management

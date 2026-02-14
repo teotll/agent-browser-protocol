@@ -228,6 +228,10 @@ base::Value::List GetToolDefinitions() {
                    .Build());
 
   // Browser control
+  tools.Append(ToolBuilder("browser_get_session_data")
+                   .Description("Get session data file paths (database, screenshots directory)")
+                   .Build());
+
   tools.Append(ToolBuilder("browser_shutdown")
                    .Description("Gracefully shut down the browser")
                    .OptionalNumber("timeout_ms", "Timeout before force quit in ms")
@@ -283,7 +287,7 @@ All `tab_id` parameters are optional and default to the active tab.
 
 **Execution Control:** `browser_get_execution_state`, `browser_set_execution_state` (paused required)
 
-**Browser:** `browser_shutdown` (timeout_ms)
+**Browser:** `browser_get_session_data`, `browser_shutdown` (timeout_ms)
 
 ## Debugging
 
@@ -551,6 +555,8 @@ void AbpMcpHandler::HandleToolsCall(const base::Value::Dict& params,
     CallBrowserSetExecutionState(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_get_text") {
     CallBrowserGetText(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_get_session_data") {
+    CallBrowserGetSessionData(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_shutdown") {
     CallBrowserShutdown(*args, std::move(request_id), std::move(callback));
   } else {
@@ -1246,6 +1252,16 @@ void AbpMcpHandler::CallBrowserGetText(const base::Value::Dict& args,
 
   controller_->HandleRequest(
       "POST", "/api/v1/tabs/" + tab_id + "/text", body,
+      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                     weak_factory_.GetWeakPtr(), std::move(request_id),
+                     std::move(callback)));
+}
+
+void AbpMcpHandler::CallBrowserGetSessionData(
+    const base::Value::Dict& args,
+    base::Value request_id,
+    ResponseWithHeadersCallback callback) {
+  controller_->GetSessionData(
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));

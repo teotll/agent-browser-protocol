@@ -141,6 +141,9 @@ class AbpMcpHandler {
   void CallBrowserGetText(const base::Value::Dict& args,
                           base::Value request_id,
                           ResponseWithHeadersCallback callback);
+  void CallBrowserGetSessionData(const base::Value::Dict& args,
+                                 base::Value request_id,
+                                 ResponseWithHeadersCallback callback);
   void CallBrowserShutdown(const base::Value::Dict& args,
                            base::Value request_id,
                            ResponseWithHeadersCallback callback);

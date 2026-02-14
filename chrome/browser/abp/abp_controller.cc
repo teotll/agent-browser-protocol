@@ -680,6 +680,39 @@ void AbpController::GetBrowserStatus(ResponseCallback callback) {
   SendJson(200, base::Value(std::move(response)), std::move(callback));
 }
 
+void AbpController::GetSessionData(ResponseCallback callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  base::Value::Dict data;
+
+  if (history_controller_) {
+    base::FilePath abs_session_dir =
+        base::MakeAbsoluteFilePath(history_controller_->SessionDir());
+    data.Set("session_dir", abs_session_dir.AsUTF8Unsafe());
+    data.Set("database_path",
+             abs_session_dir
+                 .Append(history_controller_->DatabasePath().BaseName())
+                 .AsUTF8Unsafe());
+    data.Set("screenshots_dir",
+             abs_session_dir
+                 .Append(
+                     history_controller_->ScreenshotsDirectory().BaseName())
+                 .AsUTF8Unsafe());
+    data.Set("screenshots_enabled", history_controller_->ScreenshotsEnabled());
+  } else {
+    data.Set("session_dir", base::Value());
+    data.Set("database_path", base::Value());
+    data.Set("screenshots_dir", base::Value());
+    data.Set("screenshots_enabled", false);
+  }
+
+  base::Value::Dict response;
+  response.Set("success", true);
+  response.Set("data", std::move(data));
+
+  SendJson(200, base::Value(std::move(response)), std::move(callback));
+}
+
 void AbpController::CaptureScreenshotForHistory(
     const std::string& tab_id,
     int64_t timestamp,
@@ -1366,6 +1399,15 @@ void AbpController::HandleRequest(const std::string& method,
       // POST /api/v1/browser/shutdown
       if (method == "POST") {
         ShutdownBrowser(params, std::move(callback));
+      } else {
+        SendError(405, "Method not allowed", std::move(callback));
+      }
+      return;
+    }
+    if (segments.size() == 4 && segments[3] == "session-data") {
+      // GET /api/v1/browser/session-data
+      if (method == "GET") {
+        GetSessionData(std::move(callback));
       } else {
         SendError(405, "Method not allowed", std::move(callback));
       }

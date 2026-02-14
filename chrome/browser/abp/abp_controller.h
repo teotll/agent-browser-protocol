@@ -239,6 +239,9 @@ class AbpController {
   // Get browser status for /api/v1/browser/status endpoint
   void GetBrowserStatus(ResponseCallback callback);
 
+  // Get session data paths for /api/v1/browser/session-data endpoint
+  void GetSessionData(ResponseCallback callback);
+
   // Helpers (public for use in lambdas)
   content::WebContents* FindWebContents(const std::string& tab_id);
   AbpCdpClient* GetOrCreateCdpClient(content::WebContents* wc);

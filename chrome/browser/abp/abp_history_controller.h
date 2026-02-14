@@ -77,6 +77,12 @@ class AbpHistoryController {
     return config_.history.screenshots.directory;
   }
 
+  // Session data paths
+  const base::FilePath& SessionDir() const { return config_.session_dir; }
+  const base::FilePath& DatabasePath() const {
+    return config_.history.database_path;
+  }
+
  private:
   // REST endpoint handlers
   void HandleGetSessions(const std::string& query,
