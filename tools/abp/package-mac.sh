@@ -25,8 +25,8 @@ package_arch() {
     local archive_name="abp-${ABP_VERSION}-chrome-${CHROME_VERSION}-mac-${arch}.zip"
 
     # Validate build exists
-    if [[ ! -d "$build_dir/Chromium.app" ]]; then
-        echo "ERROR: Chromium.app not found at $build_dir/Chromium.app"
+    if [[ ! -d "$build_dir/ABP.app" ]]; then
+        echo "ERROR: ABP.app not found at $build_dir/ABP.app"
         echo "Run build-mac.sh with BUILD_ARCH=$arch first"
         return 1
     fi
@@ -43,7 +43,7 @@ package_arch() {
     # Create archive (zip preserves macOS app bundle structure)
     echo "=== Creating archive ==="
     cd "$build_dir"
-    zip -r -y -q "$DIST_DIR/$archive_name" "Chromium.app"
+    zip -r -y -q "$DIST_DIR/$archive_name" "ABP.app"
 
     # Report results
     SIZE=$(du -h "$DIST_DIR/$archive_name" | cut -f1)

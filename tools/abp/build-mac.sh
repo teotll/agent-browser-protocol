@@ -33,8 +33,8 @@ build_arch() {
     local out_dir="out/Release-$arch"
 
     # Skip if already built (unless --force)
-    if [[ "$FORCE" != "1" && -d "$CHROMIUM_SRC/$out_dir/Chromium.app" ]]; then
-        echo "=== Skipping $arch build (already exists at $out_dir/Chromium.app, set FORCE=1 to rebuild) ==="
+    if [[ "$FORCE" != "1" && -d "$CHROMIUM_SRC/$out_dir/ABP.app" ]]; then
+        echo "=== Skipping $arch build (already exists at $out_dir/ABP.app, set FORCE=1 to rebuild) ==="
         return 0
     fi
 
@@ -60,10 +60,10 @@ build_arch() {
 }
 
 merge_universal() {
-    local arm64_app="$CHROMIUM_SRC/out/Release-arm64/Chromium.app"
-    local x64_app="$CHROMIUM_SRC/out/Release-x64/Chromium.app"
+    local arm64_app="$CHROMIUM_SRC/out/Release-arm64/ABP.app"
+    local x64_app="$CHROMIUM_SRC/out/Release-x64/ABP.app"
     local universal_dir="$CHROMIUM_SRC/out/Release-universal"
-    local universal_app="$universal_dir/Chromium.app"
+    local universal_app="$universal_dir/ABP.app"
 
     if [[ ! -d "$arm64_app" ]]; then
         echo "ERROR: arm64 build not found at $arm64_app"

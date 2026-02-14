@@ -53,13 +53,13 @@ fi
 
 sign_app() {
     local build_dir=$1
-    local app="$build_dir/Chromium.app"
+    local app="$build_dir/ABP.app"
 
     echo ">>> Signing $app..."
     echo "    Identity: $SIGNING_IDENTITY"
 
     if [[ ! -d "$app" ]]; then
-        echo "ERROR: Chromium.app not found at $app"
+        echo "ERROR: ABP.app not found at $app"
         exit 1
     fi
 
@@ -82,8 +82,8 @@ sign_app() {
     # Sign all standalone Mach-O executables inside the framework
     # (e.g. chrome_crashpad_handler, app_mode_loader, web_app_shortcut_copier)
     # These must be signed BEFORE the framework bundle itself
-    local framework_dir="$app/Contents/Frameworks/Chromium Framework.framework"
-    local framework_name="Chromium Framework"
+    local framework_dir="$app/Contents/Frameworks/ABP Framework.framework"
+    local framework_name="ABP Framework"
     while IFS= read -r exe; do
         local rel="${exe#$framework_dir/}"
         # Skip files inside .app bundles (already signed above)
@@ -101,16 +101,16 @@ sign_app() {
     done < <(find "$framework_dir" -type f -perm -u+x 2>/dev/null)
 
     # Sign the framework
-    local framework="$app/Contents/Frameworks/Chromium Framework.framework"
+    local framework="$app/Contents/Frameworks/ABP Framework.framework"
     if [[ -d "$framework" ]]; then
-        echo "    Signing framework: Chromium Framework.framework"
+        echo "    Signing framework: ABP Framework.framework"
         codesign --force --options runtime --timestamp \
             --entitlements "$ENTITLEMENTS" \
             --sign "$SIGNING_IDENTITY" "$framework"
     fi
 
     # Sign the main app bundle
-    echo "    Signing main app: Chromium.app"
+    echo "    Signing main app: ABP.app"
     codesign --force --options runtime --timestamp \
         --entitlements "$ENTITLEMENTS" \
         --sign "$SIGNING_IDENTITY" "$app"
@@ -124,13 +124,13 @@ sign_app() {
 notarize_app() {
     local build_dir=$1
     local arch=$2
-    local app="$build_dir/Chromium.app"
-    local notarize_zip="$build_dir/Chromium-notarize.zip"
+    local app="$build_dir/ABP.app"
+    local notarize_zip="$build_dir/ABP-notarize.zip"
 
     echo ">>> Notarizing $app..."
 
     if [[ ! -d "$app" ]]; then
-        echo "ERROR: Chromium.app not found at $app"
+        echo "ERROR: ABP.app not found at $app"
         exit 1
     fi
 
@@ -180,7 +180,7 @@ release_arch() {
     else
         echo ""
         echo ">>> Validating $arch..."
-        local chrome_bin="$build_dir/Chromium.app/Contents/MacOS/Chromium"
+        local chrome_bin="$build_dir/ABP.app/Contents/MacOS/ABP"
         if ! "$SCRIPT_DIR/common/validate.sh" "$chrome_bin"; then
             echo "ERROR: Validation failed for $arch"
             exit 3
@@ -249,7 +249,7 @@ case "$BUILD_ARCH" in
             else
                 echo ""
                 echo ">>> Validating $arch..."
-                chrome_bin="$local_build_dir/Chromium.app/Contents/MacOS/Chromium"
+                chrome_bin="$local_build_dir/ABP.app/Contents/MacOS/ABP"
                 if ! "$SCRIPT_DIR/common/validate.sh" "$chrome_bin"; then
                     echo "ERROR: Validation failed for $arch"
                     exit 3
