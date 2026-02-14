@@ -3,16 +3,13 @@
 
 namespace abp::switches {
 
-// Enable ABP HTTP server
-extern const char kEnableAbp[];
-
 // Port for HTTP server (default: 8222)
 extern const char kAbpPort[];
 
 // Path to ABP config file (default: ~/.config/chromium/abp_config.json)
 extern const char kAbpConfig[];
 
-// Allow system input even when ABP is enabled (ABP blocks system input by default)
+// Allow system input (ABP blocks system input by default)
 extern const char kAllowSystemInputs[];
 
 // Disable execution control (Debugger.pause + virtual time) - enabled by default
