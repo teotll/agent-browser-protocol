@@ -3965,13 +3965,10 @@ void RenderWidgetHostImpl::SetupRenderInputRouter() {
       this, MakeFlingScheduler(), this,
       GetUIThreadTaskRunner({BrowserTaskType::kUserInput}));
 
-  // ABP: Set up virtual cursor tracking flags from command line
-  const auto* command_line = base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch("enable-abp")) {
-    render_input_router_->SetAbpEnabled(true);
-    render_input_router_->SetAllowSystemInputs(
-        command_line->HasSwitch("allow-system-inputs"));
-  }
+  // ABP: Always enabled, check allow-system-inputs flag
+  render_input_router_->SetAbpEnabled(true);
+  render_input_router_->SetAllowSystemInputs(
+      base::CommandLine::ForCurrentProcess()->HasSwitch("allow-system-inputs"));
 
   SetupInputRouter();
 }
