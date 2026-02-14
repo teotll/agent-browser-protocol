@@ -153,7 +153,7 @@ void AbpInputDispatcher::ForwardWheelEvent(content::WebContents* wc,
   float fdy = -static_cast<float>(delta_y);
 
   // Mark as kFromDebugger so ABP's input filter in RenderInputRouter allows
-  // the event through (ABP blocks non-debugger input when --enable-abp).
+  // the event through (ABP blocks non-debugger input by default).
   int modifiers = blink::WebInputEvent::kFromDebugger;
 
   // macOS scroll handling requires the full gesture phase sequence:

@@ -45,11 +45,9 @@ class AbpActionLifecycleTest : public InProcessBrowserTest {
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    // Do NOT use --enable-abp here. That flag creates AbpHttpServer with
-    // intentionally-leaked raw pointer and base::Unretained callbacks that
-    // fire during browser shutdown (e.g. auto-pause timer at +5s), accessing
-    // destroyed browser objects. Instead, create AbpController directly with
-    // proper lifetime management.
+    // ABP server is always-on but skipped when --test-type=browser is set
+    // (which InProcessBrowserTest provides). We create AbpController directly
+    // with proper lifetime management instead of using the leaked server.
     command_line->AppendSwitch("no-first-run");
   }
 

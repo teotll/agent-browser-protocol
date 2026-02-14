@@ -49,10 +49,10 @@ constexpr net::NetworkTrafficAnnotationTag kAbpTrafficAnnotation =
       policy {
         cookies_allowed: NO
         setting:
-          "This server only runs when Chrome is started with --enable-abp "
+          "This server runs automatically in ABP builds "
           "and only accepts connections from localhost."
         policy_exception_justification:
-          "Not implemented, requires explicit opt-in via command line flag."
+          "ABP HTTP server is always active in ABP builds."
       })");
 
 }  // namespace

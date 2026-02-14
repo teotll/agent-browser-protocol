@@ -3,7 +3,7 @@
 # Tests virtual time, virtual cursor, and compositor update behavior.
 #
 # Prerequisites:
-#   1. Chromium with ABP: ./out/Default/Chromium.app/Contents/MacOS/Chromium --enable-abp --abp-session-dir=sessions/test --no-first-run
+#   1. ABP: ./out/Default/ABP.app/Contents/MacOS/ABP --abp-session-dir=sessions/test --no-first-run
 #   2. HTTP server: cd chrome/browser/abp/test_pages && python3 -m http.server 8081
 #
 # Usage: bash chrome/browser/abp/test_pages/run_lifecycle_tests.sh
