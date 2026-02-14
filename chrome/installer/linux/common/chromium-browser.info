@@ -6,19 +6,19 @@
 # chromium-browser packages for various platforms.
 
 # Base name of the package.
-PACKAGE="chromium-browser"
+PACKAGE="abp-browser"
 
 # Filename of the main executable (for generating launcher scripts, etc.)
-PROGNAME=chrome
+PROGNAME=abp
 
 # Base directory for package installation.
-INSTALLDIR=/opt/chromium.org/chromium
+INSTALLDIR=/opt/chromium.org/abp
 
 # Directory for device policy enrollments.
 ENROLLMENTDIR=/etc/chromium/policies/enrollment
 
 # Display string for desktop menu/icon.
-MENUNAME="Chromium Web Browser"
+MENUNAME="ABP"
 
 # Brief package description.
 SHORTDESC="The web browser from the Chromium projects"
