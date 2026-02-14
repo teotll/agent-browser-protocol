@@ -1,0 +1,45 @@
+{
+  "name": "agent-browser-protocol",
+  "version": "0.1.0",
+  "description": "Agent Browser Protocol - AI agent browser control at the engine level",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "agent-browser-protocol": "./dist/bin/abp.mjs"
+  },
+  "files": [
+    "dist/",
+    "browsers/"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "postinstall": "node dist/install.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "browser",
+    "automation",
+    "ai",
+    "agent",
+    "chromium",
+    "cdp"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  }
+}
