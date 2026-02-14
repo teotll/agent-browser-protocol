@@ -58,7 +58,7 @@ A Chromium fork implementing the Agent Browser Protocol (ABP) - a REST-based API
 ```
 chrome/browser/abp/
 ├── BUILD.gn                     # Build configuration
-├── abp_switches.h/cc            # --enable-abp, --abp-port flags
+├── abp_switches.h/cc            # --abp-port, --abp-session-dir flags
 ├── abp_http_server.h/cc         # HTTP server (IO thread)
 ├── abp_controller.h/cc          # Request handler + CDP client (UI thread)
 ├── abp_action_context.h/cc      # Action lifecycle (pause/resume/screenshot)
@@ -140,17 +140,17 @@ First build: ~4-6 hours. Incremental builds: seconds to minutes.
 
 ## Running ABP
 
-### Start Chrome with ABP Enabled
+### Start ABP
 
 ```bash
-./out/Default/chrome --enable-abp --abp-session-dir=sessions/$(date +%Y%m%d_%H%M%S)
+./out/Default/ABP.app/Contents/MacOS/ABP --abp-session-dir=sessions/$(date +%Y%m%d_%H%M%S)
 ```
 
 Session data (database and screenshots) will be stored in `sessions/<timestamp>/`.
 
 To use the default `/tmp/abp-<UUID>/` directory instead:
 ```bash
-./out/Default/chrome --enable-abp
+./out/Default/ABP.app/Contents/MacOS/ABP
 ```
 
 ### REST API Examples
@@ -251,6 +251,7 @@ See `plans/API.md` for the complete REST API specification. All endpoints:
 |--------|------|-------------|
 | **Browser** | | |
 | GET | `/api/v1/browser/status` | Get browser readiness status |
+| GET | `/api/v1/browser/session-data` | Get session data file paths |
 | POST | `/api/v1/browser/shutdown` | Graceful shutdown |
 | **Tabs** | | |
 | GET | `/api/v1/tabs` | List all tabs |

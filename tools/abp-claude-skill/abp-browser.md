@@ -10,9 +10,9 @@ You are connected to an ABP (Agent Browser Protocol) browser. This guide teaches
 ## Starting ABP
 
 ```bash
-# Launch the browser with ABP enabled
-./out/Default/Chromium.app/Contents/MacOS/Chromium \
-  --enable-abp --abp-session-dir=sessions/$(date +%Y%m%d_%H%M%S) --no-first-run
+# Launch ABP
+./out/Default/ABP.app/Contents/MacOS/ABP \
+  --abp-session-dir=sessions/$(date +%Y%m%d_%H%M%S) --no-first-run
 
 # Poll until ready
 while ! curl -s http://localhost:8222/api/v1/browser/status | grep '"ready":true' > /dev/null 2>&1; do sleep 1; done
