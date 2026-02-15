@@ -60,7 +60,7 @@ All action endpoints (POST/DELETE that modify state) accept standard parameters:
   },
   "screenshot": {
     "area": "viewport",
-    "markup": "interactive",
+    "markup": ["clickable", "typeable"],
     "cursor": true
   }
 }
@@ -79,20 +79,19 @@ Control screenshot capture and element markup in the response.
 
 #### Screenshot Markup
 
-Bounding boxes drawn over elements to help identify interactive targets:
+Composable tags that overlay visual annotations on the screenshot. Pass an array of tags to combine multiple overlays.
 
-| Value | Description |
-|-------|-------------|
-| `none` | No markup overlay (default) |
-| `interactive` | All interactive elements (clickable + typeable) |
-| `clickable` | Buttons, links, and other clickable elements |
-| `typeable` | Text inputs, textareas, contenteditable elements |
-| `inputs` | All form inputs (text, checkbox, radio, select, etc.) |
+| Tag | Description |
+|-----|-------------|
+| `clickable` | Buttons, links, and other clickable elements (green outline) |
+| `typeable` | Text inputs, textareas, contenteditable elements (orange outline) |
+| `scrollable` | Elements with scrollable overflow content (purple dashed outline) |
+| `grid` | 100px coordinate grid overlay with pixel coordinate labels |
 
 **Markup appearance:**
-- Each marked element gets a colored bounding box
-- Box colors indicate element type (e.g., blue for links, green for buttons, orange for inputs)
+- Each marked element gets a colored bounding box matching its tag
 - Element index labels are drawn for reference
+- Tags are composable: `["clickable", "grid"]` shows both clickable elements and coordinate grid
 - Boxes are semi-transparent to not obscure content
 
 #### Screenshot Cursor
@@ -112,7 +111,7 @@ Control virtual cursor visibility in screenshots. The virtual cursor is automati
   "wait_until": {"type": "action_complete"},
   "screenshot": {
     "area": "viewport",
-    "markup": "interactive",
+    "markup": ["clickable", "typeable"],
     "cursor": true
   }
 }
@@ -444,7 +443,7 @@ Control screenshot capture via the `screenshot` object in the request body:
 {
   "screenshot": {
     "area": "viewport",
-    "markup": "interactive",
+    "markup": ["clickable", "typeable"],
     "cursor": true
   }
 }
@@ -453,7 +452,7 @@ Control screenshot capture via the `screenshot` object in the request body:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `area` | string | `viewport` | Capture area: `none`, `viewport` |
-| `markup` | string | `none` | Element markup: `none`, `interactive`, `clickable`, `typeable`, `inputs` |
+| `markup` | string[] | `[]` | Composable markup tags: `clickable`, `typeable`, `scrollable`, `grid` |
 | `cursor` | boolean | `true` | Include virtual cursor in screenshot |
 
 **Format:** All screenshots are returned as WebP at quality 80. This is not configurable to ensure consistent bandwidth usage and simplify caching.
@@ -1142,7 +1141,7 @@ GET /tabs/{tab_id}/screenshot
 ```
 
 **Query params:**
-- `markup=interactive` - Optional element markup overlay (`none`, `interactive`, `clickable`, `typeable`, `inputs`)
+- `markup=clickable,typeable` - Comma-separated markup tags (`clickable`, `typeable`, `scrollable`, `grid`)
 
 **Response:** Binary WebP image data with `Content-Type: image/webp` header.
 
@@ -1158,7 +1157,7 @@ Uses the standard action envelope. Screenshots are returned in `screenshot_befor
 ```json
 {
   "screenshot": {
-    "markup": "interactive",
+    "markup": ["clickable", "typeable"],
     "format": "webp",
     "cursor": true
   }

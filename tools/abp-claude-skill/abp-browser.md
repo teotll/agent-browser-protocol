@@ -53,7 +53,7 @@ Sometimes 500ms isn't enough (page load, AJAX requests, animations). When you se
 
 ### Using Markup Overlays
 
-Pass `markup: "interactive"` to `browser_screenshot` (or any action that returns screenshots) to see numbered labels on all interactive elements. Each label shows the element's coordinates, making it easy to target clicks and typing.
+Pass `markup: ["clickable", "typeable"]` to `browser_screenshot` (or any action that returns screenshots) to see numbered labels on interactive elements. Tags are composable — combine any of `clickable`, `typeable`, `scrollable`, and `grid`. The `grid` tag overlays a 100px coordinate grid to help target x,y positions.
 
 ## Tool Reference
 

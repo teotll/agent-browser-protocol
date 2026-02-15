@@ -25,7 +25,7 @@ await browser.client.tabs.navigate(tabId, { url: "https://example.com" });
 
 // Screenshot
 const screenshot = await browser.client.tabs.screenshotBinary(tabId, {
-  markup: "interactive",
+  markup: ["clickable", "typeable"],
 });
 fs.writeFileSync("screenshot.webp", screenshot);
 
