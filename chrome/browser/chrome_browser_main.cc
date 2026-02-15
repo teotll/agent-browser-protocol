@@ -57,6 +57,7 @@
 #include "chrome/browser/performance_manager/public/chrome_browser_main_extra_parts_performance_manager.h"
 #include "chrome/browser/performance_monitor/chrome_browser_main_extra_parts_performance_monitor.h"
 #include "chrome/browser/policy/chrome_browser_policy_connector.h"
+#include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/chrome_browser_main_extra_parts_profiles.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -1791,6 +1792,19 @@ int ChromeBrowserMainParts::PreMainMessageLoopRunImpl() {
   // Desktop construction occurs here, (required before profile creation).
   PreProfileInit();
 
+  // ABP: Suppress crash recovery and session restore before profile creation.
+  // Must run before CreateInitialProfile() because WasRestarted() is called
+  // during profile mode determination and caches the result.
+  {
+    auto* command_line = base::CommandLine::ForCurrentProcess();
+    if (command_line->GetSwitchValueASCII("test-type") != "browser") {
+      // Suppress the "Chrome didn't shut down correctly" crash recovery bubble
+      command_line->AppendSwitch(switches::kHideCrashRestoreBubble);
+      // Clear the restart flag so Chrome doesn't force session restore
+      g_browser_process->local_state()->SetBoolean(prefs::kWasRestarted, false);
+    }
+  }
+
   // This step is costly and is already measured in Startup.CreateFirstProfile
   // and more directly Profile.CreateAndInitializeProfile.
   StartupProfileInfo profile_info = CreateInitialProfile(
@@ -1965,6 +1979,19 @@ int ChromeBrowserMainParts::PreMainMessageLoopRunImpl() {
 #if BUILDFLAG(ENABLE_OFFLINE_PAGES)
   offline_pages::OfflinePageInfoHandler::Register();
 #endif
+
+  // ABP: Force startup pref to "new tab page" so previous sessions are never
+  // restored, regardless of the user's profile setting.
+  // (The kWasRestarted and --hide-crash-restore-bubble flags are set earlier,
+  // before CreateInitialProfile, to prevent the restart path from overriding.)
+  {
+    auto* command_line = base::CommandLine::ForCurrentProcess();
+    if (command_line->GetSwitchValueASCII("test-type") != "browser" &&
+        profile) {
+      SessionStartupPref pref(SessionStartupPref::DEFAULT);
+      SessionStartupPref::SetStartupPref(profile, pref);
+    }
+  }
 
   PreBrowserStart();
 
