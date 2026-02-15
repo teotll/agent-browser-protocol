@@ -160,7 +160,9 @@ void AbpHistoryDatabase::InitializeOnDB() {
   }
 
   db_ = std::make_unique<sql::Database>(
-      sql::DatabaseOptions().set_wal_mode(true),
+      sql::DatabaseOptions()
+          .set_wal_mode(true)
+          .set_exclusive_locking(false),
       sql::Database::Tag("ABP"));
 
   if (!db_->Open(database_path_)) {

@@ -66,7 +66,9 @@ function openDatabase(sessionDir: string): Database.Database {
   if (!fs.existsSync(dbPath)) {
     throw new Error(`Database not found: ${dbPath}`);
   }
-  return new Database(dbPath, { readonly: true });
+  const db = new Database(dbPath, { readonly: true });
+  db.pragma("busy_timeout = 5000");
+  return db;
 }
 
 function getSession(db: Database.Database): Record<string, unknown> | null {
