@@ -3,8 +3,10 @@ import http from "node:http";
 import { launch, type Browser } from "./launch.js";
 import { transformMcpResponse } from "./transform.js";
 
+const cliArgs = process.argv.slice(2);
 const PORT = parseInt(process.env.ABP_PORT || "8222", 10);
-const HEADLESS = process.env.ABP_HEADLESS === "1";
+const HEADLESS =
+  process.env.ABP_HEADLESS === "1" || cliArgs.includes("--headless");
 const EXTRA_ARGS = process.env.ABP_ARGS?.split(",").filter(Boolean) || [];
 
 // Claude's recommended resolution for web applications (WXGA)
