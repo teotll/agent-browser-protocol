@@ -1,0 +1,9 @@
+{
+  "name": "agent-browser-protocol",
+  "version": "0.1.0",
+  "description": "AI agent browser control at the engine level",
+  "author": { "name": "Han Wang" },
+  "repository": "https://github.com/anthropics/anthropic-browser",
+  "license": "MIT",
+  "keywords": ["browser", "automation", "ai", "agent", "chromium"]
+}

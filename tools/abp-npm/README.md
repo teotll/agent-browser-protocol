@@ -50,6 +50,27 @@ npx agent-browser-protocol --port 9222
 npx agent-browser-protocol -- --disable-gpu --window-size=1920,1080
 ```
 
+## Claude Code Plugin
+
+Install as a Claude Code plugin for AI-assisted browser automation:
+
+```bash
+claude plugin install agent-browser-protocol@npm
+```
+
+This gives Claude 30+ browser automation tools. The browser launches automatically on first use at 1280x800 (optimized for Claude's vision).
+
+Screenshots are served as webp and scaled to fit Claude's vision limits. Text responses are truncated to conserve context window.
+
+### Plugin Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ABP_PORT` | Port for ABP server | `8222` |
+| `ABP_BROWSER_PATH` | Custom binary path | auto-detected |
+| `ABP_HEADLESS` | Run headless (`1`/`0`) | `0` |
+| `ABP_ARGS` | Extra Chrome args (comma-separated) | none |
+
 ## Connect to Existing Instance
 
 ```typescript

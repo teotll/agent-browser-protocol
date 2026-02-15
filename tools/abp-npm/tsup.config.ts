@@ -5,6 +5,7 @@ export default defineConfig({
     index: "src/index.ts",
     install: "src/install.ts",
     "bin/abp": "src/bin/abp.ts",
+    "mcp-proxy": "src/mcp-proxy.ts",
   },
   format: ["esm", "cjs"],
   dts: { entry: "src/index.ts" },

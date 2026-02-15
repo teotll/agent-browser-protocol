@@ -18,7 +18,9 @@
   },
   "files": [
     "dist/",
-    "browsers/"
+    "browsers/",
+    ".claude-plugin/",
+    ".mcp.json"
   ],
   "scripts": {
     "build": "tsup",
@@ -41,5 +43,8 @@
     "@types/node": "^25.2.3",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "sharp": "^0.34.5"
   }
 }
