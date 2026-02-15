@@ -23,6 +23,9 @@ extern const char kAbpSessionDir[];
 // Also prevents user resizing of the browser window.
 extern const char kAbpWindowSize[];
 
+// Default zoom factor as a decimal (default: 1.0 = 100%)
+extern const char kAbpZoom[];
+
 }  // namespace abp::switches
 
 #endif  // CHROME_BROWSER_ABP_ABP_SWITCHES_H_

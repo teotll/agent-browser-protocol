@@ -19,6 +19,7 @@ source_set("zoom") {
   ]
 
   deps = [
+    "//chrome/browser/abp:switches",
     "//chrome/common:constants",
     "//components/zoom",
   ]

@@ -24,6 +24,8 @@
 #include "components/zoom/zoom_event_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/host_zoom_map.h"
+#include "base/command_line.h"
+#include "chrome/browser/abp/abp_switches.h"
 #include "third_party/blink/public/common/page/page_zoom.h"
 
 namespace {
@@ -123,6 +125,16 @@ void ChromeZoomLevelPrefs::OnZoomLevelChanged(
   // we don't need to create a separate subscription for this.
   if (zoom_event_manager_) {
     zoom_event_manager_->OnZoomLevelChanged(change);
+  }
+
+  // ABP: Lock zoom at the default level. If a per-host zoom change is
+  // attempted (Ctrl+/-, pinch, etc.), revert it immediately.
+  if (change.mode == content::HostZoomMap::ZOOM_CHANGED_FOR_HOST &&
+      !blink::ZoomValuesEqual(change.zoom_level,
+                              host_zoom_map_->GetDefaultZoomLevel())) {
+    host_zoom_map_->SetZoomLevelForHost(change.host,
+                                        host_zoom_map_->GetDefaultZoomLevel());
+    return;
   }
 
   if (change.mode != content::HostZoomMap::ZOOM_CHANGED_FOR_HOST) {
@@ -225,8 +237,22 @@ void ChromeZoomLevelPrefs::InitHostZoomMap(
   DCHECK(host_zoom_map);
   host_zoom_map_ = host_zoom_map;
 
-  // Initialize the default zoom level.
-  host_zoom_map_->SetDefaultZoomLevel(GetDefaultZoomLevelPref());
+  // ABP: Override default zoom to 80% (or --abp-zoom value), ignoring saved
+  // prefs. This ensures a consistent viewport for AI agents.
+  {
+    double zoom_factor = 1.0;
+    const auto* cmd = base::CommandLine::ForCurrentProcess();
+    if (cmd->HasSwitch(abp::switches::kAbpZoom)) {
+      double parsed;
+      if (base::StringToDouble(
+              cmd->GetSwitchValueASCII(abp::switches::kAbpZoom), &parsed) &&
+          parsed >= 0.25 && parsed <= 5.0) {
+        zoom_factor = parsed;
+      }
+    }
+    host_zoom_map_->SetDefaultZoomLevel(
+        blink::ZoomFactorToZoomLevel(zoom_factor));
+  }
 
   // Initialize the HostZoomMap with per-host zoom levels from the persisted
   // zoom-level preference values.

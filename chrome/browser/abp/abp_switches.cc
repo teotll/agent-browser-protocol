@@ -8,5 +8,6 @@ const char kAllowSystemInputs[] = "allow-system-inputs";
 const char kAbpDisablePause[] = "abp-disable-pause";
 const char kAbpSessionDir[] = "abp-session-dir";
 const char kAbpWindowSize[] = "abp-window-size";
+const char kAbpZoom[] = "abp-zoom";
 
 }  // namespace abp::switches
