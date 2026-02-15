@@ -217,7 +217,7 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
 
   // Screenshot options (parsed from action params)
   std::string screenshot_format_ = "webp";
-  std::string screenshot_markup_ = "none";
+  std::vector<std::string> screenshot_markup_tags_;
   int screenshot_quality_ = 80;
 
   // Timing

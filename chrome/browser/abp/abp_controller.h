@@ -199,7 +199,7 @@ class AbpController {
 
     std::string format = "png";      // png, jpeg, webp
     int quality = 80;                // 1-100 for jpeg/webp
-    std::string markup = "none";     // none, interactive, clickable, typeable, inputs
+    std::vector<std::string> markup_tags;  // clickable, typeable, scrollable, grid
     std::string mouse = "normal";    // normal, none, large
     bool cursor = true;              // Include virtual cursor in screenshot
   };

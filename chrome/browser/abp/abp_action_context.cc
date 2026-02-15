@@ -190,9 +190,13 @@ void AbpActionContext::Start() {
   // Parse screenshot options from action params
   const base::Value::Dict* ss_params = params_.FindDict("screenshot");
   if (ss_params) {
-    const std::string* markup = ss_params->FindString("markup");
-    if (markup) {
-      screenshot_markup_ = *markup;
+    const base::Value::List* markup_list = ss_params->FindList("markup");
+    if (markup_list) {
+      for (const auto& tag : *markup_list) {
+        if (tag.is_string()) {
+          screenshot_markup_tags_.push_back(tag.GetString());
+        }
+      }
     }
     const std::string* format = ss_params->FindString("format");
     if (format) {
@@ -324,7 +328,7 @@ void AbpActionContext::CaptureBeforeScreenshot() {
   AbpController::ScreenshotOptions opts;
   opts.format = screenshot_format_;
   opts.quality = screenshot_quality_;
-  opts.markup = screenshot_markup_;
+  opts.markup_tags = screenshot_markup_tags_;
 
   controller_->CaptureActionScreenshot(
       tab_id_, start_time_ms_, true, opts,
@@ -555,7 +559,7 @@ void AbpActionContext::CaptureAfterScreenshot() {
   AbpController::ScreenshotOptions opts;
   opts.format = screenshot_format_;
   opts.quality = screenshot_quality_;
-  opts.markup = screenshot_markup_;
+  opts.markup_tags = screenshot_markup_tags_;
 
   controller_->CaptureActionScreenshot(
       tab_id_, start_time_ms_, false, opts,
