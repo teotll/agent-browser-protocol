@@ -14,13 +14,15 @@
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "bin": {
-    "agent-browser-protocol": "./dist/bin/abp.mjs"
+    "agent-browser-protocol": "./dist/bin/abp.mjs",
+    "abp-debug": "./dist/bin/debug.mjs"
   },
   "files": [
     "dist/",
     "browsers/",
     ".claude-plugin/",
-    ".mcp.json"
+    ".mcp.json",
+    "src/debug-ui.html"
   ],
   "scripts": {
     "build": "tsup",
@@ -40,11 +42,13 @@
     "node": ">=18"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.2.3",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0"
   },
   "dependencies": {
+    "better-sqlite3": "^12.6.2",
     "sharp": "^0.34.5"
   }
 }
