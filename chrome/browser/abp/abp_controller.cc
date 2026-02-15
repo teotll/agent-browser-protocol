@@ -363,13 +363,15 @@ int ModifiersToFlags(const std::vector<std::string>& modifiers) {
 
 namespace {
 
-const std::set<std::string> kValidMarkupTags = {
-    "clickable", "typeable", "scrollable", "grid"};
+bool IsValidMarkupTag(const std::string& tag) {
+  return tag == "clickable" || tag == "typeable" ||
+         tag == "scrollable" || tag == "grid";
+}
 
 bool ValidateMarkupTags(const std::vector<std::string>& tags,
                         std::string* invalid_tag) {
   for (const auto& tag : tags) {
-    if (kValidMarkupTags.find(tag) == kValidMarkupTags.end()) {
+    if (!IsValidMarkupTag(tag)) {
       *invalid_tag = tag;
       return false;
     }
