@@ -969,8 +969,10 @@ footer .status-dot.connected { background: var(--success); }
       fragment.appendChild(card);
     }
 
+    var scrollTop = historyList.scrollTop;
     historyList.innerHTML = "";
     historyList.appendChild(fragment);
+    historyList.scrollTop = scrollTop;
   }
 
   // --- Modal ---
@@ -1028,7 +1030,7 @@ footer .status-dot.connected { background: var(--success); }
       if (!res.ok) throw new Error("HTTP " + res.status);
       sessionData = await res.json();
 
-      headerAbpUrl.textContent = "ABP: " + (sessionData.abp_url || "");
+      headerAbpUrl.textContent = "ABP: " + (sessionData.abp_url || window.location.origin);
       headerSessionDir.textContent = "Session: " + (sessionData.session_dir || "").split("/").pop();
       footerSessionDir.textContent = sessionData.session_dir || "";
       footerSessionDir.title = sessionData.session_dir || "";
