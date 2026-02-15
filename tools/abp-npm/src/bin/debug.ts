@@ -190,7 +190,7 @@ function main() {
 
   // fs.watch for real-time updates
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  fs.watch(args.sessionDir, { recursive: true }, () => {
+  const watcher = fs.watch(args.sessionDir, { recursive: true }, () => {
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       try {
@@ -265,7 +265,8 @@ function main() {
     if (req.method === "GET" && screenshotMatch) {
       const filename = decodeURIComponent(screenshotMatch[1]);
       const screenshotPath = path.join(args.sessionDir, "screenshots", filename);
-      if (!screenshotPath.startsWith(path.join(args.sessionDir, "screenshots"))) {
+      const allowedDir = path.join(args.sessionDir, "screenshots") + path.sep;
+      if (!screenshotPath.startsWith(allowedDir)) {
         res.writeHead(403, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Forbidden" }));
         return;
@@ -276,7 +277,14 @@ function main() {
         return;
       }
       res.writeHead(200, { "Content-Type": "image/webp" });
-      fs.createReadStream(screenshotPath).pipe(res);
+      const stream = fs.createReadStream(screenshotPath);
+      stream.on("error", () => {
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+        }
+        res.end();
+      });
+      stream.pipe(res);
       return;
     }
 
@@ -302,6 +310,7 @@ function main() {
 
   const shutdown = () => {
     console.log("\nShutting down...");
+    watcher.close();
     db.close();
     server.close();
     process.exit(0);
