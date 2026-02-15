@@ -813,6 +813,13 @@ class AbpController {
   // Test-only lifecycle observer callback. Null in production.
   LifecycleObserverCallback lifecycle_observer_for_testing_;
 
+  // Build JavaScript for markup tag injection
+  static std::string BuildMarkupInjectionScript(
+      const std::vector<std::string>& markup_tags);
+  // Build JavaScript for markup tag cleanup
+  static std::string BuildMarkupCleanupScript(
+      const std::vector<std::string>& markup_tags);
+
   // Static instance pointer for test access.
   static AbpController* instance_for_testing_;
 

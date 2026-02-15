@@ -865,6 +865,118 @@ void AbpController::CaptureScreenshotForHistory(
       st, weak_factory_.GetWeakPtr()));
 }
 
+// static
+std::string AbpController::BuildMarkupInjectionScript(
+    const std::vector<std::string>& markup_tags) {
+  // Build CSS rules for pure-CSS tags
+  std::string css_rules;
+  for (const auto& tag : markup_tags) {
+    if (tag == "clickable") {
+      css_rules += R"(
+        a,[role='link']{outline:2px solid #4CAF50!important;outline-offset:-2px!important}
+        button,[role='button'],[onclick],[tabindex]:not([tabindex='-1']){outline:2px solid #4CAF50!important;outline-offset:-2px!important}
+      )";
+    } else if (tag == "typeable") {
+      css_rules += R"(
+        input:not([type='hidden']):not([type='checkbox']):not([type='radio']):not([type='submit']):not([type='button']),
+        textarea,[contenteditable='true']{outline:2px solid #FF9800!important;outline-offset:-2px!important}
+      )";
+    } else if (tag == "scrollable") {
+      css_rules += R"(
+        .abp-scrollable{outline:2px dashed #9C27B0!important;outline-offset:-2px!important}
+      )";
+    }
+  }
+
+  // Check which JS-assisted tags are active
+  bool has_scrollable = std::find(markup_tags.begin(), markup_tags.end(),
+                                  "scrollable") != markup_tags.end();
+  bool has_grid = std::find(markup_tags.begin(), markup_tags.end(),
+                            "grid") != markup_tags.end();
+
+  std::string script = "(function(){";
+
+  // Remove any existing overlay
+  script += "var old=document.getElementById('abp-markup-overlay');";
+  script += "if(old)old.remove();";
+
+  // Create wrapper div
+  script += "var w=document.createElement('div');";
+  script += "w.id='abp-markup-overlay';";
+
+  // Add style element with CSS rules
+  if (!css_rules.empty()) {
+    script += "var s=document.createElement('style');";
+    script += "s.textContent=`" + css_rules + "`;";
+    script += "w.appendChild(s);";
+  }
+
+  // Scrollable: walk DOM and add classes
+  if (has_scrollable) {
+    script += R"(
+      document.querySelectorAll('*').forEach(function(el){
+        if(el.tagName==='BODY'||el.tagName==='HTML')return;
+        var cs=getComputedStyle(el);
+        var ov=cs.overflow+cs.overflowX+cs.overflowY;
+        if(!/auto|scroll/.test(ov))return;
+        if(el.scrollHeight>el.clientHeight||el.scrollWidth>el.clientWidth){
+          el.classList.add('abp-scrollable');
+        }
+      });
+    )";
+  }
+
+  // Grid: create overlay div with lines and labels
+  if (has_grid) {
+    script += R"(
+      var g=document.createElement('div');
+      g.id='abp-markup-grid';
+      g.style.cssText='position:fixed;inset:0;z-index:2147483647;pointer-events:none;'+
+        'background:repeating-linear-gradient(to right,rgba(255,0,0,0.3) 0px,rgba(255,0,0,0.3) 1px,transparent 1px,transparent 100px),'+
+        'repeating-linear-gradient(to bottom,rgba(255,0,0,0.3) 0px,rgba(255,0,0,0.3) 1px,transparent 1px,transparent 100px)';
+      var vw=document.documentElement.clientWidth;
+      var vh=document.documentElement.clientHeight;
+      for(var x=100;x<vw;x+=100){
+        var lbl=document.createElement('div');
+        lbl.style.cssText='position:absolute;top:0;left:'+x+'px;color:rgba(255,0,0,0.7);font:bold 10px monospace;padding:1px 2px;background:rgba(255,255,255,0.8)';
+        lbl.textContent=x;
+        g.appendChild(lbl);
+      }
+      for(var y=100;y<vh;y+=100){
+        var lbl=document.createElement('div');
+        lbl.style.cssText='position:absolute;left:0;top:'+y+'px;color:rgba(255,0,0,0.7);font:bold 10px monospace;padding:1px 2px;background:rgba(255,255,255,0.8)';
+        lbl.textContent=y;
+        g.appendChild(lbl);
+      }
+      w.appendChild(g);
+    )";
+  }
+
+  // Append wrapper to document
+  script += "document.documentElement.appendChild(w);";
+  script += "return true;})()";
+
+  return script;
+}
+
+// static
+std::string AbpController::BuildMarkupCleanupScript(
+    const std::vector<std::string>& markup_tags) {
+  std::string script = "(function(){";
+  script += "var o=document.getElementById('abp-markup-overlay');";
+  script += "if(o)o.remove();";
+
+  bool has_scrollable = std::find(markup_tags.begin(), markup_tags.end(),
+                                  "scrollable") != markup_tags.end();
+  if (has_scrollable) {
+    script += "document.querySelectorAll('.abp-scrollable').forEach(function(el){";
+    script += "el.classList.remove('abp-scrollable');});";
+  }
+
+  script += "})()";
+  return script;
+}
+
 void AbpController::CaptureActionScreenshot(
     const std::string& tab_id,
     int64_t timestamp,
@@ -873,7 +985,8 @@ void AbpController::CaptureActionScreenshot(
     ActionScreenshotCallback callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   VLOG(1) << "ABP: CaptureActionScreenshot tab=" << tab_id
-            << " is_before=" << is_before << " markup=" << options.markup;
+            << " is_before=" << is_before
+            << " markup_tags=" << options.markup_tags.size();
 
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
@@ -903,49 +1016,9 @@ void AbpController::CaptureActionScreenshot(
         history_controller_->GetScreenshotPath(tab_id, timestamp, is_before);
   }
 
-  // If markup is requested, inject CSS first
-  if (options.markup != "none") {
-    std::string css_rules;
-    if (options.markup == "interactive") {
-      css_rules = R"(
-        a, [role='link'] { outline:2px solid #2196F3!important; outline-offset:-2px!important; }
-        button, [role='button'], [onclick], [tabindex]:not([tabindex='-1']) { outline:2px solid #4CAF50!important; outline-offset:-2px!important; }
-        input:not([type='hidden']) { outline:2px solid #FF9800!important; outline-offset:-2px!important; }
-        select { outline:2px solid #9C27B0!important; outline-offset:-2px!important; }
-        textarea, [contenteditable='true'] { outline:2px solid #795548!important; outline-offset:-2px!important; }
-      )";
-    } else if (options.markup == "clickable") {
-      css_rules = R"(
-        a, [role='link'] { outline:2px solid #2196F3!important; outline-offset:-2px!important; }
-        button, [role='button'], [onclick] { outline:2px solid #4CAF50!important; outline-offset:-2px!important; }
-      )";
-    } else if (options.markup == "typeable") {
-      css_rules = R"(
-        input:not([type='hidden']):not([type='checkbox']):not([type='radio']):not([type='submit']):not([type='button']),
-        textarea, [contenteditable='true'] { outline:2px solid #FF9800!important; outline-offset:-2px!important; }
-      )";
-    } else if (options.markup == "inputs") {
-      css_rules = R"(
-        input:not([type='hidden']) { outline:2px solid #FF9800!important; outline-offset:-2px!important; }
-        select { outline:2px solid #9C27B0!important; outline-offset:-2px!important; }
-        textarea { outline:2px solid #795548!important; outline-offset:-2px!important; }
-      )";
-    }
-
-    // Inject CSS via Runtime.evaluate.  The subsequent capture uses
-    // GetSnapshotFromBrowser(from_surface=false) which calls ForceRedraw()
-    // to ensure the compositor paints the outlines before capture.
-    std::string script = R"(
-      (function() {
-        const old = document.getElementById('abp-markup-style');
-        if (old) old.remove();
-        const style = document.createElement('style');
-        style.id = 'abp-markup-style';
-        style.textContent = `)" + css_rules + R"(`;
-        document.head.appendChild(style);
-        return true;
-      })()
-    )";
+  // If markup tags are requested, inject overlay first
+  if (!options.markup_tags.empty()) {
+    std::string script = BuildMarkupInjectionScript(options.markup_tags);
 
     base::Value::Dict js_params;
     js_params.Set("expression", script);
@@ -963,10 +1036,6 @@ void AbpController::CaptureActionScreenshot(
                 std::move(cb).Run(ActionScreenshotResult());
                 return;
               }
-              // CaptureActionScreenshotCdp uses GetSnapshotFromBrowser(
-              // from_surface=false) which internally calls ForceRedraw(),
-              // guaranteeing the compositor paints the injected CSS before
-              // capture.  No delay needed.
               ctrl->CaptureActionScreenshotCdp(
                   tid, ts, before, opts, std::move(cb), h_path, w, h);
             },
@@ -1139,15 +1208,15 @@ void AbpController::OnActionScreenshotCaptured(
     const base::FilePath& history_path,
     const std::string& tab_id,
     const gfx::Image& snapshot) {
-  // Clean up markup CSS (fire-and-forget)
-  if (options.markup != "none") {
+  // Clean up markup overlay (fire-and-forget)
+  if (!options.markup_tags.empty()) {
     content::WebContents* wc = FindWebContents(tab_id);
     if (wc) {
       AbpCdpClient* client = GetOrCreateCdpClient(wc);
       if (client) {
         base::Value::Dict cleanup;
         cleanup.Set("expression",
-            "document.getElementById('abp-markup-style')?.remove()");
+            BuildMarkupCleanupScript(options.markup_tags));
         cleanup.Set("returnByValue", true);
         cleanup.Set("disableBreaks", true);
         client->SendCommand("Runtime.evaluate", cleanup,
