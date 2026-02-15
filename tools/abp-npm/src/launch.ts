@@ -55,6 +55,7 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
     `--abp-port=${port}`,
     "--no-first-run",
     "--no-default-browser-check",
+    "--window-size=1280,800",
   ];
 
   if (sessionDir) {

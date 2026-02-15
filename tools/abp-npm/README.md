@@ -46,8 +46,14 @@ npx agent-browser-protocol
 # Custom port
 npx agent-browser-protocol --port 9222
 
-# Pass Chrome flags
-npx agent-browser-protocol -- --disable-gpu --window-size=1920,1080
+# Run headless
+npx agent-browser-protocol --headless
+
+# Persist session data
+npx agent-browser-protocol --session-dir ./my-session
+
+# Pass additional Chrome flags
+npx agent-browser-protocol -- --disable-gpu
 ```
 
 ## Claude Code Plugin
@@ -130,8 +136,11 @@ ABP includes a built-in MCP server. Configure in Claude Desktop:
 
 | Variable | Description |
 |---------|------------|
-| `ABP_SKIP_DOWNLOAD=1` | Skip binary download during install |
+| `ABP_PORT` | Port to listen on (default: `8222`) |
+| `ABP_HEADLESS=1` | Run without a visible window |
 | `ABP_BROWSER_PATH` | Path to a custom ABP binary |
+| `ABP_SKIP_DOWNLOAD=1` | Skip binary download during install |
+| `ABP_ARGS` | Extra Chrome args, comma-separated (plugin only) |
 
 ## Platforms
 
