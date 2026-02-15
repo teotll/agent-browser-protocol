@@ -1910,7 +1910,11 @@ void MainThreadSchedulerImpl::OnVirtualTimePaused() {
   for (const auto& pair : task_runners_) {
     if (pair.first->CanRunWhenVirtualTimePaused())
       continue;
-    DCHECK(!pair.first->IsThrottled());
+    // Throttled queues already prevent task execution, so fencing is
+    // unnecessary. Skip them to avoid conflicts between throttling and
+    // virtual time fencing (e.g. when a background tab enables virtual time).
+    if (pair.first->IsThrottled())
+      continue;
     pair.first->GetTaskQueue()->InsertFence(
         TaskQueue::InsertFencePosition::kNow);
   }
@@ -1920,7 +1924,9 @@ void MainThreadSchedulerImpl::OnVirtualTimeResumed() {
   for (const auto& pair : task_runners_) {
     if (pair.first->CanRunWhenVirtualTimePaused())
       continue;
-    DCHECK(!pair.first->IsThrottled());
+    // Skip throttled queues — they were skipped during pause and have no fence.
+    if (pair.first->IsThrottled())
+      continue;
     DCHECK(pair.first->GetTaskQueue()->HasActiveFence());
     pair.first->GetTaskQueue()->RemoveFence();
   }

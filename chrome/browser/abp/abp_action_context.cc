@@ -228,8 +228,9 @@ void AbpActionContext::Start() {
   // Start event capture
   StartEventCapture();
 
-  // Start the flow: resume execution first
-  ResumeExecutionIfNeeded();
+  // Capture before screenshot while JS is still paused — the screen buffer
+  // is frozen so we can grab it directly without ForceRedraw.
+  CaptureBeforeScreenshot();
 }
 
 void AbpActionContext::StartEventCapture() {
@@ -309,14 +310,9 @@ void AbpActionContext::OnExecutionResumed() {
     return;
   }
 
-  // OnVirtualTimeResumed now waits for ForceRedraw to complete before calling
-  // this callback, so the renderer is fully ready. Add a small delay to ensure
-  // any pending compositor work is flushed before we request another screenshot.
-  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
-      FROM_HERE,
-      base::BindOnce(&AbpActionContext::CaptureBeforeScreenshot,
-                     weak_factory_.GetWeakPtr()),
-      base::Milliseconds(50));
+  // Before screenshot was already captured from the frozen buffer before
+  // resume.  Proceed directly to executing the action.
+  ExecuteAction();
 }
 
 void AbpActionContext::CaptureBeforeScreenshot() {
@@ -328,9 +324,10 @@ void AbpActionContext::CaptureBeforeScreenshot() {
   AbpController::ScreenshotOptions opts;
   opts.format = screenshot_format_;
   opts.quality = screenshot_quality_;
-  opts.markup_tags = screenshot_markup_tags_;
+  // No markup_tags — markup CSS can't be painted without a ForceRedraw,
+  // and we're capturing from the frozen buffer while JS is still paused.
 
-  controller_->CaptureActionScreenshot(
+  controller_->CaptureScreenshotFromBuffer(
       tab_id_, start_time_ms_, true, opts,
       base::BindOnce(
           [](base::WeakPtr<AbpActionContext> ctx,
@@ -365,8 +362,8 @@ void AbpActionContext::OnBeforeScreenshotCaptured(std::string history_path,
     return;
   }
 
-  // Execute the action
-  ExecuteAction();
+  // Now resume execution — the before screenshot is already captured
+  ResumeExecutionIfNeeded();
 }
 
 void AbpActionContext::ExecuteAction() {

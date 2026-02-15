@@ -321,6 +321,10 @@ class CC_EXPORT Scheduler : public viz::BeginFrameObserverBase {
       SchedulerStateMachine::BeginImplFrameDeadlineMode::NONE;
 
   BeginFrameTracker begin_impl_frame_tracker_;
+
+  // Tracks the last translated frame_time when virtual time offset is applied.
+  // Ensures monotonicity despite IPC latency jitter in offset computation.
+  base::TimeTicks last_translated_frame_time_;
   viz::BeginFrameAck last_begin_frame_ack_;
   viz::BeginFrameArgs begin_main_frame_args_;
 

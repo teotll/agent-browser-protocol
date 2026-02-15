@@ -296,6 +296,17 @@ class AbpController {
       const ScreenshotOptions& options,
       ActionScreenshotCallback callback);
 
+  // Capture screenshot from the current (frozen) screen buffer without
+  // ForceRedraw.  Used for "before" screenshots while JS is still paused —
+  // the compositor surface already contains the correct pixels.  No markup
+  // injection (markup CSS cannot be painted without a redraw).
+  void CaptureScreenshotFromBuffer(
+      const std::string& tab_id,
+      int64_t timestamp,
+      bool is_before,
+      const ScreenshotOptions& options,
+      ActionScreenshotCallback callback);
+
   // Update the virtual cursor state for a tab (used by input actions)
   void UpdateVirtualCursorState(const std::string& tab_id, double x, double y);
 

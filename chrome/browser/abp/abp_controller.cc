@@ -1002,8 +1002,8 @@ void AbpController::CaptureActionScreenshot(
     ActionScreenshotCallback callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   VLOG(1) << "ABP: CaptureActionScreenshot tab=" << tab_id
-            << " is_before=" << is_before
-            << " markup_tags=" << options.markup_tags.size();
+           << " is_before=" << is_before
+           << " markup_tags=" << options.markup_tags.size();
 
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
@@ -1142,7 +1142,7 @@ void AbpController::CaptureActionScreenshotWithRetry(
       base::Milliseconds(1500));
 
   VLOG(1) << "ABP: CaptureActionScreenshot - calling ForceRedrawWithCallback"
-            << " renderer_initialized=" << rwhi->renderer_initialized();
+           << " renderer_initialized=" << rwhi->renderer_initialized();
   rwhi->ForceRedrawWithCallback(base::BindOnce(
       [](std::shared_ptr<ActionSnapState> s,
          base::WeakPtr<AbpController> ctrl) {
@@ -1302,6 +1302,74 @@ void AbpController::OnActionScreenshotCaptured(
   std::move(callback).Run(std::move(r));
 }
 
+void AbpController::CaptureScreenshotFromBuffer(
+    const std::string& tab_id,
+    int64_t timestamp,
+    bool is_before,
+    const ScreenshotOptions& options,
+    ActionScreenshotCallback callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  VLOG(1) << "ABP: CaptureScreenshotFromBuffer tab=" << tab_id
+          << " is_before=" << is_before;
+
+  content::WebContents* wc = FindWebContents(tab_id);
+  if (!wc) {
+    std::move(callback).Run(ActionScreenshotResult());
+    return;
+  }
+
+  content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
+  if (!view) {
+    std::move(callback).Run(ActionScreenshotResult());
+    return;
+  }
+
+  gfx::NativeView native_view = wc->GetContentNativeView();
+  if (!native_view) {
+    std::move(callback).Run(ActionScreenshotResult());
+    return;
+  }
+
+  gfx::Rect bounds(view->GetViewBounds().size());
+
+  // Determine history path (if history is enabled)
+  base::FilePath history_path;
+  if (history_controller_ && history_controller_->ScreenshotsEnabled()) {
+    history_path =
+        history_controller_->GetScreenshotPath(tab_id, timestamp, is_before);
+  }
+
+  // Grab the current screen buffer directly — no ForceRedraw needed since
+  // the compositor surface is already frozen (JS paused).
+  ui::GrabViewSnapshot(
+      native_view, bounds,
+      base::BindOnce(
+          [](base::WeakPtr<AbpController> ctrl,
+             ActionScreenshotCallback cb,
+             ScreenshotOptions opts,
+             base::FilePath h_path,
+             std::string tab_id,
+             gfx::Image image) {
+            if (!ctrl || image.IsEmpty()) {
+              if (image.IsEmpty()) {
+                LOG(WARNING) << "ABP: CaptureScreenshotFromBuffer - "
+                             << "GrabViewSnapshot returned empty";
+              }
+              std::move(cb).Run(ActionScreenshotResult());
+              return;
+            }
+            // Reuse existing encode + save logic.  Pass empty markup_tags
+            // so the cleanup branch in OnActionScreenshotCaptured is skipped.
+            ScreenshotOptions clean_opts;
+            clean_opts.format = opts.format;
+            clean_opts.quality = opts.quality;
+            ctrl->OnActionScreenshotCaptured(
+                std::move(cb), clean_opts, h_path, tab_id, image);
+          },
+          weak_factory_.GetWeakPtr(), std::move(callback), options,
+          history_path, tab_id));
+}
+
 void AbpController::HandleRequest(const std::string& method,
                                   const std::string& path,
                                   const std::string& body,
@@ -1317,8 +1385,17 @@ void AbpController::HandleRequest(const std::string& method,
     }
   }
 
+  // Strip query string before parsing path segments
+  std::string query_string;
+  std::string clean_path = path;
+  size_t qpos = path.find('?');
+  if (qpos != std::string::npos) {
+    query_string = path.substr(qpos + 1);
+    clean_path = path.substr(0, qpos);
+  }
+
   // Parse path: /api/v1/tabs, /api/v1/tabs/{id}, /api/v1/tabs/{id}/action
-  std::vector<std::string> segments = ParsePath(path);
+  std::vector<std::string> segments = ParsePath(clean_path);
 
   // Validate /api/v1 prefix
   if (segments.size() < 3 || segments[0] != "api" || segments[1] != "v1") {
@@ -1376,12 +1453,7 @@ void AbpController::HandleRequest(const std::string& method,
       } else if (action == "screenshot") {
         if (method == "GET") {
           // GET returns binary WebP directly
-          // Extract query string for markup option
-          size_t query_pos = path.find('?');
-          std::string query = (query_pos != std::string::npos)
-                                  ? path.substr(query_pos + 1)
-                                  : "";
-          BinaryScreenshot(tab_id, query, std::move(callback));
+          BinaryScreenshot(tab_id, query_string, std::move(callback));
         } else {
           // POST returns JSON with base64 data
           Screenshot(tab_id, params, std::move(callback));
@@ -2678,7 +2750,7 @@ void AbpController::OnDebuggerResumed(const std::string& tab_id,
     VLOG(1) << "ABP: Debugger.resume succeeded for tab " << tab_id;
   } else {
     VLOG(1) << "ABP: Debugger.resume failed for tab " << tab_id
-              << " - " << result << " (may not have been paused)";
+            << " - " << result << " (may not have been paused)";
   }
 
   content::WebContents* wc = FindWebContents(tab_id);
@@ -2812,8 +2884,8 @@ void AbpController::ForceRedrawThenResumeVirtualTime(
   }
 
   VLOG(1) << "ABP: ForceRedrawThenResumeVirtualTime - ForceRedraw with fences up"
-            << " renderer_initialized=" << rwhi->renderer_initialized()
-            << " for tab " << tab_id;
+           << " renderer_initialized=" << rwhi->renderer_initialized()
+           << " for tab " << tab_id;
 
   // Guard with 3s timeout. ForceRedraw should be very fast since the main
   // thread is free (debugger resumed but virtual time fences still block
@@ -2851,7 +2923,7 @@ void AbpController::ForceRedrawThenResumeVirtualTime(
         if (g->done) return;
         g->done = true;
         VLOG(1) << "ABP: ForceRedrawThenResumeVirtualTime - ForceRedraw done"
-                  << " for tab " << g->tab_id;
+                << " for tab " << g->tab_id;
         if (g->ctrl) {
           g->ctrl->SwitchToRealtimeVirtualTime(g->tab_id, std::move(g->cb));
         } else {

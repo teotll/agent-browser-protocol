@@ -527,6 +527,18 @@ void Scheduler::BeginImplFrameWithDeadline(
       base::TimeDelta offset = real_ticks - virtual_ticks;
       args.frame_time -= offset;
       args.deadline -= offset;
+      // The offset is recomputed each frame using the current wall-clock time,
+      // which includes variable IPC delivery latency. If frame N+1 has slightly
+      // more latency than frame N, the translated frame_time can go backwards.
+      // Clamp to ensure monotonicity (BeginFrameTracker DCHECKs this).
+      if (!last_translated_frame_time_.is_null() &&
+          args.frame_time < last_translated_frame_time_) {
+        base::TimeDelta adjustment =
+            last_translated_frame_time_ - args.frame_time;
+        args.frame_time = last_translated_frame_time_;
+        args.deadline += adjustment;
+      }
+      last_translated_frame_time_ = args.frame_time;
     }
   }
 

@@ -38,20 +38,20 @@ using ActionCallback = base::OnceCallback<void(AbpActionContext* ctx)>;
 //
 // Flow:
 //   Run()
+//     -> CaptureBeforeScreenshot()         // GrabViewSnapshot from frozen buffer (no ForceRedraw, no markup)
+//     -> OnBeforeScreenshotCaptured()      // store path + base64
 //     -> ResumeExecutionIfNeeded()
 //     -> OnExecutionResumed()
-//     -> CaptureBeforeScreenshot()         // markup inject → CDP capture → cleanup → history save → return base64
-//     -> OnBeforeScreenshotCaptured()      // store path + base64
 //     -> ExecuteAction() (calls user-provided ActionCallback)
 //     -> [action calls OnActionDispatched()]
 //     -> WaitUntil() (handles wait_until from params)
 //     -> OnWaitUntilComplete()
 //     -> EnsureVirtualCursorVisible()
-//     -> CaptureAfterScreenshot()          // markup inject → CDP capture → cleanup → history save → return base64
+//     -> CaptureAfterScreenshot()          // markup inject → ForceRedraw → capture → cleanup → history save
 //     -> OnAfterScreenshotCaptured()       // store path + base64
 //     -> PauseExecutionIfNeeded()
 //     -> OnExecutionPaused()
-//     -> FinalizeResponse()                // direct — no more EnsureCompositorActive dance
+//     -> FinalizeResponse()
 //     -> RecordHistory() + SendResponse()
 //
 class AbpActionContext : public base::RefCounted<AbpActionContext> {
