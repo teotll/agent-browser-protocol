@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ABP Debug</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #1a1a2e;
+  --panel: #16213e;
+  --border: #0f3460;
+  --accent: #e94560;
+  --text: #e0e0e0;
+  --text-dim: #8892a0;
+  --success: #4ecca3;
+  --error: #e94560;
+  --input-bg: #0d1b30;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+/* --- Layout --- */
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+header h1 {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+header .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--error);
+  flex-shrink: 0;
+}
+
+header .status-dot.connected { background: var(--success); }
+
+header .meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+header .meta span { margin-right: 16px; }
+
+.main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* --- Left Panel --- */
+
+.left-panel {
+  width: 360px;
+  min-width: 360px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.left-panel .section-title {
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.form-area {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.form-row label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.form-row label .required { color: var(--accent); }
+
+.form-row input,
+.form-row select,
+.form-row textarea {
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.form-row input:focus,
+.form-row select:focus,
+.form-row textarea:focus {
+  border-color: var(--accent);
+}
+
+.form-row textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.form-row select {
+  cursor: pointer;
+}
+
+.checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: normal;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.checkbox-group label input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.btn-execute {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn-execute:hover { opacity: 0.85; }
+.btn-execute:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.screenshot-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.screenshot-check input { accent-color: var(--accent); }
+
+/* --- Result Box --- */
+
+.result-section {
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  max-height: 40%;
+  display: flex;
+  flex-direction: column;
+}
+
+.result-section .section-title {
+  padding: 8px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+
+.result-box {
+  padding: 10px 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+  background: var(--input-bg);
+  overflow: auto;
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* --- Right Panel --- */
+
+.right-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.right-panel .section-title {
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex-shrink: 0;
+}
+
+.history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* --- Action Cards --- */
+
+.action-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  transition: border-color 0.15s;
+}
+
+.action-card:hover { border-color: #1a4a80; }
+
+.action-card.failed { border-left: 3px solid var(--error); }
+
+.action-card .card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.action-card .action-id {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.action-card .action-type {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.action-card .action-duration {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.action-card .action-tab {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--input-bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.action-card .action-params {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.action-card .action-error {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--error);
+  margin-bottom: 6px;
+}
+
+.action-card .screenshots {
+  display: flex;
+  gap: 8px;
+}
+
+.action-card .screenshot-thumb {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.action-card .screenshot-thumb span {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.action-card .screenshot-thumb img {
+  width: 200px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.action-card .screenshot-thumb img:hover {
+  border-color: var(--accent);
+}
+
+/* --- Footer --- */
+
+footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 16px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+footer .status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+footer .status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--error);
+}
+
+footer .status-dot.connected { background: var(--success); }
+
+/* --- Modal --- */
+
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 1000;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+}
+
+.modal-overlay.active { display: flex; }
+
+.modal-overlay img {
+  max-width: 95vw;
+  max-height: 95vh;
+  border-radius: 6px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* --- Empty State --- */
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+/* --- Scrollbar --- */
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #1a4a80; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>ABP Debug</h1>
+    <div class="status-dot" id="header-status-dot" title="Disconnected"></div>
+    <div class="meta">
+      <span id="header-abp-url"></span>
+      <span id="header-session-dir"></span>
+      <span id="header-action-count"></span>
+    </div>
+  </header>
+
+  <div class="main">
+    <div class="left-panel">
+      <div class="section-title">Action</div>
+      <div class="form-area">
+        <div class="form-row">
+          <label>Tab</label>
+          <select id="tab-select"><option value="">Loading...</option></select>
+        </div>
+        <div class="form-row">
+          <label>Action</label>
+          <select id="action-select"></select>
+        </div>
+        <div id="dynamic-fields"></div>
+        <div class="form-actions">
+          <button class="btn-execute" id="btn-execute">Execute</button>
+          <label class="screenshot-check">
+            <input type="checkbox" id="include-screenshots" checked>
+            Screenshots
+          </label>
+        </div>
+      </div>
+      <div class="result-section">
+        <div class="section-title" id="result-title">Result</div>
+        <div class="result-box" id="result-box">No result yet.</div>
+      </div>
+    </div>
+
+    <div class="right-panel">
+      <div class="section-title">History <span id="history-count"></span></div>
+      <div class="history-list" id="history-list">
+        <div class="empty-state">No actions yet.</div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="status-indicator">
+      <div class="status-dot" id="footer-status-dot"></div>
+      <span id="footer-status-text">Disconnected</span>
+    </div>
+    <span id="footer-action-count"></span>
+    <span id="footer-session-dir" style="margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:50%"></span>
+  </footer>
+</div>
+
+<div class="modal-overlay" id="modal-overlay">
+  <img id="modal-image" src="" alt="Screenshot">
+</div>
+
+<script>
+(function() {
+  "use strict";
+
+  // --- Action Definitions ---
+
+  const ACTIONS = {
+    navigate:   { method: "POST", path: "/navigate", fields: [{ name: "url", type: "text", required: true }, { name: "referrer", type: "text" }] },
+    click:      { method: "POST", path: "/click", fields: [{ name: "x", type: "number", required: true }, { name: "y", type: "number", required: true }, { name: "button", type: "select", options: ["left", "right", "middle"] }, { name: "click_count", type: "number" }, { name: "modifiers", type: "modifiers" }] },
+    type:       { method: "POST", path: "/type", fields: [{ name: "text", type: "text", required: true }] },
+    keyPress:   { method: "POST", path: "/keyboard/press", fields: [{ name: "key", type: "text", required: true }, { name: "modifiers", type: "modifiers" }] },
+    scroll:     { method: "POST", path: "/scroll", fields: [{ name: "x", type: "number", required: true }, { name: "y", type: "number", required: true }, { name: "delta_x", type: "number" }, { name: "delta_y", type: "number" }] },
+    execute:    { method: "POST", path: "/execute", fields: [{ name: "script", type: "textarea", required: true }] },
+    text:       { method: "POST", path: "/text", fields: [{ name: "selector", type: "text" }] },
+    wait:       { method: "POST", path: "/wait", fields: [{ name: "ms", type: "number", required: true }] },
+    screenshot: { method: "POST", path: "/screenshot", fields: [{ name: "markup", type: "markup" }] },
+    back:       { method: "POST", path: "/back", fields: [] },
+    forward:    { method: "POST", path: "/forward", fields: [] },
+    reload:     { method: "POST", path: "/reload", fields: [] },
+    move:       { method: "POST", path: "/move", fields: [{ name: "x", type: "number", required: true }, { name: "y", type: "number", required: true }] },
+  };
+
+  // --- DOM Refs ---
+
+  const headerStatusDot = document.getElementById("header-status-dot");
+  const headerAbpUrl = document.getElementById("header-abp-url");
+  const headerSessionDir = document.getElementById("header-session-dir");
+  const headerActionCount = document.getElementById("header-action-count");
+  const tabSelect = document.getElementById("tab-select");
+  const actionSelect = document.getElementById("action-select");
+  const dynamicFields = document.getElementById("dynamic-fields");
+  const btnExecute = document.getElementById("btn-execute");
+  const includeScreenshots = document.getElementById("include-screenshots");
+  const resultBox = document.getElementById("result-box");
+  const historyList = document.getElementById("history-list");
+  const historyCount = document.getElementById("history-count");
+  const footerStatusDot = document.getElementById("footer-status-dot");
+  const footerStatusText = document.getElementById("footer-status-text");
+  const footerActionCount = document.getElementById("footer-action-count");
+  const footerSessionDir = document.getElementById("footer-session-dir");
+  const modalOverlay = document.getElementById("modal-overlay");
+  const modalImage = document.getElementById("modal-image");
+
+  // --- State ---
+
+  let sessionData = null;
+  let sseConnected = false;
+  let executing = false;
+
+  // --- Helpers ---
+
+  function $(sel, parent) { return (parent || document).querySelector(sel); }
+  function $$(sel, parent) { return Array.from((parent || document).querySelectorAll(sel)); }
+
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function screenshotUrl(absolutePath) {
+    if (!absolutePath) return null;
+    const parts = absolutePath.replace(/\\/g, "/").split("/");
+    const filename = parts[parts.length - 1];
+    return "/data/screenshots/" + encodeURIComponent(filename);
+  }
+
+  function formatDuration(ms) {
+    if (ms == null) return "-";
+    if (ms < 1000) return ms + "ms";
+    return (ms / 1000).toFixed(2) + "s";
+  }
+
+  function summarizeParams(paramsStr) {
+    if (!paramsStr) return "";
+    try {
+      const p = JSON.parse(paramsStr);
+      const parts = [];
+      for (const [k, v] of Object.entries(p)) {
+        if (k === "screenshot") continue;
+        const s = typeof v === "string" ? v : JSON.stringify(v);
+        if (s.length > 60) {
+          parts.push(k + "=" + s.substring(0, 57) + "...");
+        } else {
+          parts.push(k + "=" + s);
+        }
+      }
+      return parts.join(", ");
+    } catch {
+      return paramsStr.substring(0, 80);
+    }
+  }
+
+  // --- Status ---
+
+  function setConnected(connected) {
+    sseConnected = connected;
+    const cls = connected ? "connected" : "";
+    headerStatusDot.className = "status-dot " + cls;
+    headerStatusDot.title = connected ? "Connected" : "Disconnected";
+    footerStatusDot.className = "status-dot " + cls;
+    footerStatusText.textContent = connected ? "Connected" : "Disconnected";
+  }
+
+  function updateCounts(count) {
+    headerActionCount.textContent = "Actions: " + count;
+    footerActionCount.textContent = "Actions: " + count;
+  }
+
+  // --- Tab Loading ---
+
+  async function loadTabs() {
+    try {
+      const res = await fetch("/api/v1/tabs");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const tabs = await res.json();
+      tabSelect.innerHTML = "";
+      if (tabs.length === 0) {
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "No tabs";
+        tabSelect.appendChild(opt);
+        return;
+      }
+      for (const tab of tabs) {
+        const opt = document.createElement("option");
+        opt.value = tab.id;
+        const title = tab.title || tab.url || "Tab";
+        opt.textContent = title.length > 40 ? title.substring(0, 37) + "..." : title;
+        opt.title = tab.url || "";
+        tabSelect.appendChild(opt);
+      }
+    } catch (err) {
+      tabSelect.innerHTML = '<option value="">Error loading tabs</option>';
+    }
+  }
+
+  // --- Action Select ---
+
+  function populateActionSelect() {
+    actionSelect.innerHTML = "";
+    for (const name of Object.keys(ACTIONS)) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      actionSelect.appendChild(opt);
+    }
+    actionSelect.addEventListener("change", buildFields);
+    buildFields();
+  }
+
+  // --- Dynamic Fields ---
+
+  function buildFields() {
+    const actionName = actionSelect.value;
+    const action = ACTIONS[actionName];
+    dynamicFields.innerHTML = "";
+    if (!action || action.fields.length === 0) return;
+
+    for (const field of action.fields) {
+      const row = document.createElement("div");
+      row.className = "form-row";
+
+      if (field.type === "modifiers") {
+        const lbl = document.createElement("label");
+        lbl.textContent = "Modifiers";
+        row.appendChild(lbl);
+        const group = document.createElement("div");
+        group.className = "checkbox-group";
+        for (const mod of ["Shift", "Control", "Alt", "Meta"]) {
+          const clbl = document.createElement("label");
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.name = "modifier";
+          cb.value = mod;
+          cb.dataset.fieldName = field.name;
+          clbl.appendChild(cb);
+          clbl.appendChild(document.createTextNode(mod));
+          group.appendChild(clbl);
+        }
+        row.appendChild(group);
+      } else if (field.type === "markup") {
+        const lbl = document.createElement("label");
+        lbl.textContent = "Markup";
+        row.appendChild(lbl);
+        const group = document.createElement("div");
+        group.className = "checkbox-group";
+        for (const m of ["clickable", "typeable", "scrollable", "grid"]) {
+          const clbl = document.createElement("label");
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.name = "markup";
+          cb.value = m;
+          cb.dataset.fieldName = field.name;
+          clbl.appendChild(cb);
+          clbl.appendChild(document.createTextNode(m));
+          group.appendChild(clbl);
+        }
+        row.appendChild(group);
+      } else if (field.type === "select") {
+        const lbl = document.createElement("label");
+        lbl.innerHTML = escapeHtml(field.name) + (field.required ? ' <span class="required">*</span>' : "");
+        row.appendChild(lbl);
+        const sel = document.createElement("select");
+        sel.dataset.fieldName = field.name;
+        sel.dataset.fieldType = "select";
+        const emptyOpt = document.createElement("option");
+        emptyOpt.value = "";
+        emptyOpt.textContent = "(default)";
+        sel.appendChild(emptyOpt);
+        for (const optVal of (field.options || [])) {
+          const opt = document.createElement("option");
+          opt.value = optVal;
+          opt.textContent = optVal;
+          sel.appendChild(opt);
+        }
+        row.appendChild(sel);
+      } else if (field.type === "textarea") {
+        const lbl = document.createElement("label");
+        lbl.innerHTML = escapeHtml(field.name) + (field.required ? ' <span class="required">*</span>' : "");
+        row.appendChild(lbl);
+        const ta = document.createElement("textarea");
+        ta.dataset.fieldName = field.name;
+        ta.dataset.fieldType = "textarea";
+        ta.rows = 4;
+        ta.placeholder = field.name;
+        row.appendChild(ta);
+      } else {
+        const lbl = document.createElement("label");
+        lbl.innerHTML = escapeHtml(field.name) + (field.required ? ' <span class="required">*</span>' : "");
+        row.appendChild(lbl);
+        const inp = document.createElement("input");
+        inp.type = field.type === "number" ? "number" : "text";
+        inp.dataset.fieldName = field.name;
+        inp.dataset.fieldType = field.type;
+        inp.placeholder = field.name;
+        if (field.type === "number") inp.step = "any";
+        row.appendChild(inp);
+      }
+
+      dynamicFields.appendChild(row);
+    }
+  }
+
+  // --- Build Request Body ---
+
+  function buildBody() {
+    const actionName = actionSelect.value;
+    const action = ACTIONS[actionName];
+    const body = {};
+
+    for (const field of action.fields) {
+      if (field.type === "modifiers") {
+        const checked = $$('input[name="modifier"]:checked', dynamicFields).map(function(cb) { return cb.value; });
+        if (checked.length > 0) body[field.name] = checked;
+      } else if (field.type === "markup") {
+        const checked = $$('input[name="markup"]:checked', dynamicFields).map(function(cb) { return cb.value; });
+        if (checked.length > 0) body[field.name] = checked;
+      } else if (field.type === "select") {
+        const el = $('[data-field-name="' + field.name + '"][data-field-type="select"]', dynamicFields);
+        if (el && el.value) body[field.name] = el.value;
+      } else if (field.type === "number") {
+        const el = $('[data-field-name="' + field.name + '"]', dynamicFields);
+        if (el && el.value !== "") body[field.name] = parseFloat(el.value);
+      } else {
+        const el = $('[data-field-name="' + field.name + '"]', dynamicFields);
+        if (el && el.value !== "") body[field.name] = el.value;
+      }
+    }
+
+    // Screenshot handling
+    if (actionName === "screenshot") {
+      const screenshotObj = { area: "viewport" };
+      if (body.markup && body.markup.length > 0) {
+        screenshotObj.markup = body.markup;
+      }
+      delete body.markup;
+      return { screenshot: screenshotObj };
+    }
+
+    if (includeScreenshots.checked) {
+      body.screenshot = { area: "viewport" };
+    }
+
+    return body;
+  }
+
+  // --- Execute Action ---
+
+  async function executeAction() {
+    const tabId = tabSelect.value;
+    if (!tabId) {
+      resultBox.textContent = "Error: No tab selected.";
+      return;
+    }
+
+    const actionName = actionSelect.value;
+    const action = ACTIONS[actionName];
+
+    // Validate required fields
+    for (const field of action.fields) {
+      if (!field.required) continue;
+      if (field.type === "modifiers" || field.type === "markup") continue;
+      const el = $('[data-field-name="' + field.name + '"]', dynamicFields);
+      if (!el || el.value === "") {
+        resultBox.textContent = "Error: " + field.name + " is required.";
+        return;
+      }
+    }
+
+    const body = buildBody();
+    const url = "/api/v1/tabs/" + encodeURIComponent(tabId) + action.path;
+
+    executing = true;
+    btnExecute.disabled = true;
+    btnExecute.textContent = "Executing...";
+    resultBox.textContent = "Sending " + actionName + "...";
+
+    try {
+      const res = await fetch(url, {
+        method: action.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      let display;
+      try {
+        const json = JSON.parse(text);
+        display = JSON.stringify(json, null, 2);
+      } catch {
+        display = text;
+      }
+      resultBox.textContent = "HTTP " + res.status + "\n\n" + display;
+    } catch (err) {
+      resultBox.textContent = "Error: " + err.message;
+    } finally {
+      executing = false;
+      btnExecute.disabled = false;
+      btnExecute.textContent = "Execute";
+      // Refresh history after action completes
+      setTimeout(refreshHistory, 500);
+      // Also refresh tabs in case navigate changed something
+      setTimeout(loadTabs, 600);
+    }
+  }
+
+  // --- History ---
+
+  async function refreshHistory() {
+    try {
+      const res = await fetch("/data/actions");
+      if (!res.ok) return;
+      const actions = await res.json();
+      renderHistory(actions);
+      updateCounts(actions.length);
+    } catch {
+      // Silently fail
+    }
+  }
+
+  function renderHistory(actions) {
+    if (actions.length === 0) {
+      historyList.innerHTML = '<div class="empty-state">No actions yet.</div>';
+      historyCount.textContent = "";
+      return;
+    }
+
+    historyCount.textContent = "(" + actions.length + ")";
+    const fragment = document.createDocumentFragment();
+
+    for (const action of actions) {
+      const card = document.createElement("div");
+      card.className = "action-card" + (action.success === 0 ? " failed" : "");
+
+      // Header row
+      const header = document.createElement("div");
+      header.className = "card-header";
+
+      const idSpan = document.createElement("span");
+      idSpan.className = "action-id";
+      idSpan.textContent = "#" + action.id;
+      header.appendChild(idSpan);
+
+      const typeSpan = document.createElement("span");
+      typeSpan.className = "action-type";
+      typeSpan.textContent = action.action_type || "";
+      header.appendChild(typeSpan);
+
+      if (action.tab_id) {
+        const tabSpan = document.createElement("span");
+        tabSpan.className = "action-tab";
+        tabSpan.textContent = action.tab_id.substring(0, 8);
+        tabSpan.title = action.tab_id;
+        header.appendChild(tabSpan);
+      }
+
+      const durSpan = document.createElement("span");
+      durSpan.className = "action-duration";
+      durSpan.textContent = formatDuration(action.duration_ms);
+      header.appendChild(durSpan);
+
+      card.appendChild(header);
+
+      // Params summary
+      const paramsSummary = summarizeParams(action.params);
+      if (paramsSummary) {
+        const paramsDiv = document.createElement("div");
+        paramsDiv.className = "action-params";
+        paramsDiv.textContent = paramsSummary;
+        paramsDiv.title = paramsSummary;
+        card.appendChild(paramsDiv);
+      }
+
+      // Error message
+      if (action.error_message) {
+        const errDiv = document.createElement("div");
+        errDiv.className = "action-error";
+        errDiv.textContent = action.error_message;
+        card.appendChild(errDiv);
+      }
+
+      // Screenshots
+      const beforeUrl = screenshotUrl(action.screenshot_before_path);
+      const afterUrl = screenshotUrl(action.screenshot_after_path);
+      if (beforeUrl || afterUrl) {
+        const ssDiv = document.createElement("div");
+        ssDiv.className = "screenshots";
+
+        if (beforeUrl) {
+          const thumb = document.createElement("div");
+          thumb.className = "screenshot-thumb";
+          const lbl = document.createElement("span");
+          lbl.textContent = "Before";
+          thumb.appendChild(lbl);
+          const img = document.createElement("img");
+          img.src = beforeUrl;
+          img.alt = "Before";
+          img.loading = "lazy";
+          img.addEventListener("click", function(e) { openModal(beforeUrl); e.stopPropagation(); });
+          thumb.appendChild(img);
+          ssDiv.appendChild(thumb);
+        }
+
+        if (afterUrl) {
+          const thumb = document.createElement("div");
+          thumb.className = "screenshot-thumb";
+          const lbl = document.createElement("span");
+          lbl.textContent = "After";
+          thumb.appendChild(lbl);
+          const img = document.createElement("img");
+          img.src = afterUrl;
+          img.alt = "After";
+          img.loading = "lazy";
+          img.addEventListener("click", function(e) { openModal(afterUrl); e.stopPropagation(); });
+          thumb.appendChild(img);
+          ssDiv.appendChild(thumb);
+        }
+
+        card.appendChild(ssDiv);
+      }
+
+      fragment.appendChild(card);
+    }
+
+    historyList.innerHTML = "";
+    historyList.appendChild(fragment);
+  }
+
+  // --- Modal ---
+
+  function openModal(src) {
+    modalImage.src = src;
+    modalOverlay.classList.add("active");
+  }
+
+  function closeModal() {
+    modalOverlay.classList.remove("active");
+    modalImage.src = "";
+  }
+
+  modalOverlay.addEventListener("click", closeModal);
+  document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape" && modalOverlay.classList.contains("active")) {
+      closeModal();
+    }
+  });
+
+  // --- SSE ---
+
+  function connectSSE() {
+    const es = new EventSource("/events");
+
+    es.onopen = function() {
+      setConnected(true);
+    };
+
+    es.onmessage = function(e) {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === "refresh") {
+          refreshHistory();
+        }
+      } catch {
+        // Ignore malformed messages
+      }
+    };
+
+    es.onerror = function() {
+      setConnected(false);
+      es.close();
+      // Reconnect after 3 seconds
+      setTimeout(connectSSE, 3000);
+    };
+  }
+
+  // --- Session Info ---
+
+  async function loadSession() {
+    try {
+      const res = await fetch("/data/session");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      sessionData = await res.json();
+
+      headerAbpUrl.textContent = "ABP: " + (sessionData.abp_url || "");
+      headerSessionDir.textContent = "Session: " + (sessionData.session_dir || "").split("/").pop();
+      footerSessionDir.textContent = sessionData.session_dir || "";
+      footerSessionDir.title = sessionData.session_dir || "";
+      updateCounts(sessionData.action_count || 0);
+    } catch (err) {
+      headerAbpUrl.textContent = "ABP: unavailable";
+    }
+  }
+
+  // --- Init ---
+
+  async function init() {
+    populateActionSelect();
+    btnExecute.addEventListener("click", executeAction);
+
+    // Allow Ctrl+Enter / Cmd+Enter to execute
+    document.addEventListener("keydown", function(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !executing) {
+        executeAction();
+      }
+    });
+
+    await Promise.all([
+      loadSession(),
+      loadTabs(),
+      refreshHistory(),
+    ]);
+
+    connectSSE();
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
