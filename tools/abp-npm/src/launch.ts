@@ -8,6 +8,8 @@ export interface LaunchOptions {
   sessionDir?: string;
   executablePath?: string;
   headless?: boolean;
+  /** Window size as [width, height]. Default: [1280, 800]. */
+  windowSize?: [number, number];
   args?: string[];
 }
 
@@ -46,6 +48,7 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
     sessionDir,
     executablePath,
     headless = false,
+    windowSize,
     args = [],
   } = options;
 
@@ -55,8 +58,11 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
     `--abp-port=${port}`,
     "--no-first-run",
     "--no-default-browser-check",
-    "--window-size=1280,800",
   ];
+
+  if (windowSize) {
+    launchArgs.push(`--abp-window-size=${windowSize[0]},${windowSize[1]}`);
+  }
 
   if (sessionDir) {
     launchArgs.push(`--abp-session-dir=${sessionDir}`);
@@ -66,7 +72,10 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
     launchArgs.push("--headless=new");
   }
 
-  launchArgs.push(...args);
+  // Normalize any --headless args to --headless=new (old headless is not supported)
+  launchArgs.push(
+    ...args.map((a) => (a === "--headless" ? "--headless=new" : a)),
+  );
 
   const child = spawn(binaryPath, launchArgs, {
     stdio: "ignore",

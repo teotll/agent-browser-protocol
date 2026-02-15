@@ -1,6 +1,14 @@
 import("//build/config/features.gni")
 import("//build/config/ui.gni")
 
+# Separate target for switches to avoid circular deps (ui -> abp -> ui).
+source_set("switches") {
+  sources = [
+    "abp_switches.cc",
+    "abp_switches.h",
+  ]
+}
+
 source_set("abp") {
   sources = [
     "abp_action_context.cc",
@@ -26,13 +34,12 @@ source_set("abp") {
     "abp_http_server.h",
     "abp_mcp_handler.cc",
     "abp_mcp_handler.h",
-    "abp_switches.cc",
-    "abp_switches.h",
     "abp_tool_builder.cc",
     "abp_tool_builder.h",
   ]
 
   deps = [
+    ":switches",
     "//base",
     "//chrome/browser/ui",
     "//chrome/common",

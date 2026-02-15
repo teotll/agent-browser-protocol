@@ -19,6 +19,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "chrome/browser/ui/window_sizer/window_sizer.h"
+#include "chrome/browser/abp/abp_switches.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "components/prefs/pref_service.h"
@@ -171,6 +172,20 @@ void UpdateWindowBoundsAndShowStateFromCommandLine(
     const base::CommandLine& command_line,
     gfx::Rect* bounds,
     ui::mojom::WindowShowState* show_state) {
+  // ABP: Always enforce a fixed window size, ignoring saved session state.
+  // Default is 1280x800, overridable via --abp-window-size=width,height
+  // or --window-size=width,height.
+  {
+    int width = 1280, height = 800;
+    if (command_line.HasSwitch(abp::switches::kAbpWindowSize)) {
+      std::string str =
+          command_line.GetSwitchValueASCII(abp::switches::kAbpWindowSize);
+      ParseCommaSeparatedIntegers(str, &width, &height);
+    }
+    bounds->set_size(gfx::Size(width, height));
+    *show_state = ui::mojom::WindowShowState::kNormal;
+  }
+
   // Allow command-line flags to override the window size and position. If
   // either of these is specified then set the show state to NORMAL so that
   // they are immediately respected.

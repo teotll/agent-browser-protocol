@@ -860,24 +860,11 @@ BrowserView::BrowserView(Browser* browser)
   SetShowIcon(::ShouldShowWindowIcon(
       browser_.get(), AppUsesWindowControlsOverlay(), AppUsesTabbed()));
 
-  // In forced app mode, all size controls are always disabled. Otherwise, use
-  // `create_params` to enable/disable specific size controls.
-  if (IsRunningInForcedAppMode()) {
-    SetHasWindowSizeControls(false);
-  } else if (GetIsPictureInPictureType()) {
-    // Picture in picture windows must always have a title, can never minimize,
-    // and can never maximize regardless of what the params say.
-    SetShowTitle(true);
-    SetCanMinimize(false);
-    SetCanMaximize(false);
-    SetCanFullscreen(false);
-    SetCanResize(true);
-  } else {
-    SetCanResize(browser_->create_params().can_resize);
-    SetCanMaximize(browser_->create_params().can_maximize);
-    SetCanFullscreen(browser_->create_params().can_fullscreen);
-    SetCanMinimize(true);
-  }
+  // ABP: Enforce fixed window size — no resize, maximize, or fullscreen.
+  SetCanResize(false);
+  SetCanMaximize(false);
+  SetCanFullscreen(false);
+  SetCanMinimize(true);
 
   SetProperty(views::kElementIdentifierKey, kBrowserViewElementId);
 
