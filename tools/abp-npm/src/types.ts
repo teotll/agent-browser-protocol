@@ -8,7 +8,7 @@ export interface WaitUntil {
 
 export interface ScreenshotOptions {
   area?: "none" | "viewport";
-  markup?: "none" | "interactive" | "clickable" | "typeable" | "inputs";
+  markup?: ("clickable" | "typeable" | "scrollable" | "grid")[];
   cursor?: boolean;
   format?: string;
 }
