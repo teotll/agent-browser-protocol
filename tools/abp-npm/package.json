@@ -14,8 +14,8 @@
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "bin": {
-    "agent-browser-protocol": "./dist/bin/abp.mjs",
-    "abp-debug": "./dist/bin/debug.mjs"
+    "agent-browser-protocol": "./dist/bin/abp.js",
+    "abp-debug": "./dist/bin/debug.js"
   },
   "files": [
     "dist/",

@@ -158,10 +158,11 @@ function broadcastSSE(data: string): void {
 
 function getHtmlPath(): string {
   try {
+    // Built file is at dist/bin/debug.js, HTML is at src/debug-ui.html
     const dir = path.dirname(fileURLToPath(import.meta.url));
-    return path.resolve(dir, "..", "src", "debug-ui.html");
+    return path.resolve(dir, "..", "..", "src", "debug-ui.html");
   } catch {
-    return path.resolve(__dirname, "..", "src", "debug-ui.html");
+    return path.resolve(__dirname, "..", "..", "src", "debug-ui.html");
   }
 }
 
