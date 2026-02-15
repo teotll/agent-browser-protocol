@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <set>
 #include <vector>
 
 #include "base/base64.h"
@@ -361,6 +362,20 @@ int ModifiersToFlags(const std::vector<std::string>& modifiers) {
 }
 
 namespace {
+
+const std::set<std::string> kValidMarkupTags = {
+    "clickable", "typeable", "scrollable", "grid"};
+
+bool ValidateMarkupTags(const std::vector<std::string>& tags,
+                        std::string* invalid_tag) {
+  for (const auto& tag : tags) {
+    if (kValidMarkupTags.find(tag) == kValidMarkupTags.end()) {
+      *invalid_tag = tag;
+      return false;
+    }
+  }
+  return true;
+}
 
 // Parse path like "/api/v1/tabs/ABC123/navigate" into segments
 std::vector<std::string> ParsePath(const std::string& path) {
@@ -1018,6 +1033,11 @@ void AbpController::CaptureActionScreenshot(
 
   // If markup tags are requested, inject overlay first
   if (!options.markup_tags.empty()) {
+    std::string invalid_tag;
+    if (!ValidateMarkupTags(options.markup_tags, &invalid_tag)) {
+      std::move(callback).Run(ActionScreenshotResult());
+      return;
+    }
     std::string script = BuildMarkupInjectionScript(options.markup_tags);
 
     base::Value::Dict js_params;
@@ -4331,16 +4351,34 @@ void AbpController::BinaryScreenshot(const std::string& tab_id,
     return;
   }
 
-  // Parse query params for markup option
-  // Format: ?markup=interactive or ?markup=none
-  std::string markup = "none";
+  // Parse query params for markup tags
+  // Format: ?markup=clickable,grid
+  std::vector<std::string> markup_tags;
   if (!query.empty()) {
     size_t pos = query.find("markup=");
     if (pos != std::string::npos) {
       size_t start = pos + 7;
       size_t end = query.find('&', start);
-      markup = query.substr(start, end == std::string::npos ? end : end - start);
+      std::string markup_str =
+          query.substr(start, end == std::string::npos ? end : end - start);
+      size_t tag_start = 0;
+      while (tag_start < markup_str.size()) {
+        size_t comma = markup_str.find(',', tag_start);
+        if (comma == std::string::npos) comma = markup_str.size();
+        std::string tag = markup_str.substr(tag_start, comma - tag_start);
+        if (!tag.empty()) {
+          markup_tags.push_back(tag);
+        }
+        tag_start = comma + 1;
+      }
     }
+  }
+
+  // Validate tags
+  std::string invalid_tag;
+  if (!ValidateMarkupTags(markup_tags, &invalid_tag)) {
+    SendError(400, "Unknown markup tag: " + invalid_tag, std::move(callback));
+    return;
   }
 
   bool restore_pause_after_capture = false;
@@ -4370,6 +4408,125 @@ void AbpController::BinaryScreenshot(const std::string& tab_id,
       weak_factory_.GetWeakPtr(), tab_id, restore_pause_after_capture,
       std::move(callback));
 
+  if (!markup_tags.empty()) {
+    // Inject markup, ForceRedraw, capture, cleanup
+    AbpCdpClient* client = GetOrCreateCdpClient(wc);
+    if (!client) {
+      SendError(500, "No CDP client", std::move(wrapped_cb));
+      return;
+    }
+    std::string inject_script = BuildMarkupInjectionScript(markup_tags);
+    base::Value::Dict js_params;
+    js_params.Set("expression", inject_script);
+    js_params.Set("returnByValue", true);
+    js_params.Set("disableBreaks", true);
+
+    client->SendCommand(
+        "Runtime.evaluate", js_params,
+        base::BindOnce(
+            [](base::WeakPtr<AbpController> ctrl, std::string tid,
+               std::vector<std::string> tags, ResponseCallback cb,
+               bool success, const std::string& result) {
+              if (!ctrl) return;
+              auto* wc = ctrl->FindWebContents(tid);
+              if (!wc) {
+                ctrl->SendError(404, "Tab not found", std::move(cb));
+                return;
+              }
+              auto* view = wc->GetRenderWidgetHostView();
+              if (!view) {
+                ctrl->SendError(500, "No render view", std::move(cb));
+                return;
+              }
+              auto* rwhi = static_cast<content::RenderWidgetHostImpl*>(
+                  view->GetRenderWidgetHost());
+
+              rwhi->ForceRedrawWithCallback(base::BindOnce(
+                  [](base::WeakPtr<AbpController> ctrl, std::string tid,
+                     std::vector<std::string> tags, ResponseCallback cb) {
+                    if (!ctrl) return;
+                    // Wait 167ms for CoreAnimation then capture
+                    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+                        FROM_HERE,
+                        base::BindOnce(
+                            [](base::WeakPtr<AbpController> ctrl,
+                               std::string tid,
+                               std::vector<std::string> tags,
+                               ResponseCallback cb) {
+                              if (!ctrl) return;
+                              auto* wc = ctrl->FindWebContents(tid);
+                              if (!wc) {
+                                ctrl->SendError(404, "Tab not found",
+                                                std::move(cb));
+                                return;
+                              }
+                              // Cleanup markup (fire-and-forget)
+                              auto* client = ctrl->GetOrCreateCdpClient(wc);
+                              if (client) {
+                                base::Value::Dict cleanup;
+                                cleanup.Set("expression",
+                                    AbpController::BuildMarkupCleanupScript(tags));
+                                cleanup.Set("returnByValue", true);
+                                cleanup.Set("disableBreaks", true);
+                                client->SendCommand(
+                                    "Runtime.evaluate", cleanup,
+                                    base::BindOnce(
+                                        [](bool, const std::string&) {}));
+                              }
+                              // Capture
+                              gfx::NativeView native_view =
+                                  wc->GetContentNativeView();
+                              if (!native_view) {
+                                std::move(cb).Run(500, "application/json",
+                                    R"({"error":"No native view"})");
+                                return;
+                              }
+                              auto* v = wc->GetRenderWidgetHostView();
+                              gfx::Rect source_rect;
+                              if (v) {
+                                source_rect =
+                                    gfx::Rect(v->GetViewBounds().size());
+                              }
+                              ui::GrabViewSnapshot(
+                                  native_view, source_rect,
+                                  base::BindOnce(
+                                      [](ResponseCallback cb,
+                                         gfx::Image snapshot) {
+                                        if (snapshot.IsEmpty()) {
+                                          std::move(cb).Run(
+                                              500, "application/json",
+                                              R"({"error":"Screenshot capture failed"})");
+                                          return;
+                                        }
+                                        const SkBitmap& bitmap =
+                                            *snapshot.ToSkBitmap();
+                                        auto encoded =
+                                            gfx::WebpCodec::Encode(bitmap, 80);
+                                        if (!encoded || encoded->empty()) {
+                                          std::move(cb).Run(
+                                              500, "application/json",
+                                              R"({"error":"Failed to encode screenshot"})");
+                                          return;
+                                        }
+                                        std::string binary(encoded->begin(),
+                                                           encoded->end());
+                                        std::move(cb).Run(200, "image/webp",
+                                                          std::move(binary));
+                                      },
+                                      std::move(cb)));
+                            },
+                            ctrl, tid, tags, std::move(cb)),
+                        base::Milliseconds(167));
+                  },
+                  ctrl->weak_factory_.GetWeakPtr(), tid, tags,
+                  std::move(cb)));
+            },
+            weak_factory_.GetWeakPtr(), tab_id, markup_tags,
+            std::move(wrapped_cb)));
+    return;
+  }
+
+  // No markup — direct capture path
   EnsureCompositorActive(
       tab_id,
       base::BindOnce(
