@@ -99,9 +99,9 @@ base::Value::List GetToolDefinitions() {
               "viewport, then re-pauses execution. Use this when you need "
               "to let the page load or update before your next action.")
           .OptionalString("tab_id", "Target tab ID")
-          .OptionalString("markup",
-                          "Element markup overlay: none, interactive, "
-                          "clickable, typeable, inputs")
+          .OptionalStringArrayEnum("markup",
+                                 "Markup overlays to apply to the screenshot",
+                                 {"clickable", "typeable", "scrollable", "grid"})
           .OptionalString("format", "Image format: png, webp, jpeg")
           .Build());
 
@@ -833,8 +833,8 @@ void AbpMcpHandler::CallBrowserScreenshot(const base::Value::Dict& args,
   // Build screenshot options from flat args
   base::Value::Dict body_dict;
   base::Value::Dict screenshot_opts;
-  if (const std::string* markup = args.FindString("markup")) {
-    screenshot_opts.Set("markup", *markup);
+  if (const base::Value::List* markup = args.FindList("markup")) {
+    screenshot_opts.Set("markup", markup->Clone());
   }
   if (const std::string* format = args.FindString("format")) {
     screenshot_opts.Set("format", *format);
