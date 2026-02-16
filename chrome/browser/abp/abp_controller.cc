@@ -365,7 +365,7 @@ namespace {
 
 bool IsValidMarkupTag(const std::string& tag) {
   return tag == "clickable" || tag == "typeable" ||
-         tag == "scrollable" || tag == "grid";
+         tag == "scrollable" || tag == "grid" || tag == "selected";
 }
 
 bool ValidateMarkupTags(const std::vector<std::string>& tags,
@@ -378,6 +378,23 @@ bool ValidateMarkupTags(const std::vector<std::string>& tags,
   }
   return true;
 }
+
+}  // namespace
+
+// static
+std::vector<std::string> AbpController::ComputeEffectiveMarkupTags(
+    const std::vector<std::string>& disable_tags) {
+  std::vector<std::string> effective;
+  for (const char* tag : kAllMarkupTags) {
+    if (std::find(disable_tags.begin(), disable_tags.end(), tag) ==
+        disable_tags.end()) {
+      effective.emplace_back(tag);
+    }
+  }
+  return effective;
+}
+
+namespace {
 
 // Parse path like "/api/v1/tabs/ABC123/navigate" into segments
 std::vector<std::string> ParsePath(const std::string& path) {

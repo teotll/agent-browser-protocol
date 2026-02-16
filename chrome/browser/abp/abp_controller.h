@@ -131,6 +131,12 @@ class AbpPageLoadObserver : public content::WebContentsObserver {
   LoadCallback callback_;
 };
 
+// All available markup tags for screenshot overlays.
+// These are all enabled by default; use disable_markup to turn off specific ones.
+inline constexpr const char* kAllMarkupTags[] = {
+    "clickable", "typeable", "scrollable", "grid", "selected"};
+inline constexpr size_t kAllMarkupTagsCount = 5;
+
 // Handles ABP REST API requests on the UI thread.
 // Provides direct access to browser windows and tabs.
 class AbpController {
@@ -174,6 +180,10 @@ class AbpController {
 
   void SetLifecycleObserverForTesting(LifecycleObserverCallback cb);
   static AbpController* GetInstanceForTesting();
+
+  // Compute effective markup tags = all tags minus disabled ones.
+  static std::vector<std::string> ComputeEffectiveMarkupTags(
+      const std::vector<std::string>& disable_tags);
 
   // Wrappers for RenderWidgetHostImpl ForceRedraw test counters.
   // Avoids exposing content/browser internal headers to test code.
