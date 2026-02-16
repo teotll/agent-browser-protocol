@@ -76,6 +76,111 @@ header .meta {
 
 header .meta span { margin-right: 16px; }
 
+.abp-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.abp-status {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: var(--input-bg);
+}
+
+.abp-status.running { color: var(--success); }
+.abp-status.stopped { color: var(--error); }
+
+.btn-sm {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--input-bg);
+  color: var(--text);
+  cursor: pointer;
+  font-family: var(--font-sans);
+}
+
+.btn-sm:hover { background: var(--border); }
+.btn-sm:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-sm.btn-stop { color: var(--error); }
+.btn-sm.btn-start { color: var(--success); }
+
+/* --- Launch Config Panel --- */
+
+.launch-config {
+  display: none;
+  background: var(--panel);
+  border-bottom: 2px solid var(--accent);
+  padding: 10px 16px;
+}
+
+.launch-config.visible { display: block; }
+
+.launch-config-inner {
+  max-width: 700px;
+}
+
+.lc-row {
+  margin-bottom: 8px;
+}
+
+.lc-row label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 3px;
+}
+
+.lc-row input[type="text"],
+.lc-row input[type="number"],
+.lc-row textarea {
+  width: 100%;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.lc-row input[type="number"] { width: 80px; }
+
+.lc-row textarea {
+  resize: vertical;
+  min-height: 36px;
+}
+
+.lc-row-inline {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+.lc-row-inline > div { flex-shrink: 0; }
+
+.lc-check {
+  display: flex !important;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  padding-bottom: 5px;
+}
+
+.lc-check input { accent-color: var(--accent); }
+
+.lc-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 .main {
   display: flex;
   flex: 1;
@@ -211,6 +316,38 @@ header .meta span { margin-right: 16px; }
 }
 
 .screenshot-check input { accent-color: var(--accent); }
+
+.screenshot-opts {
+  display: none;
+  padding: 6px 0 2px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+.screenshot-opts.visible { display: block; }
+
+.screenshot-opts .checkbox-group { margin-bottom: 6px; }
+
+.ss-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.ss-row select, .ss-row input {
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 4px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.ss-row select { width: 70px; }
+.ss-row input { width: 60px; }
 
 /* --- Result Box --- */
 
@@ -449,12 +586,52 @@ footer .status-dot.connected { background: var(--success); }
   <header>
     <h1>ABP Debug</h1>
     <div class="status-dot" id="header-status-dot" title="Disconnected"></div>
+    <div class="abp-controls">
+      <span class="abp-status" id="abp-status">ABP: checking...</span>
+      <button class="btn-sm btn-start" id="btn-start" title="Start ABP">Start</button>
+      <button class="btn-sm btn-stop" id="btn-stop" title="Stop ABP">Stop</button>
+      <button class="btn-sm btn-restart" id="btn-restart" title="Restart ABP">Restart</button>
+    </div>
     <div class="meta">
       <span id="header-abp-url"></span>
       <span id="header-session-dir"></span>
       <span id="header-action-count"></span>
     </div>
   </header>
+
+  <div class="launch-config" id="launch-config">
+    <div class="launch-config-inner">
+      <div class="lc-row">
+        <label>ABP Binary</label>
+        <input type="text" id="lc-executable" placeholder="(auto-detect) or /path/to/ABP">
+      </div>
+      <div class="lc-row">
+        <label>Session Dir</label>
+        <input type="text" id="lc-session-dir" placeholder="sessions/...">
+      </div>
+      <div class="lc-row lc-row-inline">
+        <div>
+          <label>Width</label>
+          <input type="number" id="lc-width" value="1280" min="400" max="3840" step="1">
+        </div>
+        <div>
+          <label>Height</label>
+          <input type="number" id="lc-height" value="800" min="300" max="2160" step="1">
+        </div>
+        <div>
+          <label class="lc-check"><input type="checkbox" id="lc-headless"> Headless</label>
+        </div>
+      </div>
+      <div class="lc-row">
+        <label>Extra Args <span style="color:var(--text-dim);font-weight:normal">(one per line, e.g. --disable-gpu)</span></label>
+        <textarea id="lc-extra-args" rows="2" placeholder="--flag1&#10;--flag2=value"></textarea>
+      </div>
+      <div class="lc-actions">
+        <button class="btn-sm btn-start" id="lc-launch">Launch ABP</button>
+        <button class="btn-sm" id="lc-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
 
   <div class="main">
     <div class="left-panel">
@@ -475,6 +652,25 @@ footer .status-dot.connected { background: var(--success); }
             <input type="checkbox" id="include-screenshots" checked>
             Screenshots
           </label>
+        </div>
+        <div id="screenshot-opts" class="screenshot-opts">
+          <div class="checkbox-group">
+            <label><input type="checkbox" name="ss-markup" value="clickable">clickable</label>
+            <label><input type="checkbox" name="ss-markup" value="typeable">typeable</label>
+            <label><input type="checkbox" name="ss-markup" value="scrollable">scrollable</label>
+            <label><input type="checkbox" name="ss-markup" value="grid">grid</label>
+          </div>
+          <div class="ss-row">
+            <label>format</label>
+            <select id="ss-format">
+              <option value="">(default)</option>
+              <option value="webp">webp</option>
+              <option value="png">png</option>
+              <option value="jpeg">jpeg</option>
+            </select>
+            <label>quality</label>
+            <input type="number" id="ss-quality" placeholder="1-100" min="1" max="100" step="1">
+          </div>
         </div>
       </div>
       <div class="result-section">
@@ -512,15 +708,17 @@ footer .status-dot.connected { background: var(--success); }
   // --- Action Definitions ---
 
   const ACTIONS = {
-    navigate:   { method: "POST", path: "/navigate", fields: [{ name: "url", type: "text", required: true }, { name: "referrer", type: "text" }] },
+    navigate:   { method: "POST", path: "/navigate", fields: [{ name: "url", type: "text", required: true }] },
     click:      { method: "POST", path: "/click", fields: [{ name: "x", type: "number", required: true }, { name: "y", type: "number", required: true }, { name: "button", type: "select", options: ["left", "right", "middle"] }, { name: "click_count", type: "number" }, { name: "modifiers", type: "modifiers" }] },
     type:       { method: "POST", path: "/type", fields: [{ name: "text", type: "text", required: true }] },
     keyPress:   { method: "POST", path: "/keyboard/press", fields: [{ name: "key", type: "text", required: true }, { name: "modifiers", type: "modifiers" }] },
+    keyDown:    { method: "POST", path: "/keyboard/down", fields: [{ name: "key", type: "text", required: true }] },
+    keyUp:      { method: "POST", path: "/keyboard/up", fields: [{ name: "key", type: "text", required: true }] },
     scroll:     { method: "POST", path: "/scroll", fields: [{ name: "x", type: "number", required: true }, { name: "y", type: "number", required: true }, { name: "delta_x", type: "number" }, { name: "delta_y", type: "number" }] },
     execute:    { method: "POST", path: "/execute", fields: [{ name: "script", type: "textarea", required: true }] },
     text:       { method: "POST", path: "/text", fields: [{ name: "selector", type: "text" }] },
     wait:       { method: "POST", path: "/wait", fields: [{ name: "ms", type: "number", required: true }] },
-    screenshot: { method: "POST", path: "/screenshot", fields: [{ name: "markup", type: "markup" }] },
+    screenshot: { method: "POST", path: "/screenshot", fields: [{ name: "markup", type: "markup" }, { name: "format", type: "select", options: ["webp", "png", "jpeg"] }, { name: "quality", type: "number" }] },
     back:       { method: "POST", path: "/back", fields: [] },
     forward:    { method: "POST", path: "/forward", fields: [] },
     reload:     { method: "POST", path: "/reload", fields: [] },
@@ -533,11 +731,25 @@ footer .status-dot.connected { background: var(--success); }
   const headerAbpUrl = document.getElementById("header-abp-url");
   const headerSessionDir = document.getElementById("header-session-dir");
   const headerActionCount = document.getElementById("header-action-count");
+  const abpStatusEl = document.getElementById("abp-status");
+  const btnStart = document.getElementById("btn-start");
+  const btnStop = document.getElementById("btn-stop");
+  const btnRestart = document.getElementById("btn-restart");
+  const launchConfig = document.getElementById("launch-config");
+  const lcExecutable = document.getElementById("lc-executable");
+  const lcSessionDir = document.getElementById("lc-session-dir");
+  const lcWidth = document.getElementById("lc-width");
+  const lcHeight = document.getElementById("lc-height");
+  const lcHeadless = document.getElementById("lc-headless");
+  const lcExtraArgs = document.getElementById("lc-extra-args");
+  const lcLaunch = document.getElementById("lc-launch");
+  const lcCancel = document.getElementById("lc-cancel");
   const tabSelect = document.getElementById("tab-select");
   const actionSelect = document.getElementById("action-select");
   const dynamicFields = document.getElementById("dynamic-fields");
   const btnExecute = document.getElementById("btn-execute");
   const includeScreenshots = document.getElementById("include-screenshots");
+  const screenshotOpts = document.getElementById("screenshot-opts");
   const resultBox = document.getElementById("result-box");
   const historyList = document.getElementById("history-list");
   const historyCount = document.getElementById("history-count");
@@ -553,6 +765,120 @@ footer .status-dot.connected { background: var(--success); }
   let sessionData = null;
   let sseConnected = false;
   let executing = false;
+  let abpRunning = false;
+  let abpPollTimer = null;
+
+  // --- ABP Status ---
+
+  async function pollAbpStatus() {
+    try {
+      const res = await fetch("/control/status");
+      if (!res.ok) return;
+      const data = await res.json();
+      // Populate defaults for launch config
+      if (data.session_dir && !lcSessionDir.dataset.default) {
+        lcSessionDir.dataset.default = data.session_dir;
+        if (!lcSessionDir.value) lcSessionDir.value = data.session_dir;
+      }
+      if (data.abp_binary && !lcExecutable.value) {
+        lcExecutable.value = data.abp_binary;
+      }
+      const wasRunning = abpRunning;
+      setAbpRunning(data.running);
+      if (data.running && !wasRunning) {
+        // Just came online — refresh tabs
+        loadTabs();
+      }
+    } catch {
+      // Debug server itself is down
+    }
+  }
+
+  function setAbpRunning(running) {
+    abpRunning = running;
+    abpStatusEl.textContent = running ? "ABP: running" : "ABP: stopped";
+    abpStatusEl.className = "abp-status " + (running ? "running" : "stopped");
+    btnStart.disabled = running;
+    btnStop.disabled = !running;
+    btnExecute.disabled = !running && executing;
+  }
+
+  function setControlsLoading(label) {
+    btnStart.disabled = true;
+    btnStop.disabled = true;
+    btnRestart.disabled = true;
+    abpStatusEl.textContent = "ABP: " + label;
+    abpStatusEl.className = "abp-status";
+  }
+
+  function buildLaunchBody() {
+    const body = {};
+    const ep = lcExecutable.value.trim();
+    if (ep) body.executable_path = ep;
+    const sd = lcSessionDir.value.trim();
+    if (sd) body.session_dir = sd;
+    const w = parseInt(lcWidth.value, 10);
+    const h = parseInt(lcHeight.value, 10);
+    if (w > 0) body.window_width = w;
+    if (h > 0) body.window_height = h;
+    if (lcHeadless.checked) body.headless = true;
+    const extra = lcExtraArgs.value.trim();
+    if (extra) {
+      body.extra_args = extra.split("\n").map(function(s) { return s.trim(); }).filter(Boolean);
+    }
+    return body;
+  }
+
+  function showLaunchConfig(isRestart) {
+    // Populate defaults from current status
+    if (!lcSessionDir.value) {
+      lcSessionDir.value = lcSessionDir.dataset.default || "";
+    }
+    launchConfig.classList.add("visible");
+    launchConfig.dataset.mode = isRestart ? "restart" : "start";
+    lcLaunch.textContent = isRestart ? "Restart ABP" : "Launch ABP";
+  }
+
+  function hideLaunchConfig() {
+    launchConfig.classList.remove("visible");
+  }
+
+  async function doLaunch() {
+    const mode = launchConfig.dataset.mode || "start";
+    hideLaunchConfig();
+    setControlsLoading(mode === "restart" ? "restarting..." : "starting...");
+    const body = buildLaunchBody();
+    try {
+      const res = await fetch("/control/" + mode, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!data.ok && data.error) {
+        resultBox.textContent = "ABP " + mode + " error: " + data.error;
+      }
+    } catch (err) {
+      resultBox.textContent = "ABP " + mode + " failed: " + err.message;
+    }
+    await pollAbpStatus();
+    btnRestart.disabled = false;
+    if (abpRunning) loadTabs();
+  }
+
+  async function stopAbpFromUi() {
+    setControlsLoading("stopping...");
+    try {
+      const res = await fetch("/control/stop", { method: "POST" });
+      const data = await res.json();
+      if (!data.ok && data.error) {
+        resultBox.textContent = "ABP stop error: " + data.error;
+      }
+    } catch (err) {
+      resultBox.textContent = "ABP stop failed: " + err.message;
+    }
+    await pollAbpStatus();
+  }
 
   // --- Helpers ---
 
@@ -654,6 +980,16 @@ footer .status-dot.connected { background: var(--success); }
     }
     actionSelect.addEventListener("change", buildFields);
     buildFields();
+
+    // Toggle screenshot options visibility
+    function updateScreenshotOptsVisibility() {
+      const isScreenshotAction = actionSelect.value === "screenshot";
+      // Hide the global screenshot opts when the action IS "screenshot" (it has its own fields)
+      screenshotOpts.classList.toggle("visible", includeScreenshots.checked && !isScreenshotAction);
+    }
+    includeScreenshots.addEventListener("change", updateScreenshotOptsVisibility);
+    actionSelect.addEventListener("change", updateScreenshotOptsVisibility);
+    updateScreenshotOptsVisibility();
   }
 
   // --- Dynamic Fields ---
@@ -747,6 +1083,45 @@ footer .status-dot.connected { background: var(--success); }
 
       dynamicFields.appendChild(row);
     }
+
+    // wait_until envelope (all actions)
+    const sep = document.createElement("div");
+    sep.className = "form-row";
+    sep.innerHTML = '<label style="color:var(--text-dim);font-size:11px;border-top:1px solid var(--border);padding-top:8px;margin-top:4px">Wait Until (optional)</label>';
+    dynamicFields.appendChild(sep);
+
+    const wuRow = document.createElement("div");
+    wuRow.className = "form-row";
+    const wuLabel = document.createElement("label");
+    wuLabel.textContent = "type";
+    wuRow.appendChild(wuLabel);
+    const wuSelect = document.createElement("select");
+    wuSelect.dataset.fieldName = "wait_until_type";
+    wuSelect.dataset.fieldType = "select";
+    for (const opt of ["", "text", "url", "network_idle", "time"]) {
+      const o = document.createElement("option");
+      o.value = opt;
+      o.textContent = opt || "(none)";
+      wuSelect.appendChild(o);
+    }
+    wuRow.appendChild(wuSelect);
+    dynamicFields.appendChild(wuRow);
+
+    const wuDetail = document.createElement("div");
+    wuDetail.id = "wait-until-detail";
+    dynamicFields.appendChild(wuDetail);
+
+    wuSelect.addEventListener("change", function() {
+      wuDetail.innerHTML = "";
+      const t = wuSelect.value;
+      if (t === "text") {
+        wuDetail.innerHTML = '<div class="form-row"><label>text</label><input type="text" data-field-name="wait_until_text" placeholder="text to wait for"></div>';
+      } else if (t === "url") {
+        wuDetail.innerHTML = '<div class="form-row"><label>url</label><input type="text" data-field-name="wait_until_url" placeholder="url pattern"></div>';
+      } else if (t === "time") {
+        wuDetail.innerHTML = '<div class="form-row"><label>ms</label><input type="number" data-field-name="wait_until_ms" placeholder="milliseconds" step="any"></div>';
+      }
+    });
   }
 
   // --- Build Request Body ---
@@ -781,12 +1156,40 @@ footer .status-dot.connected { background: var(--success); }
       if (body.markup && body.markup.length > 0) {
         screenshotObj.markup = body.markup;
       }
+      if (body.format) screenshotObj.format = body.format;
+      if (body.quality != null) screenshotObj.quality = body.quality;
       delete body.markup;
+      delete body.format;
+      delete body.quality;
       return { screenshot: screenshotObj };
     }
 
     if (includeScreenshots.checked) {
-      body.screenshot = { area: "viewport" };
+      const ssObj = { area: "viewport" };
+      const ssMarkup = $$('input[name="ss-markup"]:checked', screenshotOpts).map(function(cb) { return cb.value; });
+      if (ssMarkup.length > 0) ssObj.markup = ssMarkup;
+      const ssFmt = document.getElementById("ss-format").value;
+      if (ssFmt) ssObj.format = ssFmt;
+      const ssQual = document.getElementById("ss-quality").value;
+      if (ssQual !== "") ssObj.quality = parseInt(ssQual, 10);
+      body.screenshot = ssObj;
+    }
+
+    // wait_until envelope
+    const waitUntilType = $('[data-field-name="wait_until_type"]', dynamicFields);
+    if (waitUntilType && waitUntilType.value) {
+      const wt = { type: waitUntilType.value };
+      if (wt.type === "text") {
+        const v = $('[data-field-name="wait_until_text"]', dynamicFields);
+        if (v && v.value) wt.text = v.value;
+      } else if (wt.type === "url") {
+        const v = $('[data-field-name="wait_until_url"]', dynamicFields);
+        if (v && v.value) wt.url = v.value;
+      } else if (wt.type === "time") {
+        const v = $('[data-field-name="wait_until_ms"]', dynamicFields);
+        if (v && v.value !== "") wt.ms = parseInt(v.value, 10);
+      }
+      body.wait_until = wt;
     }
 
     return body;
@@ -1008,6 +1411,17 @@ footer .status-dot.connected { background: var(--success); }
         const data = JSON.parse(e.data);
         if (data.type === "refresh") {
           refreshHistory();
+        } else if (data.type === "abp_status") {
+          setAbpRunning(data.running);
+          if (data.running) loadTabs();
+        } else if (data.type === "session_changed") {
+          // DB was re-opened on server side, reload everything
+          loadSession();
+          refreshHistory();
+          if (data.session_dir) {
+            lcSessionDir.value = data.session_dir;
+            lcSessionDir.dataset.default = data.session_dir;
+          }
         }
       } catch {
         // Ignore malformed messages
@@ -1046,6 +1460,13 @@ footer .status-dot.connected { background: var(--success); }
     populateActionSelect();
     btnExecute.addEventListener("click", executeAction);
 
+    // ABP control buttons
+    btnStart.addEventListener("click", function() { showLaunchConfig(false); });
+    btnStop.addEventListener("click", function() { stopAbpFromUi(); });
+    btnRestart.addEventListener("click", function() { showLaunchConfig(true); });
+    lcLaunch.addEventListener("click", doLaunch);
+    lcCancel.addEventListener("click", hideLaunchConfig);
+
     // Allow Ctrl+Enter / Cmd+Enter to execute
     document.addEventListener("keydown", function(e) {
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !executing) {
@@ -1057,7 +1478,11 @@ footer .status-dot.connected { background: var(--success); }
       loadSession(),
       loadTabs(),
       refreshHistory(),
+      pollAbpStatus(),
     ]);
+
+    // Poll ABP status every 5 seconds
+    abpPollTimer = setInterval(pollAbpStatus, 5000);
 
     connectSSE();
   }

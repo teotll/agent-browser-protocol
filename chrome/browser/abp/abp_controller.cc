@@ -703,15 +703,15 @@ void AbpController::GetSessionData(ResponseCallback callback) {
   base::Value::Dict data;
 
   if (history_controller_) {
-    base::FilePath abs_session_dir =
-        base::MakeAbsoluteFilePath(history_controller_->SessionDir());
-    data.Set("session_dir", abs_session_dir.AsUTF8Unsafe());
+    // Session dir is already resolved to an absolute path during config loading.
+    const base::FilePath& session_dir = history_controller_->SessionDir();
+    data.Set("session_dir", session_dir.AsUTF8Unsafe());
     data.Set("database_path",
-             abs_session_dir
+             session_dir
                  .Append(history_controller_->DatabasePath().BaseName())
                  .AsUTF8Unsafe());
     data.Set("screenshots_dir",
-             abs_session_dir
+             session_dir
                  .Append(
                      history_controller_->ScreenshotsDirectory().BaseName())
                  .AsUTF8Unsafe());
@@ -2930,7 +2930,8 @@ void AbpController::OnVirtualTimeResumed(const std::string& tab_id,
                                          bool success,
                                          const std::string& result) {
   if (success) {
-    VLOG(1) << "ABP: Emulation.setVirtualTimePolicy (realtime) succeeded for tab " << tab_id;
+    LOG(INFO) << "ABP: Emulation.setVirtualTimePolicy (realtime) succeeded for tab " << tab_id
+              << " result=" << result;
   } else {
     LOG(WARNING) << "ABP: Emulation.setVirtualTimePolicy (realtime) failed for tab " << tab_id
                  << " - " << result;
@@ -3100,7 +3101,8 @@ void AbpController::PauseExecution(const std::string& tab_id,
   base::Value::Dict params;
   params.Set("policy", "pause");
 
-  VLOG(1) << "ABP: Sending Emulation.setVirtualTimePolicy (pause) for tab " << tab_id;
+  LOG(INFO) << "ABP: Sending Emulation.setVirtualTimePolicy (pause) for tab " << tab_id
+            << " phase=" << static_cast<int>(state.phase);
   client->SendCommand(
       "Emulation.setVirtualTimePolicy", params,
       base::BindOnce(&AbpController::OnVirtualTimePaused,
@@ -3161,7 +3163,8 @@ void AbpController::OnVirtualTimePaused(const std::string& tab_id,
                                         const std::string& result) {
   // Log CDP ground truth
   if (success) {
-    VLOG(1) << "ABP: Emulation.setVirtualTimePolicy (pause) succeeded for tab " << tab_id;
+    LOG(INFO) << "ABP: Emulation.setVirtualTimePolicy (pause) succeeded for tab " << tab_id
+              << " result=" << result;
   } else {
     LOG(WARNING) << "ABP: Emulation.setVirtualTimePolicy (pause) failed for tab " << tab_id
                  << " - " << result;

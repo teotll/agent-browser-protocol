@@ -3,8 +3,10 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
+import { getExecutablePath } from "../paths.js";
 
 // --- CLI Arg Parsing ---
 
@@ -12,12 +14,41 @@ interface DebugArgs {
   port: number;
   abpUrl: string;
   sessionDir: string;
+  sessionDirExplicit: boolean; // true if --session-dir was provided by user
+  abpBinary: string;
+}
+
+function findAbpBinary(explicit?: string): string {
+  // 1. Explicitly provided path
+  if (explicit && fs.existsSync(explicit)) return explicit;
+  // 2. ABP_BROWSER_PATH env var
+  if (process.env.ABP_BROWSER_PATH && fs.existsSync(process.env.ABP_BROWSER_PATH)) {
+    return process.env.ABP_BROWSER_PATH;
+  }
+  // 3. getExecutablePath() from paths.ts (browsers/ dir for installed package)
+  try {
+    const p = getExecutablePath();
+    if (fs.existsSync(p)) return p;
+  } catch { /* not found */ }
+  // 4. Common dev build locations relative to cwd
+  const devPaths = [
+    "out/Default/ABP.app/Contents/MacOS/ABP",
+    "../out/Default/ABP.app/Contents/MacOS/ABP",
+    "../../out/Default/ABP.app/Contents/MacOS/ABP",
+  ];
+  for (const rel of devPaths) {
+    const p = path.resolve(process.cwd(), rel);
+    if (fs.existsSync(p)) return p;
+  }
+  return "";
 }
 
 function parseArgs(argv: string[]): DebugArgs {
   let port = 8223;
   let abpUrl = "http://localhost:8222";
   let sessionDir = "";
+  let sessionDirExplicit = false;
+  let abpBinary = "";
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
@@ -31,19 +62,30 @@ function parseArgs(argv: string[]): DebugArgs {
       abpUrl = arg.split("=").slice(1).join("=");
     } else if (arg === "--session-dir" && i + 1 < argv.length) {
       sessionDir = argv[++i];
+      sessionDirExplicit = true;
     } else if (arg.startsWith("--session-dir=")) {
       sessionDir = arg.split("=").slice(1).join("=");
+      sessionDirExplicit = true;
+    } else if (arg === "--abp-binary" && i + 1 < argv.length) {
+      abpBinary = argv[++i];
+    } else if (arg.startsWith("--abp-binary=")) {
+      abpBinary = arg.split("=").slice(1).join("=");
     } else if (arg === "--help" || arg === "-h") {
       console.log(`abp-debug — ABP Debug Server
 
 Usage:
-  abp-debug --session-dir <path> [options]
+  abp-debug [options]
 
 Options:
-  --session-dir <path>   Path to ABP session directory (required)
+  --session-dir <path>   Path to ABP session directory (default: auto-detect from running ABP)
+  --abp-binary <path>    Path to ABP browser binary (auto-detected)
   --port <port>          Debug server port (default: 8223)
   --abp-url <url>        ABP base URL (default: http://localhost:8222)
-  --help, -h             Show this help message`);
+  --help, -h             Show this help message
+
+If --session-dir is not provided, the debug server will query the running ABP
+instance for its session directory. If ABP is not running, a new session
+directory will be created under sessions/.`);
       process.exit(0);
     } else {
       console.error(`Unknown option: ${arg}\nRun with --help for usage.`);
@@ -52,11 +94,13 @@ Options:
   }
 
   if (!sessionDir) {
-    console.error("Error: --session-dir is required.\nRun with --help for usage.");
-    process.exit(1);
+    const ts = new Date().toISOString().replace(/[:\-T]/g, "").slice(0, 15);
+    sessionDir = path.join(process.cwd(), "sessions", ts);
   }
 
-  return { port, abpUrl: abpUrl.replace(/\/+$/, ""), sessionDir: path.resolve(sessionDir) };
+  abpBinary = findAbpBinary(abpBinary);
+
+  return { port, abpUrl: abpUrl.replace(/\/+$/, ""), sessionDir: path.resolve(sessionDir), sessionDirExplicit, abpBinary };
 }
 
 // --- SQLite ---
@@ -104,6 +148,42 @@ function getMaxActionId(db: Database.Database, sessionId: string): number {
   return row.max_id || 0;
 }
 
+// --- Fetch Session Data from running ABP ---
+
+interface AbpSessionData {
+  session_dir: string;
+  database_path: string;
+  screenshots_dir: string;
+}
+
+async function fetchAbpSessionData(abpUrl: string): Promise<AbpSessionData | null> {
+  return new Promise((resolve) => {
+    const url = new URL("/api/v1/browser/session-data", abpUrl);
+    const req = http.get(url, { timeout: 3000, family: 4 }, (res) => {
+      let body = "";
+      res.on("data", (chunk: Buffer) => { body += chunk; });
+      res.on("end", () => {
+        try {
+          const json = JSON.parse(body);
+          if (json.success && json.data?.session_dir) {
+            resolve({
+              session_dir: json.data.session_dir,
+              database_path: json.data.database_path,
+              screenshots_dir: json.data.screenshots_dir,
+            });
+          } else {
+            resolve(null);
+          }
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+    req.on("error", () => resolve(null));
+    req.on("timeout", () => { req.destroy(); resolve(null); });
+  });
+}
+
 // --- API Proxy ---
 
 function proxyToAbp(
@@ -126,6 +206,7 @@ function proxyToAbp(
           host: targetUrl.host,
         },
         timeout: 60000,
+        family: 4,
       },
       (proxyRes) => {
         res.writeHead(proxyRes.statusCode || 500, proxyRes.headers);
@@ -156,6 +237,203 @@ function broadcastSSE(data: string): void {
   }
 }
 
+// --- ABP Process Management ---
+
+let abpProcess: ChildProcess | null = null;
+
+function getAbpPort(abpUrl: string): number {
+  try {
+    return parseInt(new URL(abpUrl).port, 10) || 8222;
+  } catch {
+    return 8222;
+  }
+}
+
+async function checkAbpStatus(abpUrl: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const url = new URL("/api/v1/browser/status", abpUrl);
+    // Force IPv4 — ABP listens on 127.0.0.1, not ::1
+    const req = http.get(url, { timeout: 2000, family: 4 }, (res) => {
+      let body = "";
+      res.on("data", (chunk: Buffer) => { body += chunk; });
+      res.on("end", () => {
+        try {
+          const data = JSON.parse(body);
+          resolve(data.success === true);
+        } catch {
+          resolve(false);
+        }
+      });
+    });
+    req.on("error", () => resolve(false));
+    req.on("timeout", () => { req.destroy(); resolve(false); });
+  });
+}
+
+interface LaunchConfig {
+  sessionDir: string;
+  executablePath?: string;
+  windowWidth?: number;
+  windowHeight?: number;
+  headless?: boolean;
+  extraArgs?: string[];
+}
+
+async function startAbp(abpUrl: string, config: LaunchConfig): Promise<{ ok: boolean; error?: string }> {
+  if (abpProcess && abpProcess.exitCode === null) {
+    return { ok: false, error: "ABP process already running" };
+  }
+
+  // Check if ABP is already reachable (started externally)
+  if (await checkAbpStatus(abpUrl)) {
+    return { ok: false, error: "ABP is already running at " + abpUrl };
+  }
+
+  const port = getAbpPort(abpUrl);
+  const binaryPath = config.executablePath;
+  if (!binaryPath) {
+    return { ok: false, error: "ABP binary not found. Set --abp-binary, ABP_BROWSER_PATH, or specify in launch config." };
+  }
+  if (!fs.existsSync(binaryPath)) {
+    return { ok: false, error: `ABP binary not found at: ${binaryPath}` };
+  }
+
+  // Ensure session dir exists
+  const sessionDir = config.sessionDir;
+  if (!fs.existsSync(sessionDir)) {
+    fs.mkdirSync(sessionDir, { recursive: true });
+  }
+
+  const launchArgs = [
+    `--abp-port=${port}`,
+    `--abp-session-dir=${sessionDir}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+  ];
+
+  const w = config.windowWidth || 1280;
+  const h = config.windowHeight || 800;
+  launchArgs.push(`--abp-window-size=${w},${h}`);
+
+  if (config.headless) {
+    launchArgs.push("--headless=new");
+  }
+
+  if (config.extraArgs && config.extraArgs.length > 0) {
+    launchArgs.push(
+      ...config.extraArgs.map((a) => (a === "--headless" ? "--headless=new" : a)),
+    );
+  }
+
+  console.log(`Starting ABP: ${binaryPath}`);
+  console.log(`  Args: ${launchArgs.join(" ")}`);
+
+  try {
+    abpProcess = spawn(binaryPath, launchArgs, {
+      stdio: ["ignore", "ignore", "pipe"],
+      detached: false,
+    });
+
+    let stderrOutput = "";
+    if (abpProcess.stderr) {
+      abpProcess.stderr.on("data", (chunk: Buffer) => {
+        stderrOutput += chunk.toString();
+      });
+    }
+
+    abpProcess.on("error", (err) => {
+      console.error(`ABP process error: ${err.message}`);
+      abpProcess = null;
+    });
+
+    abpProcess.on("exit", (code) => {
+      console.log(`ABP process exited with code ${code}`);
+      abpProcess = null;
+      broadcastSSE(JSON.stringify({ type: "abp_status", running: false }));
+    });
+
+    // Wait for ABP to become ready (up to 15s)
+    const start = Date.now();
+    while (Date.now() - start < 15000) {
+      // Process already exited — don't wait the full timeout
+      if (!abpProcess || abpProcess.exitCode !== null) {
+        const hint = stderrOutput.trim().slice(0, 200);
+        return { ok: false, error: "ABP process exited immediately" + (hint ? ": " + hint : "") };
+      }
+      if (await checkAbpStatus(abpUrl)) {
+        broadcastSSE(JSON.stringify({ type: "abp_status", running: true }));
+        return { ok: true };
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+
+    // Timed out
+    if (abpProcess) {
+      abpProcess.kill();
+      abpProcess = null;
+    }
+    const hint = stderrOutput.trim().slice(0, 200);
+    return { ok: false, error: "ABP failed to start within 15 seconds" + (hint ? ": " + hint : "") };
+  } catch (err) {
+    return { ok: false, error: `Failed to spawn ABP: ${(err as Error).message}` };
+  }
+}
+
+async function stopAbp(abpUrl: string): Promise<{ ok: boolean; error?: string }> {
+  // Try graceful shutdown via API first
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const url = new URL("/api/v1/browser/shutdown", abpUrl);
+      const req = http.request(url, { method: "POST", timeout: 5000, family: 4 }, (res) => {
+        res.resume();
+        res.on("end", () => resolve());
+      });
+      req.on("error", () => reject());
+      req.on("timeout", () => { req.destroy(); reject(); });
+      req.end(JSON.stringify({ timeout_ms: 5000 }));
+    });
+  } catch {
+    // API not reachable, try killing process directly
+  }
+
+  if (abpProcess && abpProcess.exitCode === null) {
+    abpProcess.kill("SIGTERM");
+    // Wait up to 5s for exit
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        if (abpProcess && abpProcess.exitCode === null) {
+          abpProcess.kill("SIGKILL");
+        }
+        resolve();
+      }, 5000);
+      if (abpProcess) {
+        abpProcess.on("exit", () => { clearTimeout(timeout); resolve(); });
+      } else {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+    abpProcess = null;
+  }
+
+  broadcastSSE(JSON.stringify({ type: "abp_status", running: false }));
+  return { ok: true };
+}
+
+function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString()));
+      } catch {
+        resolve({});
+      }
+    });
+  });
+}
+
 // --- HTML ---
 
 function getHtmlPath(): string {
@@ -170,18 +448,64 @@ function getHtmlPath(): string {
 
 // --- Main ---
 
-function main() {
+async function main() {
   const args = parseArgs(process.argv);
-  const db = openDatabase(args.sessionDir);
-  const session = getSession(db);
+  let currentSessionDir = args.sessionDir;
+  let db: Database.Database | null = null;
+  let sessionId = "";
+  let lastMaxId = 0;
+  let watcher: fs.FSWatcher | null = null;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  if (!session) {
-    console.error("Error: No session found in database.");
-    process.exit(1);
+  function openSessionDb(sessionDir: string): boolean {
+    const dbPath = path.join(sessionDir, "history.db");
+    if (!fs.existsSync(dbPath)) return false;
+    try {
+      if (db) db.close();
+    } catch { /* ignore */ }
+    db = new Database(dbPath, { readonly: true });
+    db.pragma("busy_timeout = 5000");
+    const session = getSession(db);
+    if (!session) return false;
+    sessionId = session.id as string;
+    lastMaxId = getMaxActionId(db, sessionId);
+    currentSessionDir = sessionDir;
+
+    // Restart watcher on new dir
+    if (watcher) watcher.close();
+    watcher = fs.watch(sessionDir, { recursive: true }, () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        try {
+          if (!db) return;
+          const newMaxId = getMaxActionId(db, sessionId);
+          if (newMaxId > lastMaxId) {
+            lastMaxId = newMaxId;
+            broadcastSSE(JSON.stringify({ type: "refresh", maxId: newMaxId }));
+          }
+        } catch {
+          // DB might be briefly locked during write
+        }
+      }, 200);
+    });
+    return true;
   }
 
-  const sessionId = session.id as string;
-  let lastMaxId = getMaxActionId(db, sessionId);
+  // If --session-dir was not explicitly provided, try to discover from running ABP
+  if (!args.sessionDirExplicit) {
+    const sessionData = await fetchAbpSessionData(args.abpUrl);
+    if (sessionData) {
+      currentSessionDir = sessionData.session_dir;
+      console.log(`Attached to running ABP at ${args.abpUrl}`);
+      console.log(`  Session dir: ${sessionData.session_dir}`);
+    }
+  }
+
+  // Try to open initial DB (may not exist yet if ABP hasn't been started)
+  const dbOpened = openSessionDb(currentSessionDir);
+  if (!dbOpened) {
+    console.log("Note: No session database found yet. Start ABP to create one.");
+  }
 
   // Load HTML
   const htmlPath = getHtmlPath();
@@ -191,25 +515,8 @@ function main() {
   }
   const html = fs.readFileSync(htmlPath, "utf-8");
 
-  // fs.watch for real-time updates
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  const watcher = fs.watch(args.sessionDir, { recursive: true }, () => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      try {
-        const newMaxId = getMaxActionId(db, sessionId);
-        if (newMaxId > lastMaxId) {
-          lastMaxId = newMaxId;
-          broadcastSSE(JSON.stringify({ type: "refresh", maxId: newMaxId }));
-        }
-      } catch {
-        // DB might be briefly locked during write
-      }
-    }, 200);
-  });
-
   // HTTP server
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || "/", `http://localhost:${args.port}`);
     const pathname = url.pathname;
 
@@ -234,17 +541,43 @@ function main() {
 
     // --- Data endpoints (SQLite) ---
     if (req.method === "GET" && pathname === "/data/session") {
+      // Try to open DB if not yet available
+      if (!db) {
+        // If session dir wasn't explicit, try to discover from ABP
+        if (!args.sessionDirExplicit) {
+          const sessionData = await fetchAbpSessionData(args.abpUrl);
+          if (sessionData) {
+            currentSessionDir = sessionData.session_dir;
+          }
+        }
+        if (!openSessionDb(currentSessionDir)) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            session: null,
+            session_dir: currentSessionDir,
+            abp_url: args.abpUrl,
+            action_count: 0,
+          }));
+          return;
+        }
+      }
+      const session = db ? getSession(db) : null;
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
         session,
-        session_dir: args.sessionDir,
+        session_dir: currentSessionDir,
         abp_url: args.abpUrl,
-        action_count: getMaxActionId(db, sessionId),
+        action_count: db && sessionId ? getMaxActionId(db, sessionId) : 0,
       }));
       return;
     }
 
     if (req.method === "GET" && pathname === "/data/actions") {
+      if (!db || !sessionId) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end("[]");
+        return;
+      }
       const actions = getActions(db, sessionId);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(actions));
@@ -253,6 +586,11 @@ function main() {
 
     const actionMatch = pathname.match(/^\/data\/actions\/(\d+)$/);
     if (req.method === "GET" && actionMatch) {
+      if (!db) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "No database" }));
+        return;
+      }
       const action = getAction(db, actionMatch[1]);
       if (!action) {
         res.writeHead(404, { "Content-Type": "application/json" });
@@ -267,8 +605,8 @@ function main() {
     const screenshotMatch = pathname.match(/^\/data\/screenshots\/(.+)$/);
     if (req.method === "GET" && screenshotMatch) {
       const filename = decodeURIComponent(screenshotMatch[1]);
-      const screenshotPath = path.join(args.sessionDir, "screenshots", filename);
-      const allowedDir = path.join(args.sessionDir, "screenshots") + path.sep;
+      const screenshotPath = path.join(currentSessionDir, "screenshots", filename);
+      const allowedDir = path.join(currentSessionDir, "screenshots") + path.sep;
       if (!screenshotPath.startsWith(allowedDir)) {
         res.writeHead(403, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Forbidden" }));
@@ -291,6 +629,111 @@ function main() {
       return;
     }
 
+    // --- ABP Control ---
+    if (req.method === "GET" && pathname === "/control/status") {
+      const running = await checkAbpStatus(args.abpUrl);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        running,
+        managed: abpProcess !== null,
+        session_dir: currentSessionDir,
+        default_session_dir: args.sessionDir,
+        abp_binary: args.abpBinary,
+      }));
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/control/attach") {
+      const sessionData = await fetchAbpSessionData(args.abpUrl);
+      if (!sessionData) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "Could not reach ABP or get session data" }));
+        return;
+      }
+      currentSessionDir = sessionData.session_dir;
+      const opened = openSessionDb(currentSessionDir);
+      if (opened) {
+        broadcastSSE(JSON.stringify({ type: "session_changed", session_dir: currentSessionDir }));
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        ok: true,
+        session_dir: sessionData.session_dir,
+        database_path: sessionData.database_path,
+        screenshots_dir: sessionData.screenshots_dir,
+        db_opened: opened,
+      }));
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/control/start") {
+      const body = await readJsonBody(req);
+      const sessionDir = (body.session_dir as string) || currentSessionDir;
+      const config: LaunchConfig = {
+        sessionDir: path.resolve(sessionDir),
+        executablePath: (body.executable_path as string) || args.abpBinary,
+        windowWidth: body.window_width as number | undefined,
+        windowHeight: body.window_height as number | undefined,
+        headless: body.headless as boolean | undefined,
+        extraArgs: body.extra_args as string[] | undefined,
+      };
+      const result = await startAbp(args.abpUrl, config);
+      if (result.ok) {
+        // Wait a moment for ABP to create the DB, then try to open it
+        const tryOpen = async () => {
+          for (let i = 0; i < 10; i++) {
+            if (openSessionDb(config.sessionDir)) {
+              broadcastSSE(JSON.stringify({ type: "session_changed", session_dir: config.sessionDir }));
+              return;
+            }
+            await new Promise((r) => setTimeout(r, 500));
+          }
+        };
+        tryOpen();
+      }
+      res.writeHead(result.ok ? 200 : 400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/control/stop") {
+      const result = await stopAbp(args.abpUrl);
+      res.writeHead(result.ok ? 200 : 400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/control/restart") {
+      const body = await readJsonBody(req);
+      await stopAbp(args.abpUrl);
+      await new Promise((r) => setTimeout(r, 1000));
+      const sessionDir = (body.session_dir as string) || currentSessionDir;
+      const config: LaunchConfig = {
+        sessionDir: path.resolve(sessionDir),
+        executablePath: (body.executable_path as string) || args.abpBinary,
+        windowWidth: body.window_width as number | undefined,
+        windowHeight: body.window_height as number | undefined,
+        headless: body.headless as boolean | undefined,
+        extraArgs: body.extra_args as string[] | undefined,
+      };
+      const result = await startAbp(args.abpUrl, config);
+      if (result.ok) {
+        const tryOpen = async () => {
+          for (let i = 0; i < 10; i++) {
+            if (openSessionDb(config.sessionDir)) {
+              broadcastSSE(JSON.stringify({ type: "session_changed", session_dir: config.sessionDir }));
+              return;
+            }
+            await new Promise((r) => setTimeout(r, 500));
+          }
+        };
+        tryOpen();
+      }
+      res.writeHead(result.ok ? 200 : 400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+
     // --- Proxy to ABP ---
     if (pathname.startsWith("/api/v1/")) {
       proxyToAbp(args.abpUrl, req, res);
@@ -306,15 +749,16 @@ function main() {
     console.log(`ABP Debug Server`);
     console.log(`  UI:          http://localhost:${args.port}`);
     console.log(`  ABP:         ${args.abpUrl}`);
-    console.log(`  Session dir: ${args.sessionDir}`);
-    console.log(`  Session:     ${sessionId}`);
+    console.log(`  Binary:      ${args.abpBinary || "(not found)"}`);
+    console.log(`  Session dir: ${currentSessionDir}`);
+    if (sessionId) console.log(`  Session:     ${sessionId}`);
     console.log(`\nPress Ctrl+C to stop.\n`);
   });
 
   const shutdown = () => {
     console.log("\nShutting down...");
-    watcher.close();
-    db.close();
+    if (watcher) watcher.close();
+    if (db) db.close();
     server.close();
     process.exit(0);
   };

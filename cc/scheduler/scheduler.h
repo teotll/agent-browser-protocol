@@ -325,6 +325,8 @@ class CC_EXPORT Scheduler : public viz::BeginFrameObserverBase {
   // Tracks the last translated frame_time when virtual time offset is applied.
   // Ensures monotonicity despite IPC latency jitter in offset computation.
   base::TimeTicks last_translated_frame_time_;
+  // Tracks the last virtual ticks value to detect frozen virtual time.
+  base::TimeTicks last_virtual_ticks_;
   viz::BeginFrameAck last_begin_frame_ack_;
   viz::BeginFrameArgs begin_main_frame_args_;
 

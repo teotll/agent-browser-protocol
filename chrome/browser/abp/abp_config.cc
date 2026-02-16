@@ -156,6 +156,16 @@ AbpConfig LoadAbpConfig() {
   base::FilePath session_dir;
   if (command_line->HasSwitch(switches::kAbpSessionDir)) {
     session_dir = command_line->GetSwitchValuePath(switches::kAbpSessionDir);
+    // Resolve to absolute path now (during startup) since blocking filesystem
+    // calls cannot run on the UI thread after DisallowBlocking is set.
+    // MakeAbsoluteFilePath requires the path to exist (uses realpath), so
+    // prepend the current directory for relative paths instead.
+    if (!session_dir.empty() && !session_dir.IsAbsolute()) {
+      base::FilePath cwd;
+      if (base::GetCurrentDirectory(&cwd)) {
+        session_dir = cwd.Append(session_dir);
+      }
+    }
   }
 
   // Check --abp-config flag for config file

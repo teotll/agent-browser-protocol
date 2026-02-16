@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/auto_reset.h"
+#include "base/logging.h"
 #include "base/check_op.h"
 #include "base/feature_list.h"
 #include "base/functional/bind.h"
@@ -519,6 +520,12 @@ void Scheduler::BeginImplFrameWithDeadline(
   // deadline delay computation (deadline - Now()) yields a huge value.
   // Translating args to virtual time fixes scheduling while keeping CSS
   // animations consistent with blink's virtual time.
+  //
+  // Two cases:
+  // 1. Virtual time is frozen (kPause): virtual_ticks == last_virtual_ticks_.
+  //    Use the frozen value as frame_time so CSS animations don't advance.
+  // 2. Virtual time is advancing (kRealtime/kAdvance): offset may be large.
+  //    Subtract offset from frame_time so deadlines are relative to Now().
   viz::BeginFrameArgs args = args_in;
   {
     auto real_ticks = base::subtle::TimeTicksNowIgnoringOverride();
@@ -527,6 +534,20 @@ void Scheduler::BeginImplFrameWithDeadline(
       base::TimeDelta offset = real_ticks - virtual_ticks;
       args.frame_time -= offset;
       args.deadline -= offset;
+
+      // Detect frozen virtual time: if virtual_ticks hasn't changed since
+      // the last frame, virtual time is paused. Pin frame_time to the frozen
+      // value so CSS animations see no time progression.
+      bool virtual_time_frozen =
+          !last_virtual_ticks_.is_null() &&
+          virtual_ticks == last_virtual_ticks_;
+      if (virtual_time_frozen && !last_translated_frame_time_.is_null()) {
+        args.frame_time = last_translated_frame_time_;
+        // Set deadline 16ms after frame_time for normal scheduling.
+        args.deadline = args.frame_time + base::Milliseconds(16);
+      }
+      last_virtual_ticks_ = virtual_ticks;
+
       // The offset is recomputed each frame using the current wall-clock time,
       // which includes variable IPC delivery latency. If frame N+1 has slightly
       // more latency than frame N, the translated frame_time can go backwards.
@@ -539,6 +560,10 @@ void Scheduler::BeginImplFrameWithDeadline(
         args.deadline += adjustment;
       }
       last_translated_frame_time_ = args.frame_time;
+    } else {
+      // Virtual time override not active — reset tracking.
+      last_virtual_ticks_ = base::TimeTicks();
+      last_translated_frame_time_ = base::TimeTicks();
     }
   }
 
