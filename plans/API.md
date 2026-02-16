@@ -60,7 +60,7 @@ All action endpoints (POST/DELETE that modify state) accept standard parameters:
   },
   "screenshot": {
     "area": "viewport",
-    "markup": ["clickable", "typeable"],
+    "disable_markup": ["grid"],
     "cursor": true
   }
 }
@@ -77,21 +77,22 @@ Control screenshot capture and element markup in the response.
 | `none` | No screenshot returned |
 | `viewport` | Capture visible viewport (default) |
 
-#### Screenshot Markup
+#### Markup Tags (Default: All Enabled)
 
-Composable tags that overlay visual annotations on the screenshot. Pass an array of tags to combine multiple overlays.
+All markup overlays are enabled by default. Use `disable_markup` to turn off specific ones.
 
 | Tag | Description |
 |-----|-------------|
-| `clickable` | Buttons, links, and other clickable elements (green outline) |
-| `typeable` | Text inputs, textareas, contenteditable elements (orange outline) |
-| `scrollable` | Elements with scrollable overflow content (purple dashed outline) |
-| `grid` | 100px coordinate grid overlay with pixel coordinate labels |
+| `clickable` | Buttons, links, and other clickable elements (green outline, 2px) |
+| `typeable` | Text inputs, textareas, contenteditable elements (orange outline, 2px) |
+| `scrollable` | Elements with scrollable overflow content (purple dashed outline, 2px) |
+| `grid` | 100px coordinate grid overlay with pixel coordinate labels (red) |
+| `selected` | The currently focused element (blue outline, 3px) |
 
 **Markup appearance:**
 - Each marked element gets a colored bounding box matching its tag
 - Element index labels are drawn for reference
-- Tags are composable: `["clickable", "grid"]` shows both clickable elements and coordinate grid
+- All 5 overlays are enabled by default; use `disable_markup` to turn off specific ones
 - Boxes are semi-transparent to not obscure content
 
 #### Screenshot Cursor
@@ -111,7 +112,7 @@ Control virtual cursor visibility in screenshots. The virtual cursor is automati
   "wait_until": {"type": "action_complete"},
   "screenshot": {
     "area": "viewport",
-    "markup": ["clickable", "typeable"],
+    "disable_markup": ["grid", "scrollable"],
     "cursor": true
   }
 }
@@ -215,7 +216,7 @@ Both `screenshot_before` and `screenshot_after` share the same format:
 
 - `screenshot_before` is captured just before the action executes, reflecting the page state the agent sees.
 - `screenshot_after` is captured after the action completes and wait conditions are met.
-- When `screenshot.markup` is set in the request, both screenshots include element markup overlays.
+- Both screenshots include all element markup overlays by default. Use `screenshot.disable_markup` to turn off specific overlays.
 - In MCP responses, both screenshots are returned as separate image content blocks (before first, then after).
 
 ### Scroll Position
@@ -443,7 +444,7 @@ Control screenshot capture via the `screenshot` object in the request body:
 {
   "screenshot": {
     "area": "viewport",
-    "markup": ["clickable", "typeable"],
+    "disable_markup": ["grid"],
     "cursor": true
   }
 }
@@ -452,7 +453,7 @@ Control screenshot capture via the `screenshot` object in the request body:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `area` | string | `viewport` | Capture area: `none`, `viewport` |
-| `markup` | string[] | `[]` | Composable markup tags: `clickable`, `typeable`, `scrollable`, `grid` |
+| `disable_markup` | string[] | `[]` | Markup tags to disable (all enabled by default): `clickable`, `typeable`, `scrollable`, `grid`, `selected` |
 | `cursor` | boolean | `true` | Include virtual cursor in screenshot |
 
 **Format:** All screenshots are returned as WebP at quality 80. This is not configurable to ensure consistent bandwidth usage and simplify caching.
@@ -1141,7 +1142,7 @@ GET /tabs/{tab_id}/screenshot
 ```
 
 **Query params:**
-- `markup=clickable,typeable` - Comma-separated markup tags (`clickable`, `typeable`, `scrollable`, `grid`)
+- `disable_markup=grid,scrollable` - Comma-separated markup tags to disable (all enabled by default): `clickable`, `typeable`, `scrollable`, `grid`, `selected`
 
 **Response:** Binary WebP image data with `Content-Type: image/webp` header.
 
@@ -1157,7 +1158,7 @@ Uses the standard action envelope. Screenshots are returned in `screenshot_befor
 ```json
 {
   "screenshot": {
-    "markup": ["clickable", "typeable"],
+    "disable_markup": ["grid"],
     "format": "webp",
     "cursor": true
   }
