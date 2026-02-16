@@ -77,16 +77,20 @@ base::Value::List GetToolDefinitions() {
                    .Description(
                        "Click at coordinates on the page. IMPORTANT: Determine x,y by "
                        "reading the red coordinate grid overlay on your most recent "
-                       "screenshot. Never guess coordinates.")
+                       "screenshot. Never guess coordinates. Coordinates MUST be within "
+                       "the viewport (visible area shown in the screenshot). Never output "
+                       "x or y values outside the screenshot boundaries.")
                    .OptionalString("tab_id", "Target tab ID")
                    .RequiredNumber("x",
                        "X pixel coordinate. Read from the red grid: find the vertical "
                        "grid line left of your target, note its label, then estimate "
-                       "how far right the target's center is between that line and the next.")
+                       "how far right the target's center is between that line and the next. "
+                       "Must be within the viewport width shown in the screenshot.")
                    .RequiredNumber("y",
                        "Y pixel coordinate. Read from the red grid: find the horizontal "
                        "grid line above your target, note its label, then estimate "
-                       "how far down the target's center is between that line and the next.")
+                       "how far down the target's center is between that line and the next. "
+                       "Must be within the viewport height shown in the screenshot.")
                    .OptionalStringEnum("button", "Mouse button",
                                        {"left", "right", "middle"})
                    .OptionalNumber("click_count", "1=single, 2=double, 3=triple click")
@@ -143,10 +147,10 @@ base::Value::List GetToolDefinitions() {
                    .OptionalString("tab_id", "Target tab ID")
                    .RequiredNumber("x",
                        "X pixel coordinate of element center where mouse wheel fires. "
-                       "Read from the red grid on your screenshot.")
+                       "Read from the red grid on your screenshot. Must be within viewport bounds.")
                    .RequiredNumber("y",
                        "Y pixel coordinate of element center where mouse wheel fires. "
-                       "Read from the red grid on your screenshot.")
+                       "Read from the red grid on your screenshot. Must be within viewport bounds.")
                    .OptionalNumber("delta_x", "Horizontal scroll in pixels (positive=right, negative=left, default=0)")
                    .OptionalNumber("delta_y", "Vertical scroll in pixels (negative=up, positive=down, default=0)")
                    .Build());
@@ -155,16 +159,19 @@ base::Value::List GetToolDefinitions() {
                    .Description(
                        "Move mouse to coordinates (for hover effects). IMPORTANT: "
                        "Determine x,y by reading the red coordinate grid overlay on "
-                       "your most recent screenshot. Never guess coordinates.")
+                       "your most recent screenshot. Never guess coordinates. Coordinates "
+                       "MUST be within the viewport (visible area shown in the screenshot).")
                    .OptionalString("tab_id", "Target tab ID")
                    .RequiredNumber("x",
                        "X pixel coordinate. Read from the red grid: find the vertical "
                        "grid line left of your target, note its label, then estimate "
-                       "how far right the target's center is between that line and the next.")
+                       "how far right the target's center is between that line and the next. "
+                       "Must be within the viewport width shown in the screenshot.")
                    .RequiredNumber("y",
                        "Y pixel coordinate. Read from the red grid: find the horizontal "
                        "grid line above your target, note its label, then estimate "
-                       "how far down the target's center is between that line and the next.")
+                       "how far down the target's center is between that line and the next. "
+                       "Must be within the viewport height shown in the screenshot.")
                    .Build());
 
   tools.Append(ToolBuilder("browser_drag")
@@ -173,20 +180,21 @@ base::Value::List GetToolDefinitions() {
                        "mousedown at start, interpolated mousemoves along the "
                        "path, and mouseup at end. IMPORTANT: Determine "
                        "coordinates by reading the red coordinate grid overlay "
-                       "on your most recent screenshot.")
+                       "on your most recent screenshot. All coordinates MUST be "
+                       "within the viewport (visible area shown in the screenshot).")
                    .OptionalString("tab_id", "Target tab ID")
                    .RequiredNumber("start_x",
                        "X coordinate of drag start. Read from the red grid on "
-                       "your screenshot.")
+                       "your screenshot. Must be within viewport bounds.")
                    .RequiredNumber("start_y",
                        "Y coordinate of drag start. Read from the red grid on "
-                       "your screenshot.")
+                       "your screenshot. Must be within viewport bounds.")
                    .RequiredNumber("end_x",
                        "X coordinate of drop target. Read from the red grid on "
-                       "your screenshot.")
+                       "your screenshot. Must be within viewport bounds.")
                    .RequiredNumber("end_y",
                        "Y coordinate of drop target. Read from the red grid on "
-                       "your screenshot.")
+                       "your screenshot. Must be within viewport bounds.")
                    .OptionalNumber("steps",
                        "Number of intermediate mouse move events (default: 10)")
                    .Build());

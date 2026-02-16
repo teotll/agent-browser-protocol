@@ -19,7 +19,7 @@ extern const char kAbpDisablePause[];
 // Default: /tmp/abp-<UUID>
 extern const char kAbpSessionDir[];
 
-// Window size as "width,height" (default: 1280,800)
+// Window size as "width,height" (default: 1280,887)
 // Also prevents user resizing of the browser window.
 extern const char kAbpWindowSize[];
 

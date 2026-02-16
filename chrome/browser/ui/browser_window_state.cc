@@ -173,10 +173,10 @@ void UpdateWindowBoundsAndShowStateFromCommandLine(
     gfx::Rect* bounds,
     ui::mojom::WindowShowState* show_state) {
   // ABP: Always enforce a fixed window size, ignoring saved session state.
-  // Default is 1280x800, overridable via --abp-window-size=width,height
+  // Default is 1280x887, overridable via --abp-window-size=width,height
   // or --window-size=width,height.
   {
-    int width = 1280, height = 800;
+    int width = 1280, height = 887;
     if (command_line.HasSwitch(abp::switches::kAbpWindowSize)) {
       std::string str =
           command_line.GetSwitchValueASCII(abp::switches::kAbpWindowSize);
