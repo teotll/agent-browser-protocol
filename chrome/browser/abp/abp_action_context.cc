@@ -630,15 +630,8 @@ void AbpActionContext::PauseExecutionIfNeeded() {
     return;
   }
 
-  // Only re-pause if this tab actually has execution control enabled.
-  // Don't auto-pause tabs that were never explicitly paused.
-  auto it = controller_->tab_states_.find(tab_id_);
-  if (it == controller_->tab_states_.end() ||
-      !it->second.execution.IsEnabled()) {
-    OnExecutionPaused();
-    return;
-  }
-
+  // Global execution control is enabled — delegate to PauseExecution which
+  // handles auto-enabling per-tab execution control if not yet enabled.
   controller_->PauseExecution(
       tab_id_,
       base::BindOnce(&AbpActionContext::OnExecutionPaused,

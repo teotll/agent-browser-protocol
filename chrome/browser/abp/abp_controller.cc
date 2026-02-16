@@ -48,9 +48,26 @@
 #include "ui/gfx/codec/webp_codec.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
+#include "skia/ext/image_operations.h"
 #include "ui/snapshot/snapshot.h"
 
 namespace abp {
+
+// Scale a bitmap down to viewport (DIP) dimensions if it was captured at
+// a higher device pixel ratio (e.g. 2x on Retina displays).
+static SkBitmap ScaleBitmapToViewport(const SkBitmap& bitmap,
+                                      int viewport_width,
+                                      int viewport_height) {
+  if (viewport_width <= 0 || viewport_height <= 0) {
+    return bitmap;
+  }
+  if (bitmap.width() <= viewport_width && bitmap.height() <= viewport_height) {
+    return bitmap;
+  }
+  return skia::ImageOperations::Resize(
+      bitmap, skia::ImageOperations::RESIZE_GOOD,
+      viewport_width, viewport_height);
+}
 
 // Static instance pointer for test access.
 AbpController* AbpController::instance_for_testing_ = nullptr;
@@ -1333,7 +1350,21 @@ void AbpController::OnActionScreenshotCaptured(
     return;
   }
 
-  const SkBitmap& bitmap = *snapshot.ToSkBitmap();
+  const SkBitmap& raw_bitmap = *snapshot.ToSkBitmap();
+
+  // Scale to viewport (DIP) dimensions if captured at higher device pixel ratio
+  int vp_width = 0, vp_height = 0;
+  content::WebContents* snap_wc = FindWebContents(tab_id);
+  if (snap_wc) {
+    auto* snap_view = snap_wc->GetRenderWidgetHostView();
+    if (snap_view) {
+      gfx::Size vp_size = snap_view->GetVisibleViewportSize();
+      vp_width = vp_size.width();
+      vp_height = vp_size.height();
+    }
+  }
+  const SkBitmap bitmap = ScaleBitmapToViewport(raw_bitmap, vp_width, vp_height);
+
   VLOG(1) << "ABP: OnActionScreenshotCaptured - encoding"
             << " format=" << options.format
             << " width=" << bitmap.width() << " height=" << bitmap.height()
@@ -1357,8 +1388,8 @@ void AbpController::OnActionScreenshotCaptured(
 
   ActionScreenshotResult r;
   r.base64 = base::Base64Encode(*encoded);
-  r.width = snapshot.Width();
-  r.height = snapshot.Height();
+  r.width = bitmap.width();
+  r.height = bitmap.height();
   VLOG(1) << "ABP: OnActionScreenshotCaptured - success"
             << " base64_len=" << r.base64.size()
             << " width=" << r.width << " height=" << r.height
@@ -4193,10 +4224,15 @@ void AbpController::CaptureScreenshotBase64(
     bool done = false;
     base::OnceCallback<void(std::string, int, int)> cb;
     std::string tab_id;
+    int vp_width = 0;
+    int vp_height = 0;
   };
   auto st = std::make_shared<Base64SnapState>();
   st->cb = std::move(callback);
   st->tab_id = tab_id;
+  gfx::Size vp_size = view->GetVisibleViewportSize();
+  st->vp_width = vp_size.width();
+  st->vp_height = vp_size.height();
 
   // 1500ms safety timeout
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
@@ -4267,7 +4303,9 @@ void AbpController::CaptureScreenshotBase64(
                             }
                             VLOG(1) << "ABP: CaptureScreenshotBase64"
                                       << " - encoding WebP";
-                            const SkBitmap& bitmap = *image.ToSkBitmap();
+                            const SkBitmap& raw = *image.ToSkBitmap();
+                            const SkBitmap bitmap = ScaleBitmapToViewport(
+                                raw, s->vp_width, s->vp_height);
                             auto encoded =
                                 gfx::WebpCodec::Encode(bitmap, 80);
                             if (!encoded || encoded->empty()) {
@@ -4280,11 +4318,11 @@ void AbpController::CaptureScreenshotBase64(
                             std::string b64 = base::Base64Encode(*encoded);
                             VLOG(1) << "ABP: CaptureScreenshotBase64"
                                       << " - success "
-                                      << image.Width() << "x"
-                                      << image.Height();
+                                      << bitmap.width() << "x"
+                                      << bitmap.height();
                             std::move(s->cb).Run(
                                 std::move(b64),
-                                image.Width(), image.Height());
+                                bitmap.width(), bitmap.height());
                           },
                           s));
                 },
@@ -4719,14 +4757,19 @@ void AbpController::BinaryScreenshot(const std::string& tab_id,
                               }
                               auto* v = wc->GetRenderWidgetHostView();
                               gfx::Rect source_rect;
+                              int vw = 0, vh = 0;
                               if (v) {
                                 source_rect =
                                     gfx::Rect(v->GetViewBounds().size());
+                                gfx::Size vps = v->GetVisibleViewportSize();
+                                vw = vps.width();
+                                vh = vps.height();
                               }
                               ui::GrabViewSnapshot(
                                   native_view, source_rect,
                                   base::BindOnce(
                                       [](ResponseCallback cb,
+                                         int vp_w, int vp_h,
                                          gfx::Image snapshot) {
                                         if (snapshot.IsEmpty()) {
                                           std::move(cb).Run(
@@ -4734,8 +4777,10 @@ void AbpController::BinaryScreenshot(const std::string& tab_id,
                                               R"({"error":"Screenshot capture failed"})");
                                           return;
                                         }
-                                        const SkBitmap& bitmap =
+                                        const SkBitmap& raw =
                                             *snapshot.ToSkBitmap();
+                                        const SkBitmap bitmap =
+                                            ScaleBitmapToViewport(raw, vp_w, vp_h);
                                         auto encoded =
                                             gfx::WebpCodec::Encode(bitmap, 80);
                                         if (!encoded || encoded->empty()) {
@@ -4749,7 +4794,7 @@ void AbpController::BinaryScreenshot(const std::string& tab_id,
                                         std::move(cb).Run(200, "image/webp",
                                                           std::move(binary));
                                       },
-                                      std::move(cb)));
+                                      std::move(cb), vw, vh));
                             },
                             ctrl, tid, tags, std::move(cb)),
                         base::Milliseconds(167));
@@ -4782,20 +4827,27 @@ void AbpController::BinaryScreenshot(const std::string& tab_id,
             }
             auto* view = wc->GetRenderWidgetHostView();
             gfx::Rect source_rect;
+            int vw = 0, vh = 0;
             if (view) {
               source_rect = gfx::Rect(view->GetViewBounds().size());
+              gfx::Size vps = view->GetVisibleViewportSize();
+              vw = vps.width();
+              vh = vps.height();
             }
             ui::GrabViewSnapshot(
                 native_view, source_rect,
                 base::BindOnce(
-                    [](ResponseCallback cb, gfx::Image snapshot) {
+                    [](ResponseCallback cb, int vp_w, int vp_h,
+                       gfx::Image snapshot) {
                       if (snapshot.IsEmpty()) {
                         std::move(cb).Run(
                             500, "application/json",
                             R"({"error":"Screenshot capture failed"})");
                         return;
                       }
-                      const SkBitmap& bitmap = *snapshot.ToSkBitmap();
+                      const SkBitmap& raw = *snapshot.ToSkBitmap();
+                      const SkBitmap bitmap =
+                          ScaleBitmapToViewport(raw, vp_w, vp_h);
                       auto encoded = gfx::WebpCodec::Encode(bitmap, 80);
                       if (!encoded || encoded->empty()) {
                         std::move(cb).Run(
@@ -4807,7 +4859,7 @@ void AbpController::BinaryScreenshot(const std::string& tab_id,
                       std::move(cb).Run(200, "image/webp",
                                         std::move(binary));
                     },
-                    std::move(cb)));
+                    std::move(cb), vw, vh));
           },
           weak_factory_.GetWeakPtr(), tab_id, std::move(wrapped_cb)));
 }
