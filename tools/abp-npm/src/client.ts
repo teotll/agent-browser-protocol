@@ -12,6 +12,7 @@ import type {
   ClickOptions,
   MoveOptions,
   ScrollOptions,
+  DragOptions,
   TypeOptions,
   KeyOptions,
   ScreenshotOptions,
@@ -146,6 +147,14 @@ class TabsAPI {
   async scroll(tabId: string, options: ScrollOptions): Promise<ActionResponse> {
     const res = await request<ActionResponse>(
       `${this.baseUrl}/tabs/${tabId}/scroll`,
+      { method: "POST", body: options },
+    );
+    return res.data;
+  }
+
+  async drag(tabId: string, options: DragOptions): Promise<ActionResponse> {
+    const res = await request<ActionResponse>(
+      `${this.baseUrl}/tabs/${tabId}/drag`,
       { method: "POST", body: options },
     );
     return res.data;

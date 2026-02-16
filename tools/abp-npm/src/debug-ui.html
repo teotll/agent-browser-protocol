@@ -724,6 +724,7 @@ footer .status-dot.connected { background: var(--success); }
     forward:    { method: "POST", path: "/forward", fields: [] },
     reload:     { method: "POST", path: "/reload", fields: [] },
     move:       { method: "POST", path: "/move", fields: [{ name: "x", type: "number", required: true }, { name: "y", type: "number", required: true }] },
+    drag:       { method: "POST", path: "/drag", fields: [{ name: "start_x", type: "number", required: true }, { name: "start_y", type: "number", required: true }, { name: "end_x", type: "number", required: true }, { name: "end_y", type: "number", required: true }, { name: "steps", type: "number" }] },
   };
 
   // --- DOM Refs ---

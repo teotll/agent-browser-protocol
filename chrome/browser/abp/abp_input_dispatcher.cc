@@ -853,4 +853,227 @@ void AbpInputDispatcher::KeyUp(const std::string& tab_id,
       std::move(callback));
 }
 
+void AbpInputDispatcher::Drag(const std::string& tab_id,
+                              const base::Value::Dict& params,
+                              ResponseCallback callback) {
+  auto sx = params.FindDouble("start_x");
+  auto sy = params.FindDouble("start_y");
+  auto ex = params.FindDouble("end_x");
+  auto ey = params.FindDouble("end_y");
+  if (!sx || !sy || !ex || !ey) {
+    controller_->SendError(
+        400, "Missing required parameter: start_x, start_y, end_x, end_y",
+        std::move(callback));
+    return;
+  }
+
+  double start_x = *sx;
+  double start_y = *sy;
+  double end_x = *ex;
+  double end_y = *ey;
+  int steps = params.FindInt("steps").value_or(10);
+  if (steps < 1) steps = 1;
+  if (steps > 100) steps = 100;
+
+  AbpActionContext::Run(
+      controller_, tab_id, "drag", params,
+      base::BindOnce(
+          [](double s_x, double s_y, double e_x, double e_y, int num_steps,
+             AbpInputDispatcher* dispatcher, AbpActionContext* ctx) {
+            // Update virtual cursor to start position
+            ctx->controller()->UpdateVirtualCursorState(ctx->tab_id(), s_x,
+                                                        s_y);
+            content::WebContents* wc = ctx->web_contents();
+            if (wc) {
+              ctx->controller()->SetVirtualCursorEnabledViaMojo(wc, true);
+              ctx->controller()->SetVirtualCursorViaMojo(wc, s_x, s_y, true);
+            }
+
+            scoped_refptr<AbpActionContext> ctx_ref(ctx);
+            ctx->controller()->InsertVisualStateFence(
+                ctx->tab_id(),
+                base::BindOnce(
+                    [](double s_x, double s_y, double e_x, double e_y,
+                       int num_steps, AbpInputDispatcher* dispatcher,
+                       scoped_refptr<AbpActionContext> action_ctx,
+                       bool fence_ready) {
+                      if (!fence_ready) {
+                        action_ctx->OnActionError(
+                            "VISUAL_STATE_ERROR",
+                            "Failed to establish visual-state fence before drag");
+                        return;
+                      }
+
+                      AbpCdpClient* cdp_client = action_ctx->client();
+                      if (!cdp_client) {
+                        action_ctx->OnActionError("CDP_ERROR",
+                                                  "CDP client lost");
+                        return;
+                      }
+
+                      // 1. mouseMoved to start position
+                      base::Value::Dict move_params;
+                      move_params.Set("type", "mouseMoved");
+                      move_params.Set("x", s_x);
+                      move_params.Set("y", s_y);
+
+                      cdp_client->SendCommand(
+                          "Input.dispatchMouseEvent", std::move(move_params),
+                          base::BindOnce(
+                              [](double s_x, double s_y, double e_x,
+                                 double e_y, int num_steps,
+                                 AbpInputDispatcher* dispatcher,
+                                 scoped_refptr<AbpActionContext> action_ctx,
+                                 bool success, const std::string& result) {
+                                if (!success) {
+                                  action_ctx->OnActionError("CDP_ERROR",
+                                                            result);
+                                  return;
+                                }
+
+                                AbpCdpClient* cdp_client =
+                                    action_ctx->client();
+                                if (!cdp_client) {
+                                  action_ctx->OnActionError("CDP_ERROR",
+                                                            "CDP client lost");
+                                  return;
+                                }
+
+                                // 2. mousePressed at start
+                                base::Value::Dict press_params;
+                                press_params.Set("type", "mousePressed");
+                                press_params.Set("x", s_x);
+                                press_params.Set("y", s_y);
+                                press_params.Set("button", "left");
+                                press_params.Set("clickCount", 1);
+
+                                cdp_client->SendCommand(
+                                    "Input.dispatchMouseEvent",
+                                    std::move(press_params),
+                                    base::BindOnce(
+                                        [](double s_x, double s_y, double e_x,
+                                           double e_y, int num_steps,
+                                           AbpInputDispatcher* dispatcher,
+                                           scoped_refptr<AbpActionContext>
+                                               action_ctx,
+                                           bool success,
+                                           const std::string& result) {
+                                          if (!success) {
+                                            action_ctx->OnActionError(
+                                                "CDP_ERROR", result);
+                                            return;
+                                          }
+
+                                          // 3. Start interpolated moves
+                                          dispatcher->DragNextStep(
+                                              action_ctx, s_x, s_y, e_x, e_y,
+                                              1, num_steps);
+                                        },
+                                        s_x, s_y, e_x, e_y, num_steps,
+                                        dispatcher, action_ctx));
+                              },
+                              s_x, s_y, e_x, e_y, num_steps, dispatcher,
+                              action_ctx));
+                    },
+                    s_x, s_y, e_x, e_y, num_steps, dispatcher,
+                    std::move(ctx_ref)));
+          },
+          start_x, start_y, end_x, end_y, steps, this),
+      std::move(callback));
+}
+
+void AbpInputDispatcher::DragNextStep(
+    scoped_refptr<AbpActionContext> ctx,
+    double start_x,
+    double start_y,
+    double end_x,
+    double end_y,
+    int current_step,
+    int total_steps) {
+  AbpCdpClient* cdp_client = ctx->client();
+  if (!cdp_client) {
+    ctx->OnActionError("CDP_ERROR", "CDP client lost");
+    return;
+  }
+
+  if (current_step <= total_steps) {
+    // Interpolate position
+    double t = static_cast<double>(current_step) / total_steps;
+    double x = start_x + (end_x - start_x) * t;
+    double y = start_y + (end_y - start_y) * t;
+
+    // Update virtual cursor as we drag
+    ctx->controller()->UpdateVirtualCursorState(ctx->tab_id(), x, y);
+    content::WebContents* wc = ctx->web_contents();
+    if (wc) {
+      ctx->controller()->SetVirtualCursorViaMojo(wc, x, y, true);
+    }
+
+    base::Value::Dict move_params;
+    move_params.Set("type", "mouseMoved");
+    move_params.Set("x", x);
+    move_params.Set("y", y);
+    move_params.Set("button", "left");
+
+    cdp_client->SendCommand(
+        "Input.dispatchMouseEvent", std::move(move_params),
+        base::BindOnce(
+            [](scoped_refptr<AbpActionContext> ctx, double s_x, double s_y,
+               double e_x, double e_y, int step, int total,
+               AbpInputDispatcher* dispatcher, bool success,
+               const std::string& result) {
+              if (!success) {
+                ctx->OnActionError("CDP_ERROR", result);
+                return;
+              }
+
+              // Schedule next step with 5ms delay
+              content::GetUIThreadTaskRunner({})->PostDelayedTask(
+                  FROM_HERE,
+                  base::BindOnce(&AbpInputDispatcher::DragNextStep,
+                                 base::Unretained(dispatcher), ctx, s_x, s_y,
+                                 e_x, e_y, step + 1, total),
+                  base::Milliseconds(5));
+            },
+            ctx, start_x, start_y, end_x, end_y, current_step, total_steps,
+            this));
+  } else {
+    // All steps done — send mouseReleased at end position
+    ctx->controller()->UpdateVirtualCursorState(ctx->tab_id(), end_x, end_y);
+    content::WebContents* wc = ctx->web_contents();
+    if (wc) {
+      ctx->controller()->SetVirtualCursorViaMojo(wc, end_x, end_y, true);
+    }
+
+    base::Value::Dict release_params;
+    release_params.Set("type", "mouseReleased");
+    release_params.Set("x", end_x);
+    release_params.Set("y", end_y);
+    release_params.Set("button", "left");
+    release_params.Set("clickCount", 1);
+
+    cdp_client->SendCommand(
+        "Input.dispatchMouseEvent", std::move(release_params),
+        base::BindOnce(
+            [](double s_x, double s_y, double e_x, double e_y,
+               scoped_refptr<AbpActionContext> ctx, bool success,
+               const std::string& result) {
+              if (!success) {
+                ctx->OnActionError("CDP_ERROR", result);
+                return;
+              }
+
+              base::Value::Dict res;
+              res.Set("status", "dragged");
+              res.Set("start_x", s_x);
+              res.Set("start_y", s_y);
+              res.Set("end_x", e_x);
+              res.Set("end_y", e_y);
+              ctx->SetResult(std::move(res));
+              ctx->OnActionDispatched();
+            },
+            start_x, start_y, end_x, end_y, ctx));
+  }
+}
+
 }  // namespace abp

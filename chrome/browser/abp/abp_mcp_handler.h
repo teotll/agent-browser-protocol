@@ -99,6 +99,9 @@ class AbpMcpHandler {
   void CallBrowserMouseMove(const base::Value::Dict& args,
                             base::Value request_id,
                             ResponseWithHeadersCallback callback);
+  void CallBrowserDrag(const base::Value::Dict& args,
+                       base::Value request_id,
+                       ResponseWithHeadersCallback callback);
   void CallBrowserActivateTab(const base::Value::Dict& args,
                               base::Value request_id,
                               ResponseWithHeadersCallback callback);

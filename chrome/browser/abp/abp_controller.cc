@@ -1594,6 +1594,8 @@ void AbpController::HandleRequest(const std::string& method,
         Wait(tab_id, params, std::move(callback));
       } else if (action == "scroll") {
         Scroll(tab_id, params, std::move(callback));
+      } else if (action == "drag") {
+        Drag(tab_id, params, std::move(callback));
       } else if (action == "activate") {
         ActivateTab(tab_id, std::move(callback));
       } else if (action == "stop") {
@@ -2326,6 +2328,12 @@ void AbpController::Scroll(const std::string& tab_id,
                            const base::Value::Dict& params,
                            ResponseCallback callback) {
   input_dispatcher_->Scroll(tab_id, params, std::move(callback));
+}
+
+void AbpController::Drag(const std::string& tab_id,
+                         const base::Value::Dict& params,
+                         ResponseCallback callback) {
+  input_dispatcher_->Drag(tab_id, params, std::move(callback));
 }
 
 void AbpController::KeyPress(const std::string& tab_id,

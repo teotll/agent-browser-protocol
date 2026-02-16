@@ -149,6 +149,14 @@ export interface ScrollOptions extends ActionRequest {
   delta_y?: number;
 }
 
+export interface DragOptions extends ActionRequest {
+  start_x: number;
+  start_y: number;
+  end_x: number;
+  end_y: number;
+  steps?: number;
+}
+
 // === Keyboard ===
 
 export interface TypeOptions extends ActionRequest {

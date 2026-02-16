@@ -167,6 +167,30 @@ base::Value::List GetToolDefinitions() {
                        "how far down the target's center is between that line and the next.")
                    .Build());
 
+  tools.Append(ToolBuilder("browser_drag")
+                   .Description(
+                       "Drag and drop from one position to another. Performs "
+                       "mousedown at start, interpolated mousemoves along the "
+                       "path, and mouseup at end. IMPORTANT: Determine "
+                       "coordinates by reading the red coordinate grid overlay "
+                       "on your most recent screenshot.")
+                   .OptionalString("tab_id", "Target tab ID")
+                   .RequiredNumber("start_x",
+                       "X coordinate of drag start. Read from the red grid on "
+                       "your screenshot.")
+                   .RequiredNumber("start_y",
+                       "Y coordinate of drag start. Read from the red grid on "
+                       "your screenshot.")
+                   .RequiredNumber("end_x",
+                       "X coordinate of drop target. Read from the red grid on "
+                       "your screenshot.")
+                   .RequiredNumber("end_y",
+                       "Y coordinate of drop target. Read from the red grid on "
+                       "your screenshot.")
+                   .OptionalNumber("steps",
+                       "Number of intermediate mouse move events (default: 10)")
+                   .Build());
+
   // Tab control
   tools.Append(ToolBuilder("browser_activate_tab")
                    .Description("Switch to a specific tab")
@@ -304,7 +328,7 @@ All `tab_id` parameters are optional and default to the active tab.
 
 **Navigation:** `browser_navigate` (url required), `browser_go_back`, `browser_go_forward`, `browser_reload`
 
-**Input:** `browser_click` (x, y required), `browser_type` (text required), `browser_keyboard_press` (key required, modifiers), `browser_keyboard_down` (key), `browser_keyboard_up` (key), `browser_scroll` (x, y required; delta_x, delta_y), `browser_mouse_move` (x, y required)
+**Input:** `browser_click` (x, y required), `browser_type` (text required), `browser_keyboard_press` (key required, modifiers), `browser_keyboard_down` (key), `browser_keyboard_up` (key), `browser_scroll` (x, y required; delta_x, delta_y), `browser_mouse_move` (x, y required), `browser_drag` (start_x, start_y, end_x, end_y required; steps)
 
 **Content:** `browser_screenshot` (markup, format), `browser_execute_javascript` (expression required), `browser_get_text` (selector)
 
@@ -556,6 +580,8 @@ void AbpMcpHandler::HandleToolsCall(const base::Value::Dict& params,
     CallBrowserScroll(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_mouse_move") {
     CallBrowserMouseMove(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_drag") {
+    CallBrowserDrag(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_activate_tab") {
     CallBrowserActivateTab(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_stop_loading") {
@@ -1042,6 +1068,30 @@ void AbpMcpHandler::CallBrowserMouseMove(const base::Value::Dict& args,
 
   controller_->HandleRequest(
       "POST", "/api/v1/tabs/" + tab_id + "/move", body,
+      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                     weak_factory_.GetWeakPtr(), std::move(request_id),
+                     std::move(callback)));
+}
+
+void AbpMcpHandler::CallBrowserDrag(const base::Value::Dict& args,
+                                    base::Value request_id,
+                                    ResponseWithHeadersCallback callback) {
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
+                     std::move(callback));
+    return;
+  }
+
+  base::Value::Dict body_dict = args.Clone();
+  body_dict.Remove("tab_id");
+
+  std::string body;
+  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
+
+  controller_->HandleRequest(
+      "POST", "/api/v1/tabs/" + tab_id + "/drag", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));

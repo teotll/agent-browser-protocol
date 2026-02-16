@@ -77,6 +77,11 @@ class AbpInputDispatcher {
              const base::Value::Dict& params,
              ResponseCallback callback);
 
+  // Drag from start to end coordinates with interpolated mouse moves
+  void Drag(const std::string& tab_id,
+            const base::Value::Dict& params,
+            ResponseCallback callback);
+
  private:
   // Forward a native keyboard event to the renderer (bypasses CDP entirely).
   // Uses the same code path as real keyboard input.
@@ -97,6 +102,15 @@ class AbpInputDispatcher {
   void TypeNextCharacter(scoped_refptr<AbpActionContext> ctx,
                          std::string text,
                          size_t char_index);
+
+  // Dispatch the next step in a drag sequence (recursive via PostDelayedTask)
+  void DragNextStep(scoped_refptr<AbpActionContext> ctx,
+                    double start_x,
+                    double start_y,
+                    double end_x,
+                    double end_y,
+                    int current_step,
+                    int total_steps);
 
   // Controller reference (not owned)
   raw_ptr<AbpController> controller_;
