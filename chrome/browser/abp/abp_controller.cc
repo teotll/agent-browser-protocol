@@ -919,6 +919,10 @@ std::string AbpController::BuildMarkupInjectionScript(
       css_rules += R"(
         .abp-scrollable{outline:2px dashed #9C27B0!important;outline-offset:-2px!important}
       )";
+    } else if (tag == "selected") {
+      css_rules += R"(
+        *:focus{outline:3px solid #2196F3!important;outline-offset:-3px!important}
+      )";
     }
   }
 
