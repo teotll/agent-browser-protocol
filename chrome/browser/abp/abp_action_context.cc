@@ -190,13 +190,17 @@ void AbpActionContext::Start() {
   // Parse screenshot options from action params
   const base::Value::Dict* ss_params = params_.FindDict("screenshot");
   if (ss_params) {
-    const base::Value::List* markup_list = ss_params->FindList("markup");
-    if (markup_list) {
-      for (const auto& tag : *markup_list) {
+    const base::Value::List* disable_list = ss_params->FindList("disable_markup");
+    if (disable_list) {
+      std::vector<std::string> disable_tags;
+      for (const auto& tag : *disable_list) {
         if (tag.is_string()) {
-          screenshot_markup_tags_.push_back(tag.GetString());
+          disable_tags.push_back(tag.GetString());
         }
       }
+      screenshot_markup_tags_ = AbpController::ComputeEffectiveMarkupTags(disable_tags);
+    } else {
+      screenshot_markup_tags_ = AbpController::ComputeEffectiveMarkupTags({});
     }
     const std::string* format = ss_params->FindString("format");
     if (format) {
