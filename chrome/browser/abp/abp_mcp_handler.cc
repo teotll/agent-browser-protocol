@@ -74,10 +74,19 @@ base::Value::List GetToolDefinitions() {
 
   // Input actions
   tools.Append(ToolBuilder("browser_click")
-                   .Description("Click at coordinates on the page")
+                   .Description(
+                       "Click at coordinates on the page. IMPORTANT: Determine x,y by "
+                       "reading the red coordinate grid overlay on your most recent "
+                       "screenshot. Never guess coordinates.")
                    .OptionalString("tab_id", "Target tab ID")
-                   .RequiredNumber("x", "X coordinate")
-                   .RequiredNumber("y", "Y coordinate")
+                   .RequiredNumber("x",
+                       "X pixel coordinate. Read from the red grid: find the vertical "
+                       "grid line left of your target, note its label, then estimate "
+                       "how far right the target's center is between that line and the next.")
+                   .RequiredNumber("y",
+                       "Y pixel coordinate. Read from the red grid: find the horizontal "
+                       "grid line above your target, note its label, then estimate "
+                       "how far down the target's center is between that line and the next.")
                    .OptionalStringEnum("button", "Mouse button",
                                        {"left", "right", "middle"})
                    .OptionalNumber("click_count", "1=single, 2=double, 3=triple click")
@@ -125,19 +134,37 @@ base::Value::List GetToolDefinitions() {
           .Build());
 
   tools.Append(ToolBuilder("browser_scroll")
-                   .Description("Scroll using mouse wheel at element coordinates. Simulates moving mouse over element and scrolling. At least one of delta_x or delta_y must be non-zero.")
+                   .Description(
+                       "Scroll using mouse wheel at element coordinates. Simulates "
+                       "moving mouse over element and scrolling. At least one of "
+                       "delta_x or delta_y must be non-zero. IMPORTANT: Determine "
+                       "x,y by reading the red coordinate grid overlay on your most "
+                       "recent screenshot.")
                    .OptionalString("tab_id", "Target tab ID")
-                   .RequiredNumber("x", "X coordinate of element center (where mouse wheel event fires)")
-                   .RequiredNumber("y", "Y coordinate of element center (where mouse wheel event fires)")
+                   .RequiredNumber("x",
+                       "X pixel coordinate of element center where mouse wheel fires. "
+                       "Read from the red grid on your screenshot.")
+                   .RequiredNumber("y",
+                       "Y pixel coordinate of element center where mouse wheel fires. "
+                       "Read from the red grid on your screenshot.")
                    .OptionalNumber("delta_x", "Horizontal scroll in pixels (positive=right, negative=left, default=0)")
                    .OptionalNumber("delta_y", "Vertical scroll in pixels (negative=up, positive=down, default=0)")
                    .Build());
 
   tools.Append(ToolBuilder("browser_mouse_move")
-                   .Description("Move mouse to coordinates (for hover effects)")
+                   .Description(
+                       "Move mouse to coordinates (for hover effects). IMPORTANT: "
+                       "Determine x,y by reading the red coordinate grid overlay on "
+                       "your most recent screenshot. Never guess coordinates.")
                    .OptionalString("tab_id", "Target tab ID")
-                   .RequiredNumber("x", "X coordinate")
-                   .RequiredNumber("y", "Y coordinate")
+                   .RequiredNumber("x",
+                       "X pixel coordinate. Read from the red grid: find the vertical "
+                       "grid line left of your target, note its label, then estimate "
+                       "how far right the target's center is between that line and the next.")
+                   .RequiredNumber("y",
+                       "Y pixel coordinate. Read from the red grid: find the horizontal "
+                       "grid line above your target, note its label, then estimate "
+                       "how far down the target's center is between that line and the next.")
                    .Build());
 
   // Tab control
