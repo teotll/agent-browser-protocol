@@ -445,6 +445,17 @@ void WebFrameWidgetImpl::Close(DetachReason detach_reason) {
     animation_frame_timing_monitor_.Clear();
   }
 
+  // ABP: Destroy virtual cursor overlay before tearing down the widget.
+  // FrameOverlay's destructor DCHECKs that Destroy() was called; without
+  // this, garbage collection of the orphaned overlay crashes the renderer
+  // during cross-process navigation.
+  if (virtual_cursor_overlay_) {
+    virtual_cursor_overlay_->Destroy();
+    virtual_cursor_overlay_ = nullptr;
+    virtual_cursor_delegate_ = nullptr;
+    virtual_cursor_enabled_ = false;
+  }
+
   mutator_dispatcher_ = nullptr;
   local_root_ = nullptr;
   // Shut down the widget, but potentially delay the release of the resources

@@ -1002,17 +1002,21 @@ void AbpController::CaptureActionScreenshot(
     ActionScreenshotCallback callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   VLOG(1) << "ABP: CaptureActionScreenshot tab=" << tab_id
-           << " is_before=" << is_before
-           << " markup_tags=" << options.markup_tags.size();
+            << " is_before=" << is_before
+            << " markup_tags=" << options.markup_tags.size();
 
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
+    LOG(WARNING) << "ABP: CaptureActionScreenshot - WebContents not found"
+                 << " tab=" << tab_id;
     std::move(callback).Run(ActionScreenshotResult());
     return;
   }
 
   AbpCdpClient* client = GetOrCreateCdpClient(wc);
   if (!client) {
+    LOG(WARNING) << "ABP: CaptureActionScreenshot - CDP client not found"
+                 << " tab=" << tab_id;
     std::move(callback).Run(ActionScreenshotResult());
     return;
   }
@@ -1097,20 +1101,39 @@ void AbpController::CaptureActionScreenshotWithRetry(
     int view_width,
     int view_height,
     int retry_count) {
-  (void)timestamp;
   (void)is_before;
-  (void)view_width;
-  (void)view_height;
-  (void)retry_count;
 
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
+    LOG(WARNING) << "ABP: CaptureActionScreenshotWithRetry - WebContents gone"
+                 << " tab=" << tab_id;
     std::move(callback).Run(ActionScreenshotResult());
     return;
   }
 
   content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
   if (!view) {
+    // RWHV can be null during cross-process navigation (renderer swap).
+    // Retry up to 10 times (100ms apart, ~1s total) waiting for the new
+    // renderer to attach.
+    if (retry_count < 10) {
+      VLOG(1) << "ABP: CaptureActionScreenshotWithRetry - no RWHV, retrying"
+                << " attempt=" << retry_count << " tab=" << tab_id
+                << " url=" << wc->GetLastCommittedURL().spec()
+                << " loading=" << wc->IsLoading()
+                << " crashed=" << wc->IsCrashed();
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+          FROM_HERE,
+          base::BindOnce(&AbpController::CaptureActionScreenshotWithRetry,
+                         weak_factory_.GetWeakPtr(), tab_id, timestamp,
+                         is_before, options, std::move(callback),
+                         history_path, view_width, view_height,
+                         retry_count + 1),
+          base::Milliseconds(100));
+      return;
+    }
+    LOG(WARNING) << "ABP: CaptureActionScreenshotWithRetry - no RWHV after "
+                 << retry_count << " retries, tab=" << tab_id;
     std::move(callback).Run(ActionScreenshotResult());
     return;
   }
@@ -1149,13 +1172,15 @@ void AbpController::CaptureActionScreenshotWithRetry(
           st, weak_factory_.GetWeakPtr()),
       base::Milliseconds(1500));
 
-  VLOG(1) << "ABP: CaptureActionScreenshot - calling ForceRedrawWithCallback"
-           << " renderer_initialized=" << rwhi->renderer_initialized();
+  VLOG(1) << "ABP: CaptureActionScreenshotWithRetry - calling ForceRedrawWithCallback"
+            << " renderer_initialized=" << rwhi->renderer_initialized()
+            << " tab=" << tab_id;
   rwhi->ForceRedrawWithCallback(base::BindOnce(
       [](std::shared_ptr<ActionSnapState> s,
          base::WeakPtr<AbpController> ctrl) {
         if (s->done) return;
-        VLOG(1) << "ABP: CaptureActionScreenshot - ForceRedraw callback fired";
+        VLOG(1) << "ABP: CaptureActionScreenshotWithRetry - ForceRedraw callback fired"
+                  << " tab=" << s->tab_id;
         if (!ctrl) {
           s->done = true;
           std::move(s->cb).Run(ActionScreenshotResult());
@@ -1176,10 +1201,19 @@ void AbpController::CaptureActionScreenshotWithRetry(
 void AbpController::GrabViewSnapshotWithFreshnessCheck(
     std::shared_ptr<ActionSnapState> s,
     int retry_count) {
-  if (s->done) return;
+  if (s->done) {
+    VLOG(1) << "ABP: GrabViewSnapshotWithFreshnessCheck - already done"
+              << " tab=" << s->tab_id << " retry=" << retry_count;
+    return;
+  }
+
+  VLOG(1) << "ABP: GrabViewSnapshotWithFreshnessCheck - attempt"
+            << " tab=" << s->tab_id << " retry=" << retry_count;
 
   content::WebContents* wc = FindWebContents(s->tab_id);
   if (!wc) {
+    LOG(WARNING) << "ABP: GrabViewSnapshotWithFreshnessCheck - WebContents gone"
+                 << " tab=" << s->tab_id;
     s->done = true;
     std::move(s->cb).Run(ActionScreenshotResult());
     return;
@@ -1187,6 +1221,8 @@ void AbpController::GrabViewSnapshotWithFreshnessCheck(
 
   gfx::NativeView native_view = wc->GetContentNativeView();
   if (!native_view) {
+    LOG(WARNING) << "ABP: GrabViewSnapshotWithFreshnessCheck - no native view"
+                 << " tab=" << s->tab_id;
     s->done = true;
     std::move(s->cb).Run(ActionScreenshotResult());
     return;
@@ -1197,6 +1233,9 @@ void AbpController::GrabViewSnapshotWithFreshnessCheck(
   if (view) {
     bounds = gfx::Rect(view->GetViewBounds().size());
   }
+  VLOG(1) << "ABP: GrabViewSnapshotWithFreshnessCheck - calling GrabViewSnapshot"
+            << " bounds=" << bounds.width() << "x" << bounds.height()
+            << " tab=" << s->tab_id;
 
   ui::GrabViewSnapshot(
       native_view, bounds,
@@ -1205,8 +1244,14 @@ void AbpController::GrabViewSnapshotWithFreshnessCheck(
              base::WeakPtr<AbpController> ctrl, int retry_count,
              gfx::Image image) {
             if (s->done) return;
+            VLOG(1) << "ABP: GrabViewSnapshotWithFreshnessCheck - result"
+                      << " empty=" << image.IsEmpty()
+                      << " retry=" << retry_count
+                      << " tab=" << s->tab_id;
             if (image.IsEmpty() && retry_count < 5) {
               // Retry after 167ms — compositor may not have presented yet.
+              VLOG(1) << "ABP: GrabViewSnapshotWithFreshnessCheck - retrying"
+                        << " tab=" << s->tab_id;
               if (ctrl) {
                 base::SingleThreadTaskRunner::GetCurrentDefault()
                     ->PostDelayedTask(
@@ -1222,10 +1267,15 @@ void AbpController::GrabViewSnapshotWithFreshnessCheck(
             s->done = true;
             if (!ctrl || image.IsEmpty()) {
               LOG(WARNING) << "ABP: GrabViewSnapshot empty after "
-                           << retry_count << " retries";
+                           << retry_count << " retries"
+                           << " tab=" << s->tab_id;
               std::move(s->cb).Run(ActionScreenshotResult());
               return;
             }
+            VLOG(1) << "ABP: GrabViewSnapshotWithFreshnessCheck - success"
+                      << " width=" << image.Width()
+                      << " height=" << image.Height()
+                      << " tab=" << s->tab_id;
             ctrl->OnActionScreenshotCaptured(std::move(s->cb), s->opts,
                                              s->h_path, s->tab_id, image);
           },
@@ -1256,12 +1306,17 @@ void AbpController::OnActionScreenshotCaptured(
   }
 
   if (snapshot.IsEmpty()) {
-    VLOG(1) << "ABP: CaptureActionScreenshot - snapshot empty";
+    LOG(WARNING) << "ABP: OnActionScreenshotCaptured - snapshot empty"
+                 << " tab=" << tab_id;
     std::move(callback).Run(ActionScreenshotResult());
     return;
   }
 
   const SkBitmap& bitmap = *snapshot.ToSkBitmap();
+  VLOG(1) << "ABP: OnActionScreenshotCaptured - encoding"
+            << " format=" << options.format
+            << " width=" << bitmap.width() << " height=" << bitmap.height()
+            << " tab=" << tab_id;
   std::optional<std::vector<uint8_t>> encoded;
   if (options.format == "webp") {
     encoded = gfx::WebpCodec::Encode(bitmap, options.quality);
@@ -1273,6 +1328,8 @@ void AbpController::OnActionScreenshotCaptured(
   }
 
   if (!encoded || encoded->empty()) {
+    LOG(WARNING) << "ABP: OnActionScreenshotCaptured - encoding failed"
+                 << " format=" << options.format << " tab=" << tab_id;
     std::move(callback).Run(ActionScreenshotResult());
     return;
   }
@@ -1281,6 +1338,10 @@ void AbpController::OnActionScreenshotCaptured(
   r.base64 = base::Base64Encode(*encoded);
   r.width = snapshot.Width();
   r.height = snapshot.Height();
+  VLOG(1) << "ABP: OnActionScreenshotCaptured - success"
+            << " base64_len=" << r.base64.size()
+            << " width=" << r.width << " height=" << r.height
+            << " tab=" << tab_id;
 
   // Save to disk for history if path is set
   if (!history_path.empty()) {
@@ -1315,30 +1376,56 @@ void AbpController::CaptureScreenshotFromBuffer(
     int64_t timestamp,
     bool is_before,
     const ScreenshotOptions& options,
-    ActionScreenshotCallback callback) {
+    ActionScreenshotCallback callback,
+    int retry_count) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   VLOG(1) << "ABP: CaptureScreenshotFromBuffer tab=" << tab_id
-          << " is_before=" << is_before;
+            << " is_before=" << is_before
+            << " retry=" << retry_count;
 
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
+    LOG(WARNING) << "ABP: CaptureScreenshotFromBuffer - WebContents not found"
+                 << " tab=" << tab_id;
     std::move(callback).Run(ActionScreenshotResult());
     return;
   }
 
   content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
   if (!view) {
+    // RWHV can be null during cross-process navigation (renderer swap).
+    // Retry up to 10 times (100ms apart, ~1s total) waiting for the new
+    // renderer to attach.
+    if (retry_count < 10) {
+      VLOG(1) << "ABP: CaptureScreenshotFromBuffer - no RWHV, retrying"
+                << " attempt=" << retry_count << " tab=" << tab_id;
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+          FROM_HERE,
+          base::BindOnce(&AbpController::CaptureScreenshotFromBuffer,
+                         weak_factory_.GetWeakPtr(), tab_id, timestamp,
+                         is_before, options, std::move(callback),
+                         retry_count + 1),
+          base::Milliseconds(100));
+      return;
+    }
+    LOG(WARNING) << "ABP: CaptureScreenshotFromBuffer - no RWHV after "
+                 << retry_count << " retries, tab=" << tab_id;
     std::move(callback).Run(ActionScreenshotResult());
     return;
   }
 
   gfx::NativeView native_view = wc->GetContentNativeView();
   if (!native_view) {
+    LOG(WARNING) << "ABP: CaptureScreenshotFromBuffer - no native view"
+                 << " tab=" << tab_id;
     std::move(callback).Run(ActionScreenshotResult());
     return;
   }
 
   gfx::Rect bounds(view->GetViewBounds().size());
+  VLOG(1) << "ABP: CaptureScreenshotFromBuffer - calling GrabViewSnapshot"
+            << " bounds=" << bounds.width() << "x" << bounds.height()
+            << " tab=" << tab_id;
 
   // Determine history path (if history is enabled)
   base::FilePath history_path;
@@ -1358,10 +1445,16 @@ void AbpController::CaptureScreenshotFromBuffer(
              base::FilePath h_path,
              std::string tab_id,
              gfx::Image image) {
+            VLOG(1) << "ABP: CaptureScreenshotFromBuffer - GrabViewSnapshot result"
+                      << " empty=" << image.IsEmpty()
+                      << " width=" << image.Width()
+                      << " height=" << image.Height()
+                      << " tab=" << tab_id;
             if (!ctrl || image.IsEmpty()) {
               if (image.IsEmpty()) {
                 LOG(WARNING) << "ABP: CaptureScreenshotFromBuffer - "
-                             << "GrabViewSnapshot returned empty";
+                             << "GrabViewSnapshot returned empty"
+                             << " tab=" << tab_id;
               }
               std::move(cb).Run(ActionScreenshotResult());
               return;

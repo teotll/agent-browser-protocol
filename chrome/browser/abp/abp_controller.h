@@ -305,7 +305,8 @@ class AbpController {
       int64_t timestamp,
       bool is_before,
       const ScreenshotOptions& options,
-      ActionScreenshotCallback callback);
+      ActionScreenshotCallback callback,
+      int retry_count = 0);
 
   // Update the virtual cursor state for a tab (used by input actions)
   void UpdateVirtualCursorState(const std::string& tab_id, double x, double y);

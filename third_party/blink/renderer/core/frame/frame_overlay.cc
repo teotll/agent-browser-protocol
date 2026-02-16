@@ -58,7 +58,11 @@ FrameOverlay::~FrameOverlay() {
 }
 
 void FrameOverlay::Destroy() {
-  frame_->View()->SetVisualViewportOrOverlayNeedsRepaint();
+  // Guard against null frame/view during teardown (e.g. cross-process
+  // navigation where the frame is being detached).
+  if (frame_ && frame_->View()) {
+    frame_->View()->SetVisualViewportOrOverlayNeedsRepaint();
+  }
 
   delegate_.reset();
 #if DCHECK_IS_ON()

@@ -350,7 +350,9 @@ void AbpActionContext::OnBeforeScreenshotCaptured(std::string history_path,
     return;
   }
   VLOG(1) << "ABP ActionContext: OnBeforeScreenshotCaptured() action="
-          << action_type_ << " base64_len=" << base64.size();
+            << action_type_ << " base64_len=" << base64.size()
+            << " width=" << width << " height=" << height
+            << " tab=" << tab_id_;
   if (controller_->lifecycle_observer_for_testing_) {
     controller_->lifecycle_observer_for_testing_.Run(
         tab_id_, action_type_,
@@ -582,7 +584,10 @@ void AbpActionContext::OnAfterScreenshotCaptured(std::string history_path,
   if (!IsCurrentAction()) {
     return;
   }
-  VLOG(1) << "ABP ActionContext: OnAfterScreenshotCaptured() action=" << action_type_;
+  VLOG(1) << "ABP ActionContext: OnAfterScreenshotCaptured() action="
+            << action_type_ << " base64_len=" << base64.size()
+            << " width=" << width << " height=" << height
+            << " tab=" << tab_id_;
   if (controller_->lifecycle_observer_for_testing_) {
     controller_->lifecycle_observer_for_testing_.Run(
         tab_id_, action_type_,
