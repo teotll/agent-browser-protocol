@@ -4575,35 +4575,39 @@ void AbpController::BinaryScreenshot(const std::string& tab_id,
     return;
   }
 
-  // Parse query params for markup tags
-  // Format: ?markup=clickable,grid
-  std::vector<std::string> markup_tags;
+  // Parse query params for disable_markup tags
+  // Format: ?disable_markup=grid,scrollable
+  // All markup overlays are enabled by default; disable_markup turns off specific ones.
+  std::vector<std::string> disable_tags;
   if (!query.empty()) {
-    size_t pos = query.find("markup=");
+    size_t pos = query.find("disable_markup=");
     if (pos != std::string::npos) {
-      size_t start = pos + 7;
+      size_t start = pos + 15;  // strlen("disable_markup=")
       size_t end = query.find('&', start);
-      std::string markup_str =
+      std::string disable_str =
           query.substr(start, end == std::string::npos ? end : end - start);
       size_t tag_start = 0;
-      while (tag_start < markup_str.size()) {
-        size_t comma = markup_str.find(',', tag_start);
-        if (comma == std::string::npos) comma = markup_str.size();
-        std::string tag = markup_str.substr(tag_start, comma - tag_start);
+      while (tag_start < disable_str.size()) {
+        size_t comma = disable_str.find(',', tag_start);
+        if (comma == std::string::npos) comma = disable_str.size();
+        std::string tag = disable_str.substr(tag_start, comma - tag_start);
         if (!tag.empty()) {
-          markup_tags.push_back(tag);
+          disable_tags.push_back(tag);
         }
         tag_start = comma + 1;
       }
     }
   }
 
-  // Validate tags
+  // Validate disable tags
   std::string invalid_tag;
-  if (!ValidateMarkupTags(markup_tags, &invalid_tag)) {
+  if (!ValidateMarkupTags(disable_tags, &invalid_tag)) {
     SendError(400, "Unknown markup tag: " + invalid_tag, std::move(callback));
     return;
   }
+
+  // Compute effective tags = all - disabled
+  std::vector<std::string> markup_tags = ComputeEffectiveMarkupTags(disable_tags);
 
   bool restore_pause_after_capture = false;
   auto tab_it = tab_states_.find(tab_id);
