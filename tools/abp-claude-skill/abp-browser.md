@@ -51,9 +51,25 @@ Sometimes 500ms isn't enough (page load, AJAX requests, animations). When you se
 
 **Call `browser_screenshot` as a "wait and observe."** It runs the same resume-wait-capture-pause cycle, giving the page another chance to settle. Repeat until the content appears.
 
-### Using Markup Overlays
+### Screenshot Markup Overlays
 
-Pass `markup: ["clickable", "typeable"]` to `browser_screenshot` (or any action that returns screenshots) to see numbered labels on interactive elements. Tags are composable — combine any of `clickable`, `typeable`, `scrollable`, and `grid`. The `grid` tag overlays a 100px coordinate grid to help target x,y positions.
+All screenshots include visual markup overlays by default. These highlight interactive elements so you can identify click/type targets:
+
+| Overlay | Color | What it shows |
+|---------|-------|---------------|
+| **clickable** | Green outline | Buttons, links, clickable elements |
+| **typeable** | Orange outline | Text inputs, textareas, contenteditable |
+| **scrollable** | Purple dashed outline | Scrollable containers |
+| **grid** | Red 100px grid | Coordinate grid with pixel labels |
+| **selected** | Blue thick outline (3px) | The currently focused element |
+
+To disable specific overlays when they're noisy, pass `disable_markup`:
+
+```
+browser_screenshot(disable_markup: ["grid", "scrollable"])
+```
+
+With no `disable_markup`, all 5 overlays are shown.
 
 ## Tool Reference
 
@@ -92,7 +108,7 @@ All `tab_id` parameters are optional and default to the active tab.
 ### Content
 | Tool | Description | Key Params |
 |------|-------------|------------|
-| `browser_screenshot` | Screenshot + wait/observe | `markup`, `format` |
+| `browser_screenshot` | Screenshot + wait/observe | `disable_markup`, `format` |
 | `browser_execute_javascript` | Run JS expression | `expression` (required) |
 | `browser_get_text` | Get page text content | `selector` (optional CSS selector) |
 
