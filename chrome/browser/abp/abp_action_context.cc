@@ -187,7 +187,8 @@ void AbpActionContext::Start() {
   start_time_ms_ = base::Time::Now().InMillisecondsSinceUnixEpoch();
   start_ticks_ = base::TimeTicks::Now();
 
-  // Parse screenshot options from action params
+  // Parse screenshot options from action params.
+  // All markup overlays are enabled by default; use disable_markup to turn off specific ones.
   const base::Value::Dict* ss_params = params_.FindDict("screenshot");
   if (ss_params) {
     const base::Value::List* disable_list = ss_params->FindList("disable_markup");
@@ -210,6 +211,9 @@ void AbpActionContext::Start() {
     if (quality.has_value()) {
       screenshot_quality_ = *quality;
     }
+  } else {
+    // No screenshot params — all markup overlays enabled by default.
+    screenshot_markup_tags_ = AbpController::ComputeEffectiveMarkupTags({});
   }
 
   // Capture virtual time at start
