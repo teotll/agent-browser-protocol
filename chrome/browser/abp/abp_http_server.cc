@@ -178,12 +178,6 @@ void AbpHttpServer::PollForReadyAndCenterCursor() {
     if (!tab_id.empty()) {
       controller_->CenterCursorInTab(tab_id, base::DoNothing());
     }
-    // Auto-pause all tabs after 5 seconds to freeze JS by default
-    content::GetUIThreadTaskRunner({})->PostDelayedTask(
-        FROM_HERE,
-        base::BindOnce(&AbpHttpServer::AutoPauseAllTabs,
-                       base::Unretained(this)),
-        base::Seconds(5));
   } else {
     // Not ready yet, poll again
     content::GetUIThreadTaskRunner({})->PostDelayedTask(
@@ -192,17 +186,6 @@ void AbpHttpServer::PollForReadyAndCenterCursor() {
                        base::Unretained(this)),
         base::Milliseconds(100));
   }
-}
-
-void AbpHttpServer::AutoPauseAllTabs() {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  VLOG(1) << "ABP: Auto-pausing all tabs (5s startup delay elapsed)";
-  // Re-center cursor with settled viewport dimensions before pausing
-  std::string tab_id = controller_->GetActiveTabId();
-  if (!tab_id.empty()) {
-    controller_->CenterCursorInTab(tab_id, base::DoNothing());
-  }
-  controller_->PauseAllTabs();
 }
 
 void AbpHttpServer::StartOnIO() {

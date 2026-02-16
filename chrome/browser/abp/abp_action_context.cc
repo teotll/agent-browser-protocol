@@ -316,6 +316,8 @@ void AbpActionContext::OnExecutionResumed() {
 }
 
 void AbpActionContext::CaptureBeforeScreenshot() {
+  VLOG(1) << "ABP ActionContext: CaptureBeforeScreenshot() action="
+          << action_type_ << " tab=" << tab_id_;
   if (controller_->lifecycle_observer_for_testing_) {
     controller_->lifecycle_observer_for_testing_.Run(
         tab_id_, action_type_,
@@ -347,7 +349,8 @@ void AbpActionContext::OnBeforeScreenshotCaptured(std::string history_path,
   if (!IsCurrentAction()) {
     return;
   }
-  VLOG(1) << "ABP ActionContext: OnBeforeScreenshotCaptured() action=" << action_type_;
+  VLOG(1) << "ABP ActionContext: OnBeforeScreenshotCaptured() action="
+          << action_type_ << " base64_len=" << base64.size();
   if (controller_->lifecycle_observer_for_testing_) {
     controller_->lifecycle_observer_for_testing_.Run(
         tab_id_, action_type_,
@@ -481,8 +484,8 @@ void AbpActionContext::StopEventCaptureAndGetScrollPosition() {
   bool externally_paused =
       it != controller_->tab_states_.end() && it->second.execution.IsPaused();
   if (externally_paused && controller_->IsExecutionControlEnabled()) {
-    LOG(INFO) << "ABP ActionContext: Execution was paused externally during "
-              << "wait, resuming before GetScrollPosition";
+    VLOG(1) << "ABP ActionContext: Execution was paused externally during "
+            << "wait, resuming before GetScrollPosition";
     controller_->ResumeExecution(
         tab_id_,
         base::BindOnce(
@@ -548,6 +551,7 @@ void AbpActionContext::EnsureVirtualCursorVisible() {
 }
 
 void AbpActionContext::CaptureAfterScreenshot() {
+  VLOG(1) << "ABP ActionContext: CaptureAfterScreenshot() action=" << action_type_;
   if (controller_->lifecycle_observer_for_testing_) {
     controller_->lifecycle_observer_for_testing_.Run(
         tab_id_, action_type_,

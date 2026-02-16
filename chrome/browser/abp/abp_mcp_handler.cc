@@ -637,14 +637,79 @@ void AbpMcpHandler::CallBrowserListTabs(const base::Value::Dict& args,
 void AbpMcpHandler::CallBrowserNewTab(const base::Value::Dict& args,
                                       base::Value request_id,
                                       ResponseWithHeadersCallback callback) {
-  std::string body;
-  base::JSONWriter::Write(base::Value(args.Clone()), &body);
+  const std::string* url = args.FindString("url");
+  std::string nav_url = url ? *url : "";
 
+  // Always create tab at about:blank first.  If a URL was requested we
+  // follow up with a navigate call so it goes through AbpActionContext
+  // (which captures before/after screenshots and waits for page load).
   controller_->HandleRequest(
-      "POST", "/api/v1/tabs", body,
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
+      "POST", "/api/v1/tabs", R"({"url":"about:blank"})",
+      base::BindOnce(
+          [](base::WeakPtr<AbpMcpHandler> self, std::string nav_url,
+             base::Value request_id, ResponseWithHeadersCallback callback,
+             int status, const std::string& content_type, std::string body) {
+            if (!self) return;
+
+            // If no URL was requested (or about:blank), return create response.
+            if (nav_url.empty() || nav_url == "about:blank") {
+              self->OnControllerResponse(std::move(request_id),
+                                         std::move(callback), status,
+                                         content_type, std::move(body));
+              return;
+            }
+
+            // Parse tab ID from create response.
+            auto parsed = base::JSONReader::Read(body, base::JSON_PARSE_RFC);
+            std::string tab_id;
+            if (parsed && parsed->is_dict()) {
+              const std::string* id = parsed->GetDict().FindString("id");
+              if (id) tab_id = *id;
+            }
+            if (tab_id.empty()) {
+              self->OnControllerResponse(std::move(request_id),
+                                         std::move(callback), status,
+                                         content_type, std::move(body));
+              return;
+            }
+
+            // Defer the navigate to give the new tab's renderer and native
+            // view time to initialize.  Without a delay, GrabViewSnapshot
+            // returns empty for the before screenshot and ForceRedraw may
+            // timeout for heavy pages.
+            VLOG(1) << "ABP MCP: CallBrowserNewTab - tab created: " << tab_id
+                    << ", scheduling navigate to " << nav_url
+                    << " in 500ms";
+            base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
+                FROM_HERE,
+                base::BindOnce(
+                    [](base::WeakPtr<AbpMcpHandler> handler,
+                       std::string tid, std::string url,
+                       base::Value req_id,
+                       ResponseWithHeadersCallback cb) {
+                      if (!handler) return;
+                      VLOG(1) << "ABP MCP: CallBrowserNewTab - "
+                              << "executing deferred navigate for tab "
+                              << tid << " to " << url;
+                      base::Value::Dict nav_body;
+                      nav_body.Set("url", url);
+                      std::string nav_body_str;
+                      base::JSONWriter::Write(
+                          base::Value(std::move(nav_body)), &nav_body_str);
+
+                      handler->controller_->HandleRequest(
+                          "POST", "/api/v1/tabs/" + tid + "/navigate",
+                          nav_body_str,
+                          base::BindOnce(
+                              &AbpMcpHandler::OnControllerResponse,
+                              handler, std::move(req_id), std::move(cb)));
+                    },
+                    self, std::move(tab_id), std::move(nav_url),
+                    std::move(request_id), std::move(callback)),
+                base::Milliseconds(500));
+          },
+          weak_factory_.GetWeakPtr(), std::move(nav_url),
+          std::move(request_id), std::move(callback)));
 }
 
 void AbpMcpHandler::CallBrowserCloseTab(const base::Value::Dict& args,

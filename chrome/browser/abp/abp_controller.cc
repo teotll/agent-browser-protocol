@@ -1128,17 +1128,25 @@ void AbpController::CaptureActionScreenshotWithRetry(
   st->h_path = history_path;
   st->tab_id = tab_id;
 
-  // Safety-net timeout: fail closed.
+  // Safety-net timeout: fall back to direct GrabViewSnapshot if ForceRedraw
+  // doesn't respond in time (heavy JS pages can starve BeginMainFrame).
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(
-          [](std::shared_ptr<ActionSnapState> s) {
+          [](std::shared_ptr<ActionSnapState> s,
+             base::WeakPtr<AbpController> ctrl) {
             if (s->done) return;
-            s->done = true;
-            LOG(WARNING) << "ABP: CaptureActionScreenshot timed out";
-            std::move(s->cb).Run(ActionScreenshotResult());
+            LOG(WARNING) << "ABP: CaptureActionScreenshot ForceRedraw timed out"
+                         << " — falling back to direct GrabViewSnapshot";
+            if (!ctrl) {
+              s->done = true;
+              std::move(s->cb).Run(ActionScreenshotResult());
+              return;
+            }
+            // Try direct GrabViewSnapshot from the existing screen buffer.
+            ctrl->GrabViewSnapshotWithFreshnessCheck(s, /*retry_count=*/0);
           },
-          st),
+          st, weak_factory_.GetWeakPtr()),
       base::Milliseconds(1500));
 
   VLOG(1) << "ABP: CaptureActionScreenshot - calling ForceRedrawWithCallback"
@@ -3956,11 +3964,36 @@ void AbpController::GetScrollPosition(
   eval_params.Set("returnByValue", true);
   eval_params.Set("disableBreaks", true);
 
+  // Use shared state so a safety-net timeout can fire the callback if
+  // Runtime.evaluate hangs (e.g. after cross-process navigation to a heavy
+  // page where the CDP session may be suspended).
+  auto done = std::make_shared<bool>(false);
+  auto shared_cb =
+      std::make_shared<base::OnceCallback<void(base::Value::Dict)>>(
+          std::move(callback));
+
+  // 5s safety timeout — return empty scroll info rather than hang forever.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](std::shared_ptr<bool> d,
+             std::shared_ptr<base::OnceCallback<void(base::Value::Dict)>> cb) {
+            if (*d) return;
+            *d = true;
+            LOG(WARNING) << "ABP: GetScrollPosition timed out (5s)";
+            std::move(*cb).Run(base::Value::Dict());
+          },
+          done, shared_cb),
+      base::Seconds(5));
+
   client->SendCommand(
       "Runtime.evaluate", std::move(eval_params),
       base::BindOnce(
-          [](base::OnceCallback<void(base::Value::Dict)> cb, bool success,
-             const std::string& result) {
+          [](std::shared_ptr<bool> d,
+             std::shared_ptr<base::OnceCallback<void(base::Value::Dict)>> cb,
+             bool success, const std::string& result) {
+            if (*d) return;
+            *d = true;
             base::Value::Dict scroll_info;
 
             if (success) {
@@ -4003,9 +4036,9 @@ void AbpController::GetScrollPosition(
               }
             }
 
-            std::move(cb).Run(std::move(scroll_info));
+            std::move(*cb).Run(std::move(scroll_info));
           },
-          std::move(callback)));
+          done, shared_cb));
 }
 
 void AbpController::CaptureScreenshotBase64(
