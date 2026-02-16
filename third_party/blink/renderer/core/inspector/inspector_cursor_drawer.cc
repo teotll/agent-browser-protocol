@@ -589,121 +589,125 @@ void InspectorCursorDrawer::DrawCursor(
     return;
   }
 
+  // Scale down cursor to 70% so it matches the system cursor size more closely.
+  constexpr float kCursorScale = 0.7f;
+  float cursor_scale = scale * kCursorScale;
+
   // Get the hotspot and adjust position so hotspot is at the click point
   gfx::PointF hotspot = GetCursorHotspot(cursor_type);
-  gfx::PointF adjusted_pos(position.x() - hotspot.x() * scale,
-                           position.y() - hotspot.y() * scale);
+  gfx::PointF adjusted_pos(position.x() - hotspot.x() * cursor_scale,
+                           position.y() - hotspot.y() * cursor_scale);
 
   SkPath path;
 
   switch (cursor_type) {
     case ui::mojom::blink::CursorType::kPointer:
     case ui::mojom::blink::CursorType::kNone:
-      path = CreateArrowPath(scale);
+      path = CreateArrowPath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kHand:
-      path = CreateHandPath(scale);
+      path = CreateHandPath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kIBeam:
-      path = CreateIBeamPath(scale);
+      path = CreateIBeamPath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kCross:
-      path = CreateCrosshairPath(scale);
+      path = CreateCrosshairPath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kMove:
     case ui::mojom::blink::CursorType::kMiddlePanning:
     case ui::mojom::blink::CursorType::kMiddlePanningVertical:
     case ui::mojom::blink::CursorType::kMiddlePanningHorizontal:
-      path = CreateMovePath(scale);
+      path = CreateMovePath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kNotAllowed:
     case ui::mojom::blink::CursorType::kNoDrop:
-      path = CreateNotAllowedPath(scale);
+      path = CreateNotAllowedPath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kNorthResize:
     case ui::mojom::blink::CursorType::kSouthResize:
     case ui::mojom::blink::CursorType::kNorthSouthResize:
     case ui::mojom::blink::CursorType::kRowResize:
-      path = CreateNsResizePath(scale);
+      path = CreateNsResizePath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kEastResize:
     case ui::mojom::blink::CursorType::kWestResize:
     case ui::mojom::blink::CursorType::kEastWestResize:
     case ui::mojom::blink::CursorType::kColumnResize:
-      path = CreateEwResizePath(scale);
+      path = CreateEwResizePath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kNorthEastResize:
     case ui::mojom::blink::CursorType::kSouthWestResize:
     case ui::mojom::blink::CursorType::kNorthEastSouthWestResize:
-      path = CreateNeswResizePath(scale);
+      path = CreateNeswResizePath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kNorthWestResize:
     case ui::mojom::blink::CursorType::kSouthEastResize:
     case ui::mojom::blink::CursorType::kNorthWestSouthEastResize:
-      path = CreateNwseResizePath(scale);
+      path = CreateNwseResizePath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kWait:
     case ui::mojom::blink::CursorType::kProgress:
-      path = CreateWaitPath(scale);
+      path = CreateWaitPath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kHelp:
-      path = CreateHelpPath(scale);
+      path = CreateHelpPath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kGrab:
-      path = CreateGrabPath(scale);
+      path = CreateGrabPath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kGrabbing:
-      path = CreateGrabbingPath(scale);
+      path = CreateGrabbingPath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kCell:
-      path = CreateCellPath(scale);
+      path = CreateCellPath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kZoomIn:
-      path = CreateZoomInPath(scale);
+      path = CreateZoomInPath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kZoomOut:
-      path = CreateZoomOutPath(scale);
+      path = CreateZoomOutPath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kContextMenu:
-      path = CreateContextMenuPath(scale);
+      path = CreateContextMenuPath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kAlias:
-      path = CreateAliasPath(scale);
+      path = CreateAliasPath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kCopy:
-      path = CreateCopyPath(scale);
+      path = CreateCopyPath(cursor_scale);
       break;
 
     case ui::mojom::blink::CursorType::kVerticalText:
-      path = CreateVerticalTextPath(scale);
+      path = CreateVerticalTextPath(cursor_scale);
       break;
 
     // For other cursor types, fall back to arrow
     default:
-      path = CreateArrowPath(scale);
+      path = CreateArrowPath(cursor_scale);
       break;
   }
 
-  DrawCursorPath(canvas, path, adjusted_pos, scale);
+  DrawCursorPath(canvas, path, adjusted_pos, cursor_scale);
 }
 
 // static

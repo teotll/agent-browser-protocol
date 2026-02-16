@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Keyboard Input Test</title>
+  <style>
+    body { font-family: monospace; padding: 20px; }
+    .test { margin: 10px 0; }
+    input { width: 600px; font-size: 16px; padding: 4px; }
+    label { display: inline-block; width: 200px; }
+    #results { margin-top: 20px; white-space: pre; }
+  </style>
+</head>
+<body>
+  <h2>Keyboard Input Test</h2>
+
+  <div class="test">
+    <label>General text:</label>
+    <input id="input1" type="text" placeholder="Type here...">
+  </div>
+  <div class="test">
+    <label>Symbols test:</label>
+    <input id="input2" type="text" placeholder="Type symbols here...">
+  </div>
+  <div class="test">
+    <label>All punctuation:</label>
+    <input id="input3" type="text" placeholder="Type all punctuation...">
+  </div>
+
+  <div id="results"></div>
+
+  <script>
+    function check(inputId, expected) {
+      const el = document.getElementById(inputId);
+      const actual = el.value;
+      const pass = actual === expected;
+      return { inputId, expected, actual, pass };
+    }
+
+    // Expose for JS evaluation
+    window.checkAll = function() {
+      return JSON.stringify([
+        check('input1', 'mens jacket under $50'),
+        check('input2', 'hello@world.com #tag & more!'),
+        check('input3', '`~!@#$%^&*()-_=+[{]}\\|;:\'",<.>/?'),
+      ], null, 2);
+    };
+  </script>
+</body>
+</html>

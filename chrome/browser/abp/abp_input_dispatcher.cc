@@ -37,6 +37,67 @@ int ModifierFlagsToWebModifiers(int flags) {
   return result;
 }
 
+// US keyboard layout mapping for symbols/punctuation.
+// Maps a character to its physical key's DOM code string, Windows virtual key
+// code, and whether Shift is required to produce it.
+struct UsKeyMapping {
+  const char* code;          // DOM physical key code (e.g. "Digit4")
+  int windows_virtual_key;   // VK code of the physical key
+  bool shift;                // Whether Shift is required
+};
+
+// Returns the US keyboard mapping for a symbol/punctuation character,
+// or nullptr if not found.
+const UsKeyMapping* GetUsKeyMapping(char c) {
+  // clang-format off
+  static constexpr struct { char ch; UsKeyMapping mapping; } kTable[] = {
+      // Shifted digit row: Shift + Digit → symbol
+      {'!', {"Digit1",       '1',  true}},
+      {'@', {"Digit2",       '2',  true}},
+      {'#', {"Digit3",       '3',  true}},
+      {'$', {"Digit4",       '4',  true}},
+      {'%', {"Digit5",       '5',  true}},
+      {'^', {"Digit6",       '6',  true}},
+      {'&', {"Digit7",       '7',  true}},
+      {'*', {"Digit8",       '8',  true}},
+      {'(', {"Digit9",       '9',  true}},
+      {')', {"Digit0",       '0',  true}},
+
+      // OEM keys: unshifted
+      {'`', {"Backquote",    0xC0, false}},
+      {'-', {"Minus",        0xBD, false}},
+      {'=', {"Equal",        0xBB, false}},
+      {'[', {"BracketLeft",  0xDB, false}},
+      {']', {"BracketRight", 0xDD, false}},
+      {'\\',{"Backslash",    0xDC, false}},
+      {';', {"Semicolon",    0xBA, false}},
+      {'\'',{"Quote",        0xDE, false}},
+      {',', {"Comma",        0xBC, false}},
+      {'.', {"Period",       0xBE, false}},
+      {'/', {"Slash",        0xBF, false}},
+
+      // OEM keys: shifted
+      {'~', {"Backquote",    0xC0, true}},
+      {'_', {"Minus",        0xBD, true}},
+      {'+', {"Equal",        0xBB, true}},
+      {'{', {"BracketLeft",  0xDB, true}},
+      {'}', {"BracketRight", 0xDD, true}},
+      {'|', {"Backslash",    0xDC, true}},
+      {':', {"Semicolon",    0xBA, true}},
+      {'"', {"Quote",        0xDE, true}},
+      {'<', {"Comma",        0xBC, true}},
+      {'>', {"Period",       0xBE, true}},
+      {'?', {"Slash",        0xBF, true}},
+  };
+  // clang-format on
+
+  for (const auto& entry : kTable) {
+    if (entry.ch == c)
+      return &entry.mapping;
+  }
+  return nullptr;
+}
+
 }  // namespace
 
 AbpInputDispatcher::AbpInputDispatcher(AbpController* controller)
@@ -431,10 +492,18 @@ void AbpInputDispatcher::TypeNextCharacter(
     char_info.code = "Tab";
     char_info.text = "\t";
     char_info.windows_virtual_key = 9;
-  } else {
-    // Punctuation/symbols: use character as key, VK = character code
+  } else if (const UsKeyMapping* mapping = GetUsKeyMapping(c)) {
+    // Symbol/punctuation with known US keyboard mapping.
+    // Use the physical key's code and VK, with Shift if required.
     char_info.key = std::string(1, c);
-    char_info.windows_virtual_key = c;
+    char_info.code = mapping->code;
+    char_info.windows_virtual_key = mapping->windows_virtual_key;
+    if (mapping->shift)
+      web_mods = blink::WebInputEvent::kShiftKey;
+  } else {
+    // Unknown character — best effort: use character as key.
+    char_info.key = std::string(1, c);
+    char_info.windows_virtual_key = std::toupper(c);
   }
   char_info.native_virtual_key = char_info.windows_virtual_key;
 
