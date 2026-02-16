@@ -191,8 +191,10 @@ class TabsAPI {
     return res.data;
   }
 
-  async screenshotBinary(tabId: string, options?: { markup?: string[] }): Promise<Buffer> {
-    const query = options?.markup?.length ? `?markup=${options.markup.join(",")}` : "";
+  async screenshotBinary(tabId: string, options?: { disable_markup?: string[] }): Promise<Buffer> {
+    const query = options?.disable_markup?.length
+      ? `?disable_markup=${options.disable_markup.join(",")}`
+      : "";
     const res = await request<Buffer>(
       `${this.baseUrl}/tabs/${tabId}/screenshot${query}`,
     );
