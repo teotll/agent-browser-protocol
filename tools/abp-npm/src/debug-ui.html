@@ -655,10 +655,11 @@ footer .status-dot.connected { background: var(--success); }
         </div>
         <div id="screenshot-opts" class="screenshot-opts">
           <div class="checkbox-group">
-            <label><input type="checkbox" name="ss-markup" value="clickable">clickable</label>
-            <label><input type="checkbox" name="ss-markup" value="typeable">typeable</label>
-            <label><input type="checkbox" name="ss-markup" value="scrollable">scrollable</label>
-            <label><input type="checkbox" name="ss-markup" value="grid">grid</label>
+            <label><input type="checkbox" name="ss-disable-markup" value="clickable">disable clickable</label>
+            <label><input type="checkbox" name="ss-disable-markup" value="typeable">disable typeable</label>
+            <label><input type="checkbox" name="ss-disable-markup" value="scrollable">disable scrollable</label>
+            <label><input type="checkbox" name="ss-disable-markup" value="grid">disable grid</label>
+            <label><input type="checkbox" name="ss-disable-markup" value="selected">disable selected</label>
           </div>
           <div class="ss-row">
             <label>format</label>
@@ -718,7 +719,7 @@ footer .status-dot.connected { background: var(--success); }
     execute:    { method: "POST", path: "/execute", fields: [{ name: "script", type: "textarea", required: true }] },
     text:       { method: "POST", path: "/text", fields: [{ name: "selector", type: "text" }] },
     wait:       { method: "POST", path: "/wait", fields: [{ name: "ms", type: "number", required: true }] },
-    screenshot: { method: "POST", path: "/screenshot", fields: [{ name: "markup", type: "markup" }, { name: "format", type: "select", options: ["webp", "png", "jpeg"] }, { name: "quality", type: "number" }] },
+    screenshot: { method: "POST", path: "/screenshot", fields: [{ name: "disable_markup", type: "disable_markup" }, { name: "format", type: "select", options: ["webp", "png", "jpeg"] }, { name: "quality", type: "number" }] },
     back:       { method: "POST", path: "/back", fields: [] },
     forward:    { method: "POST", path: "/forward", fields: [] },
     reload:     { method: "POST", path: "/reload", fields: [] },
@@ -1022,21 +1023,21 @@ footer .status-dot.connected { background: var(--success); }
           group.appendChild(clbl);
         }
         row.appendChild(group);
-      } else if (field.type === "markup") {
+      } else if (field.type === "disable_markup") {
         const lbl = document.createElement("label");
-        lbl.textContent = "Markup";
+        lbl.textContent = "Disable Markup";
         row.appendChild(lbl);
         const group = document.createElement("div");
         group.className = "checkbox-group";
-        for (const m of ["clickable", "typeable", "scrollable", "grid"]) {
+        for (const m of ["clickable", "typeable", "scrollable", "grid", "selected"]) {
           const clbl = document.createElement("label");
           const cb = document.createElement("input");
           cb.type = "checkbox";
-          cb.name = "markup";
+          cb.name = "disable_markup";
           cb.value = m;
           cb.dataset.fieldName = field.name;
           clbl.appendChild(cb);
-          clbl.appendChild(document.createTextNode(m));
+          clbl.appendChild(document.createTextNode("disable " + m));
           group.appendChild(clbl);
         }
         row.appendChild(group);
@@ -1135,8 +1136,8 @@ footer .status-dot.connected { background: var(--success); }
       if (field.type === "modifiers") {
         const checked = $$('input[name="modifier"]:checked', dynamicFields).map(function(cb) { return cb.value; });
         if (checked.length > 0) body[field.name] = checked;
-      } else if (field.type === "markup") {
-        const checked = $$('input[name="markup"]:checked', dynamicFields).map(function(cb) { return cb.value; });
+      } else if (field.type === "disable_markup") {
+        const checked = $$('input[name="disable_markup"]:checked', dynamicFields).map(function(cb) { return cb.value; });
         if (checked.length > 0) body[field.name] = checked;
       } else if (field.type === "select") {
         const el = $('[data-field-name="' + field.name + '"][data-field-type="select"]', dynamicFields);
@@ -1153,12 +1154,12 @@ footer .status-dot.connected { background: var(--success); }
     // Screenshot handling
     if (actionName === "screenshot") {
       const screenshotObj = { area: "viewport" };
-      if (body.markup && body.markup.length > 0) {
-        screenshotObj.markup = body.markup;
+      if (body.disable_markup && body.disable_markup.length > 0) {
+        screenshotObj.disable_markup = body.disable_markup;
       }
       if (body.format) screenshotObj.format = body.format;
       if (body.quality != null) screenshotObj.quality = body.quality;
-      delete body.markup;
+      delete body.disable_markup;
       delete body.format;
       delete body.quality;
       return { screenshot: screenshotObj };
@@ -1166,8 +1167,8 @@ footer .status-dot.connected { background: var(--success); }
 
     if (includeScreenshots.checked) {
       const ssObj = { area: "viewport" };
-      const ssMarkup = $$('input[name="ss-markup"]:checked', screenshotOpts).map(function(cb) { return cb.value; });
-      if (ssMarkup.length > 0) ssObj.markup = ssMarkup;
+      const ssDisable = $$('input[name="ss-disable-markup"]:checked', screenshotOpts).map(function(cb) { return cb.value; });
+      if (ssDisable.length > 0) ssObj.disable_markup = ssDisable;
       const ssFmt = document.getElementById("ss-format").value;
       if (ssFmt) ssObj.format = ssFmt;
       const ssQual = document.getElementById("ss-quality").value;
@@ -1210,7 +1211,7 @@ footer .status-dot.connected { background: var(--success); }
     // Validate required fields
     for (const field of action.fields) {
       if (!field.required) continue;
-      if (field.type === "modifiers" || field.type === "markup") continue;
+      if (field.type === "modifiers" || field.type === "disable_markup") continue;
       const el = $('[data-field-name="' + field.name + '"]', dynamicFields);
       if (!el || el.value === "") {
         resultBox.textContent = "Error: " + field.name + " is required.";
