@@ -13,8 +13,7 @@ import { getExecutablePath } from "../paths.js";
 interface DebugArgs {
   port: number;
   abpUrl: string;
-  sessionDir: string;
-  sessionDirExplicit: boolean; // true if --session-dir was provided by user
+  sessionDir: string; // only used as default for launching ABP
   abpBinary: string;
 }
 
@@ -47,7 +46,6 @@ function parseArgs(argv: string[]): DebugArgs {
   let port = 8223;
   let abpUrl = "http://localhost:8222";
   let sessionDir = "";
-  let sessionDirExplicit = false;
   let abpBinary = "";
 
   for (let i = 2; i < argv.length; i++) {
@@ -62,10 +60,8 @@ function parseArgs(argv: string[]): DebugArgs {
       abpUrl = arg.split("=").slice(1).join("=");
     } else if (arg === "--session-dir" && i + 1 < argv.length) {
       sessionDir = argv[++i];
-      sessionDirExplicit = true;
     } else if (arg.startsWith("--session-dir=")) {
       sessionDir = arg.split("=").slice(1).join("=");
-      sessionDirExplicit = true;
     } else if (arg === "--abp-binary" && i + 1 < argv.length) {
       abpBinary = argv[++i];
     } else if (arg.startsWith("--abp-binary=")) {
@@ -77,15 +73,14 @@ Usage:
   abp-debug [options]
 
 Options:
-  --session-dir <path>   Path to ABP session directory (default: auto-detect from running ABP)
+  --session-dir <path>   Session directory for launching ABP (default: sessions/<timestamp>)
   --abp-binary <path>    Path to ABP browser binary (auto-detected)
   --port <port>          Debug server port (default: 8223)
   --abp-url <url>        ABP base URL (default: http://localhost:8222)
   --help, -h             Show this help message
 
-If --session-dir is not provided, the debug server will query the running ABP
-instance for its session directory. If ABP is not running, a new session
-directory will be created under sessions/.`);
+Session directory is always auto-detected from the running ABP instance.
+--session-dir is only used when launching ABP via /control/start.`);
       process.exit(0);
     } else {
       console.error(`Unknown option: ${arg}\nRun with --help for usage.`);
@@ -100,20 +95,10 @@ directory will be created under sessions/.`);
 
   abpBinary = findAbpBinary(abpBinary);
 
-  return { port, abpUrl: abpUrl.replace(/\/+$/, ""), sessionDir: path.resolve(sessionDir), sessionDirExplicit, abpBinary };
+  return { port, abpUrl: abpUrl.replace(/\/+$/, ""), sessionDir: path.resolve(sessionDir), abpBinary };
 }
 
 // --- SQLite ---
-
-function openDatabase(sessionDir: string): Database.Database {
-  const dbPath = path.join(sessionDir, "history.db");
-  if (!fs.existsSync(dbPath)) {
-    throw new Error(`Database not found: ${dbPath}`);
-  }
-  const db = new Database(dbPath, { readonly: true });
-  db.pragma("busy_timeout = 5000");
-  return db;
-}
 
 function getSession(db: Database.Database): Record<string, unknown> | null {
   const row = db.prepare(
@@ -450,7 +435,7 @@ function getHtmlPath(): string {
 
 async function main() {
   const args = parseArgs(process.argv);
-  let currentSessionDir = args.sessionDir;
+  let currentSessionDir = "";
   let db: Database.Database | null = null;
   let sessionId = "";
   let lastMaxId = 0;
@@ -491,20 +476,21 @@ async function main() {
     return true;
   }
 
-  // If --session-dir was not explicitly provided, try to discover from running ABP
-  if (!args.sessionDirExplicit) {
+  // Single code path: always auto-detect session dir from running ABP
+  async function attachToAbp(): Promise<boolean> {
     const sessionData = await fetchAbpSessionData(args.abpUrl);
-    if (sessionData) {
-      currentSessionDir = sessionData.session_dir;
-      console.log(`Attached to running ABP at ${args.abpUrl}`);
-      console.log(`  Session dir: ${sessionData.session_dir}`);
+    if (!sessionData) return false;
+    const opened = openSessionDb(sessionData.session_dir);
+    if (opened) {
+      broadcastSSE(JSON.stringify({ type: "session_changed", session_dir: currentSessionDir }));
     }
+    return opened;
   }
 
-  // Try to open initial DB (may not exist yet if ABP hasn't been started)
-  const dbOpened = openSessionDb(currentSessionDir);
-  if (!dbOpened) {
-    console.log("Note: No session database found yet. Start ABP to create one.");
+  // Try to attach to a running ABP instance
+  const attached = await attachToAbp();
+  if (!attached) {
+    console.log("Note: No running ABP found. Start ABP to connect.");
   }
 
   // Load HTML
@@ -541,31 +527,15 @@ async function main() {
 
     // --- Data endpoints (SQLite) ---
     if (req.method === "GET" && pathname === "/data/session") {
-      // Try to open DB if not yet available
+      // Try to attach if not yet connected
       if (!db) {
-        // If session dir wasn't explicit, try to discover from ABP
-        if (!args.sessionDirExplicit) {
-          const sessionData = await fetchAbpSessionData(args.abpUrl);
-          if (sessionData) {
-            currentSessionDir = sessionData.session_dir;
-          }
-        }
-        if (!openSessionDb(currentSessionDir)) {
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({
-            session: null,
-            session_dir: currentSessionDir,
-            abp_url: args.abpUrl,
-            action_count: 0,
-          }));
-          return;
-        }
+        await attachToAbp();
       }
       const session = db ? getSession(db) : null;
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
         session,
-        session_dir: currentSessionDir,
+        session_dir: currentSessionDir || null,
         abp_url: args.abpUrl,
         action_count: db && sessionId ? getMaxActionId(db, sessionId) : 0,
       }));
@@ -636,39 +606,31 @@ async function main() {
       res.end(JSON.stringify({
         running,
         managed: abpProcess !== null,
-        session_dir: currentSessionDir,
-        default_session_dir: args.sessionDir,
+        session_dir: currentSessionDir || null,
+        launch_session_dir: args.sessionDir,
         abp_binary: args.abpBinary,
       }));
       return;
     }
 
     if (req.method === "POST" && pathname === "/control/attach") {
-      const sessionData = await fetchAbpSessionData(args.abpUrl);
-      if (!sessionData) {
+      const attached = await attachToAbp();
+      if (!attached) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: "Could not reach ABP or get session data" }));
         return;
       }
-      currentSessionDir = sessionData.session_dir;
-      const opened = openSessionDb(currentSessionDir);
-      if (opened) {
-        broadcastSSE(JSON.stringify({ type: "session_changed", session_dir: currentSessionDir }));
-      }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
         ok: true,
-        session_dir: sessionData.session_dir,
-        database_path: sessionData.database_path,
-        screenshots_dir: sessionData.screenshots_dir,
-        db_opened: opened,
+        session_dir: currentSessionDir,
       }));
       return;
     }
 
     if (req.method === "POST" && pathname === "/control/start") {
       const body = await readJsonBody(req);
-      const sessionDir = (body.session_dir as string) || currentSessionDir;
+      const sessionDir = (body.session_dir as string) || args.sessionDir;
       const config: LaunchConfig = {
         sessionDir: path.resolve(sessionDir),
         executablePath: (body.executable_path as string) || args.abpBinary,
@@ -679,17 +641,14 @@ async function main() {
       };
       const result = await startAbp(args.abpUrl, config);
       if (result.ok) {
-        // Wait a moment for ABP to create the DB, then try to open it
-        const tryOpen = async () => {
+        // Auto-detect session dir from the newly launched ABP
+        const tryAttach = async () => {
           for (let i = 0; i < 10; i++) {
-            if (openSessionDb(config.sessionDir)) {
-              broadcastSSE(JSON.stringify({ type: "session_changed", session_dir: config.sessionDir }));
-              return;
-            }
+            if (await attachToAbp()) return;
             await new Promise((r) => setTimeout(r, 500));
           }
         };
-        tryOpen();
+        tryAttach();
       }
       res.writeHead(result.ok ? 200 : 400, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
@@ -707,7 +666,7 @@ async function main() {
       const body = await readJsonBody(req);
       await stopAbp(args.abpUrl);
       await new Promise((r) => setTimeout(r, 1000));
-      const sessionDir = (body.session_dir as string) || currentSessionDir;
+      const sessionDir = (body.session_dir as string) || args.sessionDir;
       const config: LaunchConfig = {
         sessionDir: path.resolve(sessionDir),
         executablePath: (body.executable_path as string) || args.abpBinary,
@@ -718,16 +677,13 @@ async function main() {
       };
       const result = await startAbp(args.abpUrl, config);
       if (result.ok) {
-        const tryOpen = async () => {
+        const tryAttach = async () => {
           for (let i = 0; i < 10; i++) {
-            if (openSessionDb(config.sessionDir)) {
-              broadcastSSE(JSON.stringify({ type: "session_changed", session_dir: config.sessionDir }));
-              return;
-            }
+            if (await attachToAbp()) return;
             await new Promise((r) => setTimeout(r, 500));
           }
         };
-        tryOpen();
+        tryAttach();
       }
       res.writeHead(result.ok ? 200 : 400, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
@@ -750,8 +706,12 @@ async function main() {
     console.log(`  UI:          http://localhost:${args.port}`);
     console.log(`  ABP:         ${args.abpUrl}`);
     console.log(`  Binary:      ${args.abpBinary || "(not found)"}`);
-    console.log(`  Session dir: ${currentSessionDir}`);
-    if (sessionId) console.log(`  Session:     ${sessionId}`);
+    if (currentSessionDir) {
+      console.log(`  Session dir: ${currentSessionDir}`);
+      if (sessionId) console.log(`  Session:     ${sessionId}`);
+    } else {
+      console.log(`  Session dir: (waiting for ABP connection)`);
+    }
     console.log(`\nPress Ctrl+C to stop.\n`);
   });
 
