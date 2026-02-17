@@ -1,5 +1,7 @@
 #include "chrome/browser/abp/abp_action_context.h"
 
+#include <set>
+
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
@@ -188,20 +190,40 @@ void AbpActionContext::Start() {
   start_ticks_ = base::TimeTicks::Now();
 
   // Parse screenshot options from action params.
-  // All markup overlays are enabled by default; use disable_markup to turn off specific ones.
+  // No markup overlays by default; clients specify which ones to enable via "markup".
+  // Legacy "disable_markup" is also supported (all tags minus disabled ones).
   const base::Value::Dict* ss_params = params_.FindDict("screenshot");
   if (ss_params) {
+    const base::Value::List* markup_list = ss_params->FindList("markup");
     const base::Value::List* disable_list = ss_params->FindList("disable_markup");
-    if (disable_list) {
-      std::vector<std::string> disable_tags;
-      for (const auto& tag : *disable_list) {
+    if (markup_list) {
+      // New API: client specifies exactly which overlays to enable.
+      for (const auto& tag : *markup_list) {
         if (tag.is_string()) {
-          disable_tags.push_back(tag.GetString());
+          screenshot_markup_tags_.push_back(tag.GetString());
         }
       }
-      screenshot_markup_tags_ = AbpController::ComputeEffectiveMarkupTags(disable_tags);
-    } else {
-      screenshot_markup_tags_ = AbpController::ComputeEffectiveMarkupTags({});
+    } else if (disable_list) {
+      // Legacy API: all tags minus disabled ones.
+      std::set<std::string> disabled;
+      for (const auto& tag : *disable_list) {
+        if (tag.is_string()) {
+          disabled.insert(tag.GetString());
+        }
+      }
+      for (const char* tag : kAllMarkupTags) {
+        if (disabled.find(tag) == disabled.end()) {
+          screenshot_markup_tags_.emplace_back(tag);
+        }
+      }
+    }
+    // Validate whatever tags we ended up with.
+    std::string invalid_tag;
+    if (!AbpController::ValidateMarkupTags(screenshot_markup_tags_,
+                                           &invalid_tag)) {
+      LOG(WARNING) << "ABP: Unknown markup tag '" << invalid_tag
+                   << "', ignoring all markup";
+      screenshot_markup_tags_.clear();
     }
     const std::string* format = ss_params->FindString("format");
     if (format) {
@@ -211,9 +233,6 @@ void AbpActionContext::Start() {
     if (quality.has_value()) {
       screenshot_quality_ = *quality;
     }
-  } else {
-    // No screenshot params — all markup overlays enabled by default.
-    screenshot_markup_tags_ = AbpController::ComputeEffectiveMarkupTags({});
   }
 
   // Capture virtual time at start
@@ -238,6 +257,7 @@ void AbpActionContext::Start() {
 
   // Capture before screenshot while JS is still paused — the screen buffer
   // is frozen so we can grab it directly without ForceRedraw.
+  profile_before_ss_start_ = base::TimeTicks::Now();
   CaptureBeforeScreenshot();
 }
 
@@ -308,6 +328,7 @@ void AbpActionContext::OnExecutionResumed() {
   if (!IsCurrentAction()) {
     return;
   }
+  profile_resume_end_ = base::TimeTicks::Now();
   VLOG(1) << "ABP ActionContext: OnExecutionResumed() action=" << action_type_;
   if (controller_->lifecycle_observer_for_testing_) {
     controller_->lifecycle_observer_for_testing_.Run(
@@ -320,6 +341,7 @@ void AbpActionContext::OnExecutionResumed() {
 
   // Before screenshot was already captured from the frozen buffer before
   // resume.  Proceed directly to executing the action.
+  profile_action_start_ = base::TimeTicks::Now();
   ExecuteAction();
 }
 
@@ -370,12 +392,14 @@ void AbpActionContext::OnBeforeScreenshotCaptured(std::string history_path,
   screenshot_before_base64_ = std::move(base64);
   screenshot_before_width_ = width;
   screenshot_before_height_ = height;
+  profile_before_ss_end_ = base::TimeTicks::Now();
 
   if (has_error_) {
     return;
   }
 
   // Now resume execution — the before screenshot is already captured
+  profile_resume_start_ = base::TimeTicks::Now();
   ResumeExecutionIfNeeded();
 }
 
@@ -401,12 +425,14 @@ void AbpActionContext::OnActionDispatched() {
         AbpController::LifecycleStep::kActionExecuted);
   }
   action_end_ticks_ = base::TimeTicks::Now();
+  profile_action_end_ = action_end_ticks_;
 
   if (has_error_) {
     return;
   }
 
   // Center cursor early (before wait) so it's visible during page load
+  profile_wait_start_ = base::TimeTicks::Now();
   if (options_.center_cursor_after) {
     controller_->CenterCursorInTab(
         tab_id_,
@@ -469,8 +495,10 @@ void AbpActionContext::OnWaitUntilComplete() {
         AbpController::LifecycleStep::kWaitUntilCompleted);
   }
   wait_completed_ms_ = base::Time::Now().InMillisecondsSinceUnixEpoch();
+  profile_wait_end_ = base::TimeTicks::Now();
 
   // Cursor centering already happened in OnActionDispatched (before wait).
+  profile_scroll_start_ = base::TimeTicks::Now();
   OnCursorCentered();
 }
 
@@ -529,6 +557,7 @@ void AbpActionContext::OnScrollPositionReceived(base::Value::Dict scroll_info) {
         AbpController::LifecycleStep::kScrollPositionReceived);
   }
   scroll_info_ = std::move(scroll_info);
+  profile_scroll_end_ = base::TimeTicks::Now();
 
   // Capture screenshots BEFORE pausing execution.  The compositor only
   // produces frames while virtual time is running; pausing virtual time
@@ -561,6 +590,7 @@ void AbpActionContext::EnsureVirtualCursorVisible() {
 }
 
 void AbpActionContext::CaptureAfterScreenshot() {
+  profile_after_ss_start_ = base::TimeTicks::Now();
   VLOG(1) << "ABP ActionContext: CaptureAfterScreenshot() action=" << action_type_;
   if (controller_->lifecycle_observer_for_testing_) {
     controller_->lifecycle_observer_for_testing_.Run(
@@ -605,11 +635,18 @@ void AbpActionContext::OnAfterScreenshotCaptured(std::string history_path,
   screenshot_after_base64_ = std::move(base64);
   screenshot_after_width_ = width;
   screenshot_after_height_ = height;
+  profile_after_ss_end_ = base::TimeTicks::Now();
 
   // Capture virtual time at end
   virtual_time_at_end_ = controller_->GetVirtualTimeMs(tab_id_);
 
-  // Pause execution — no separate screenshot capture step needed anymore
+  // Send the response immediately — don't wait for pause.
+  // The deterministic slot is held until pause completes, so the next action
+  // still waits for the page to be frozen before starting.
+  FinalizeResponse();
+
+  // Pause in background while the client already has the response.
+  profile_pause_start_ = base::TimeTicks::Now();
   PauseExecutionIfNeeded();
 }
 
@@ -642,27 +679,50 @@ void AbpActionContext::OnExecutionPaused() {
   if (!IsCurrentAction()) {
     return;
   }
-  VLOG(1) << "ABP ActionContext: OnExecutionPaused() action=" << action_type_;
+  profile_pause_end_ = base::TimeTicks::Now();
+  VLOG(1) << "ABP ActionContext: OnExecutionPaused() action=" << action_type_
+          << " pause_ms="
+          << (profile_pause_end_ - profile_pause_start_).InMilliseconds();
 
-  // Both before and after screenshots are already captured.
-  // Go directly to finalizing the response.
-  FinalizeResponse();
+  // Response was already sent in OnAfterScreenshotCaptured.
+  // Just release the deterministic slot so the next action can start.
+  ReleaseDeterministicSlot();
+  prevent_destroy_ = nullptr;
+}
+
+void AbpActionContext::LogProfilingSummary() {
+  auto ms = [](base::TimeTicks start, base::TimeTicks end) -> int64_t {
+    if (start.is_null() || end.is_null()) return -1;
+    return (end - start).InMilliseconds();
+  };
+  auto total = ms(start_ticks_, base::TimeTicks::Now());
+  LOG(INFO) << "ABP PROFILE [" << action_type_ << "] tab=" << tab_id_
+            << " total=" << total << "ms"
+            << " | before_ss=" << ms(profile_before_ss_start_, profile_before_ss_end_) << "ms"
+            << " | resume=" << ms(profile_resume_start_, profile_resume_end_) << "ms"
+            << " | action=" << ms(profile_action_start_, profile_action_end_) << "ms"
+            << " | wait=" << ms(profile_wait_start_, profile_wait_end_) << "ms"
+            << " | scroll_pos=" << ms(profile_scroll_start_, profile_scroll_end_) << "ms"
+            << " | after_ss=" << ms(profile_after_ss_start_, profile_after_ss_end_) << "ms"
+            << " | pause=" << ms(profile_pause_start_, profile_pause_end_) << "ms";
 }
 
 void AbpActionContext::FinalizeResponse() {
   VLOG(1) << "ABP ActionContext: FinalizeResponse() action=" << action_type_;
 
-  // Record to history
-  RecordHistory(!has_error_, error_code_, error_message_);
+  LogProfilingSummary();
 
-  // Build full response envelope and send
+  // Send response first to minimize client-perceived latency.
+  // History recording happens after, in parallel with pause.
   if (has_error_) {
-    // For errors, send an error response but still include any partial result
     SendErrorResponse(500, error_code_, error_message_);
   } else {
     BuildResponseEnvelope();
     SendResponse();
   }
+
+  // Record to history after response is sent (non-blocking for client)
+  RecordHistory(!has_error_, error_code_, error_message_);
 }
 
 void AbpActionContext::RecordHistory(bool success,
@@ -695,8 +755,7 @@ void AbpActionContext::SendResponse() {
   VLOG(1) << "ABP ActionContext: SendResponse() action=" << action_type_;
   if (!response_callback_) {
     LOG(WARNING) << "ABP ActionContext: SendResponse() - NO CALLBACK!";
-    ReleaseDeterministicSlot();
-    prevent_destroy_ = nullptr;
+    // Slot release and destroy happen in OnExecutionPaused after pause completes.
     return;
   }
 
@@ -756,12 +815,15 @@ void AbpActionContext::SendResponse() {
   envelope.Set("timing", std::move(timing));
 
   // 7. Add virtual time info if execution control is enabled
+  // Note: response is sent before pause completes (pause runs in background),
+  // so we report paused=true since the pause will happen before the next
+  // action can start (deterministic slot is held until pause completes).
   if (controller_->IsExecutionControlEnabled()) {
     auto it = controller_->tab_states_.find(tab_id_);
     if (it != controller_->tab_states_.end()) {
       const auto& exec = it->second.execution;
       base::Value::Dict virtual_time;
-      virtual_time.Set("paused", exec.IsPaused());
+      virtual_time.Set("paused", !options_.skip_pause);
       virtual_time.Set("base_ticks_ms", exec.virtual_time_base_ticks_ms);
       envelope.Set("virtual_time", std::move(virtual_time));
     }
@@ -788,9 +850,9 @@ void AbpActionContext::SendResponse() {
   controller_->SendJson(200, base::Value(std::move(envelope)),
                         std::move(response_callback_));
 
-  ReleaseDeterministicSlot();
-  // Clear self-reference to allow destruction
-  prevent_destroy_ = nullptr;
+  // Don't release slot or clear self-ref here — OnExecutionPaused does that
+  // after the background pause completes, ensuring the next action waits
+  // for the page to be frozen.
 }
 
 void AbpActionContext::SendErrorResponse(int status,

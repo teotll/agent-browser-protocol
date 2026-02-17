@@ -65,7 +65,7 @@ static SkBitmap ScaleBitmapToViewport(const SkBitmap& bitmap,
     return bitmap;
   }
   return skia::ImageOperations::Resize(
-      bitmap, skia::ImageOperations::RESIZE_GOOD,
+      bitmap, skia::ImageOperations::RESIZE_BOX,
       viewport_width, viewport_height);
 }
 
@@ -385,8 +385,11 @@ bool IsValidMarkupTag(const std::string& tag) {
          tag == "scrollable" || tag == "grid" || tag == "selected";
 }
 
-bool ValidateMarkupTags(const std::vector<std::string>& tags,
-                        std::string* invalid_tag) {
+}  // namespace
+
+// static
+bool AbpController::ValidateMarkupTags(const std::vector<std::string>& tags,
+                                       std::string* invalid_tag) {
   for (const auto& tag : tags) {
     if (!IsValidMarkupTag(tag)) {
       *invalid_tag = tag;
@@ -394,21 +397,6 @@ bool ValidateMarkupTags(const std::vector<std::string>& tags,
     }
   }
   return true;
-}
-
-}  // namespace
-
-// static
-std::vector<std::string> AbpController::ComputeEffectiveMarkupTags(
-    const std::vector<std::string>& disable_tags) {
-  std::vector<std::string> effective;
-  for (const char* tag : kAllMarkupTags) {
-    if (std::find(disable_tags.begin(), disable_tags.end(), tag) ==
-        disable_tags.end()) {
-      effective.emplace_back(tag);
-    }
-  }
-  return effective;
 }
 
 namespace {
@@ -1089,13 +1077,19 @@ void AbpController::CaptureActionScreenshot(
     js_params.Set("returnByValue", true);
     js_params.Set("disableBreaks", true);
 
+    LOG(INFO) << "ABP PROFILE [screenshot] markup inject SEND tab=" << tab_id;
+    auto markup_send = base::TimeTicks::Now();
     client->SendCommand(
         "Runtime.evaluate", js_params,
         base::BindOnce(
             [](base::WeakPtr<AbpController> ctrl, std::string tid,
                int64_t ts, bool before, ScreenshotOptions opts,
                ActionScreenshotCallback cb, base::FilePath h_path,
-               int w, int h, bool success, const std::string& result) {
+               int w, int h, base::TimeTicks send_time,
+               bool success, const std::string& result) {
+              LOG(INFO) << "ABP PROFILE [screenshot] markup inject DONE"
+                        << " elapsed=" << (base::TimeTicks::Now() - send_time).InMilliseconds() << "ms"
+                        << " tab=" << tid;
               if (!ctrl) {
                 std::move(cb).Run(ActionScreenshotResult());
                 return;
@@ -1104,7 +1098,7 @@ void AbpController::CaptureActionScreenshot(
                   tid, ts, before, opts, std::move(cb), h_path, w, h);
             },
             weak_factory_.GetWeakPtr(), tab_id, timestamp, is_before, options,
-            std::move(callback), history_path, view_width, view_height));
+            std::move(callback), history_path, view_width, view_height, markup_send));
     return;
   }
 
@@ -1188,6 +1182,7 @@ void AbpController::CaptureActionScreenshotWithRetry(
   st->opts = options;
   st->h_path = history_path;
   st->tab_id = tab_id;
+  st->force_redraw_start = base::TimeTicks::Now();
 
   // Safety-net timeout: fall back to direct GrabViewSnapshot if ForceRedraw
   // doesn't respond in time (heavy JS pages can starve BeginMainFrame).
@@ -1210,14 +1205,13 @@ void AbpController::CaptureActionScreenshotWithRetry(
           st, weak_factory_.GetWeakPtr()),
       base::Milliseconds(1500));
 
-  VLOG(1) << "ABP: CaptureActionScreenshotWithRetry - calling ForceRedrawWithCallback"
-            << " renderer_initialized=" << rwhi->renderer_initialized()
-            << " tab=" << tab_id;
+  LOG(INFO) << "ABP PROFILE [screenshot] ForceRedraw SEND tab=" << tab_id;
   rwhi->ForceRedrawWithCallback(base::BindOnce(
       [](std::shared_ptr<ActionSnapState> s,
          base::WeakPtr<AbpController> ctrl) {
         if (s->done) return;
-        VLOG(1) << "ABP: CaptureActionScreenshotWithRetry - ForceRedraw callback fired"
+        LOG(INFO) << "ABP PROFILE [screenshot] ForceRedraw DONE"
+                  << " elapsed=" << (base::TimeTicks::Now() - s->force_redraw_start).InMilliseconds() << "ms"
                   << " tab=" << s->tab_id;
         if (!ctrl) {
           s->done = true;
@@ -1226,6 +1220,7 @@ void AbpController::CaptureActionScreenshotWithRetry(
         }
         // Wait 167ms for CoreAnimation to composite the frame to the
         // window server buffer before OS-level capture.
+        LOG(INFO) << "ABP PROFILE [screenshot] CoreAnimation wait 167ms tab=" << s->tab_id;
         base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
             FROM_HERE,
             base::BindOnce(
@@ -1310,9 +1305,9 @@ void AbpController::GrabViewSnapshotWithFreshnessCheck(
               std::move(s->cb).Run(ActionScreenshotResult());
               return;
             }
-            VLOG(1) << "ABP: GrabViewSnapshotWithFreshnessCheck - success"
-                      << " width=" << image.Width()
-                      << " height=" << image.Height()
+            LOG(INFO) << "ABP PROFILE [screenshot] GrabViewSnapshot success"
+                      << " total_from_forceredraw=" << (base::TimeTicks::Now() - s->force_redraw_start).InMilliseconds() << "ms"
+                      << " retry=" << retry_count
                       << " tab=" << s->tab_id;
             ctrl->OnActionScreenshotCaptured(std::move(s->cb), s->opts,
                                              s->h_path, s->tab_id, image);
@@ -1350,7 +1345,10 @@ void AbpController::OnActionScreenshotCaptured(
     return;
   }
 
+  auto pipeline_start = base::TimeTicks::Now();
+
   const SkBitmap& raw_bitmap = *snapshot.ToSkBitmap();
+  auto t1 = base::TimeTicks::Now();
 
   // Scale to viewport (DIP) dimensions if captured at higher device pixel ratio
   int vp_width = 0, vp_height = 0;
@@ -1364,11 +1362,8 @@ void AbpController::OnActionScreenshotCaptured(
     }
   }
   const SkBitmap bitmap = ScaleBitmapToViewport(raw_bitmap, vp_width, vp_height);
+  auto t2 = base::TimeTicks::Now();
 
-  VLOG(1) << "ABP: OnActionScreenshotCaptured - encoding"
-            << " format=" << options.format
-            << " width=" << bitmap.width() << " height=" << bitmap.height()
-            << " tab=" << tab_id;
   std::optional<std::vector<uint8_t>> encoded;
   if (options.format == "webp") {
     encoded = gfx::WebpCodec::Encode(bitmap, options.quality);
@@ -1378,6 +1373,7 @@ void AbpController::OnActionScreenshotCaptured(
     encoded = gfx::PNGCodec::EncodeBGRASkBitmap(
         bitmap, false /* discard_transparency */);
   }
+  auto t3 = base::TimeTicks::Now();
 
   if (!encoded || encoded->empty()) {
     LOG(WARNING) << "ABP: OnActionScreenshotCaptured - encoding failed"
@@ -1388,15 +1384,26 @@ void AbpController::OnActionScreenshotCaptured(
 
   ActionScreenshotResult r;
   r.base64 = base::Base64Encode(*encoded);
+  auto t4 = base::TimeTicks::Now();
   r.width = bitmap.width();
   r.height = bitmap.height();
-  VLOG(1) << "ABP: OnActionScreenshotCaptured - success"
+
+  LOG(INFO) << "ABP PROFILE [screenshot] pipeline"
+            << " raw=" << raw_bitmap.width() << "x" << raw_bitmap.height()
+            << " scaled=" << bitmap.width() << "x" << bitmap.height()
+            << " format=" << options.format << " quality=" << options.quality
+            << " encoded_bytes=" << encoded->size()
             << " base64_len=" << r.base64.size()
-            << " width=" << r.width << " height=" << r.height
+            << " | toSkBitmap=" << (t1 - pipeline_start).InMilliseconds() << "ms"
+            << " | scale=" << (t2 - t1).InMilliseconds() << "ms"
+            << " | encode=" << (t3 - t2).InMilliseconds() << "ms"
+            << " | base64=" << (t4 - t3).InMilliseconds() << "ms"
+            << " | total=" << (t4 - pipeline_start).InMilliseconds() << "ms"
             << " tab=" << tab_id;
 
   // Save to disk for history if path is set
   if (!history_path.empty()) {
+    auto disk_start = base::TimeTicks::Now();
     base::ThreadPool::PostTaskAndReplyWithResult(
         FROM_HERE, {base::MayBlock()},
         base::BindOnce(
@@ -1411,11 +1418,17 @@ void AbpController::OnActionScreenshotCaptured(
         base::BindOnce(
             [](ActionScreenshotCallback final_cb,
                ActionScreenshotResult res,
+               base::TimeTicks disk_start_time,
+               std::string tab_id,
                std::string saved_path) {
+              LOG(INFO) << "ABP PROFILE [screenshot] disk_write"
+                        << " elapsed=" << (base::TimeTicks::Now() - disk_start_time).InMilliseconds() << "ms"
+                        << " path=" << saved_path
+                        << " tab=" << tab_id;
               res.history_path = std::move(saved_path);
               std::move(final_cb).Run(std::move(res));
             },
-            std::move(callback), std::move(r)));
+            std::move(callback), std::move(r), disk_start, tab_id));
     return;
   }
 
@@ -1488,6 +1501,8 @@ void AbpController::CaptureScreenshotFromBuffer(
 
   // Grab the current screen buffer directly — no ForceRedraw needed since
   // the compositor surface is already frozen (JS paused).
+  LOG(INFO) << "ABP PROFILE [before_ss] GrabViewSnapshot SEND tab=" << tab_id;
+  auto before_ss_send = base::TimeTicks::Now();
   ui::GrabViewSnapshot(
       native_view, bounds,
       base::BindOnce(
@@ -1496,11 +1511,11 @@ void AbpController::CaptureScreenshotFromBuffer(
              ScreenshotOptions opts,
              base::FilePath h_path,
              std::string tab_id,
+             base::TimeTicks send_time,
              gfx::Image image) {
-            VLOG(1) << "ABP: CaptureScreenshotFromBuffer - GrabViewSnapshot result"
+            LOG(INFO) << "ABP PROFILE [before_ss] GrabViewSnapshot DONE"
+                      << " elapsed=" << (base::TimeTicks::Now() - send_time).InMilliseconds() << "ms"
                       << " empty=" << image.IsEmpty()
-                      << " width=" << image.Width()
-                      << " height=" << image.Height()
                       << " tab=" << tab_id;
             if (!ctrl || image.IsEmpty()) {
               if (image.IsEmpty()) {
@@ -1520,7 +1535,7 @@ void AbpController::CaptureScreenshotFromBuffer(
                 std::move(cb), clean_opts, h_path, tab_id, image);
           },
           weak_factory_.GetWeakPtr(), std::move(callback), options,
-          history_path, tab_id));
+          history_path, tab_id, before_ss_send));
 }
 
 void AbpController::HandleRequest(const std::string& method,
@@ -2803,7 +2818,36 @@ void AbpController::OnDebuggerEnabled(
     return;
   }
 
-  // Step 2: Enable virtual time with initial pause
+  // Step 2: Debugger.pause FIRST (halt JS before freezing virtual time).
+  // Must happen before setVirtualTimePolicy(pause) — the virtual time pause
+  // freezes the page lifecycle which suspends PerformanceObservers. If the
+  // debugger pause comes after, ScopedPagePauser tries to suspend them again
+  // → DCHECK (observer already in suspended_observers_).
+  SendDeterministicPause(
+      tab_id,
+      base::BindOnce(&AbpController::EnableVirtualTimeAfterDebugger,
+                     weak_factory_.GetWeakPtr(), tab_id, initial_virtual_time,
+                     std::move(then)));
+}
+
+void AbpController::EnableVirtualTimeAfterDebugger(
+    const std::string& tab_id,
+    std::optional<double> initial_virtual_time,
+    base::OnceClosure then) {
+  content::WebContents* wc = FindWebContents(tab_id);
+  if (!wc) {
+    std::move(then).Run();
+    return;
+  }
+
+  AbpCdpClient* client = GetOrCreateCdpClient(wc);
+  if (!client) {
+    std::move(then).Run();
+    return;
+  }
+
+  // Step 3: Now freeze virtual time (debugger is already paused, so
+  // setVirtualTimePolicy won't trigger observer double-suspend).
   base::Value::Dict params;
   params.Set("policy", "pause");
   if (initial_virtual_time.has_value()) {
@@ -2833,7 +2877,7 @@ void AbpController::OnVirtualTimeEnabled(
   }
 
   auto& state = GetOrCreateTabState(tab_id).execution;
-  state.phase = ExecutionPhase::kPausing;  // Pausing, not paused yet
+  state.phase = ExecutionPhase::kPaused;
 
   // Parse the result to get virtualTimeTicksBase
   auto parsed = base::JSONReader::Read(result, base::JSON_PARSE_RFC);
@@ -2846,12 +2890,10 @@ void AbpController::OnVirtualTimeEnabled(
 
   VLOG(1) << "ABP: Execution control enabled for tab " << tab_id
             << ", virtualTimeTicksBase=" << state.virtual_time_base_ticks_ms
-            << " (will pause deterministically)";
+            << " (debugger paused, virtual time frozen)";
 
-  // Perform deterministic pause using common function.
-  // Debugger is already enabled from OnDebuggerEnabled, but
-  // SendDeterministicPause will re-enable it (idempotent).
-  SendDeterministicPause(tab_id, std::move(then));
+  // Both debugger and virtual time are paused. Done.
+  std::move(then).Run();
 }
 
 void AbpController::ResumeExecution(const std::string& tab_id,
@@ -2895,11 +2937,22 @@ void AbpController::ResumeExecution(const std::string& tab_id,
 
   // Step 1: Resume debugger
   base::Value::Dict params;
-  VLOG(1) << "ABP: Sending Debugger.resume for tab " << tab_id;
+  LOG(INFO) << "ABP PROFILE [resume] Debugger.resume SEND tab=" << tab_id;
+  auto resume_send_time = base::TimeTicks::Now();
   client->SendCommand(
       "Debugger.resume", params,
-      base::BindOnce(&AbpController::OnDebuggerResumed,
-                     weak_factory_.GetWeakPtr(), tab_id, std::move(then)));
+      base::BindOnce(
+          [](base::WeakPtr<AbpController> ctrl, std::string tid,
+             base::OnceClosure then, base::TimeTicks send_time,
+             bool success, const std::string& result) {
+            LOG(INFO) << "ABP PROFILE [resume] Debugger.resume DONE"
+                      << " elapsed=" << (base::TimeTicks::Now() - send_time).InMilliseconds() << "ms"
+                      << " success=" << success << " tab=" << tid;
+            if (ctrl) {
+              ctrl->OnDebuggerResumed(tid, std::move(then), success, result);
+            }
+          },
+          weak_factory_.GetWeakPtr(), tab_id, std::move(then), resume_send_time));
 }
 
 void AbpController::OnDebuggerResumed(const std::string& tab_id,
@@ -3002,8 +3055,7 @@ void AbpController::OnVirtualTimeResumed(const std::string& tab_id,
     it->second.execution.phase = ExecutionPhase::kRunning;
   }
 
-  // ForceRedraw + Page.bringToFront already happened in the pre-resume phase
-  // (ForceRedrawThenResumeVirtualTime), so just proceed.
+  // Virtual time is now running (realtime policy). Proceed to the action.
   VLOG(1) << "ABP: Execution resumed for tab " << tab_id;
   std::move(then).Run();
 }
@@ -3011,88 +3063,22 @@ void AbpController::OnVirtualTimeResumed(const std::string& tab_id,
 void AbpController::ForceRedrawThenResumeVirtualTime(
     const std::string& tab_id,
     base::OnceClosure then) {
+  // Page.bringToFront ensures this tab is the active tab — GrabViewSnapshot
+  // captures from the OS compositor which only renders the active tab.
   content::WebContents* wc = FindWebContents(tab_id);
-  if (!wc) {
-    LOG(WARNING) << "ABP: ForceRedrawThenResumeVirtualTime - WebContents not found, "
-                 << "switching to realtime directly for tab " << tab_id;
-    SwitchToRealtimeVirtualTime(tab_id, std::move(then));
-    return;
+  if (wc) {
+    AbpCdpClient* client = GetOrCreateCdpClient(wc);
+    if (client) {
+      base::Value::Dict empty;
+      client->SendCommand("Page.bringToFront", empty, base::DoNothing());
+    }
   }
 
-  // Page.bringToFront ensures the tab is focused for compositor.
-  AbpCdpClient* client = GetOrCreateCdpClient(wc);
-  if (client) {
-    VLOG(1) << "ABP: ForceRedrawThenResumeVirtualTime - Page.bringToFront for tab "
-              << tab_id;
-    base::Value::Dict empty;
-    client->SendCommand("Page.bringToFront", empty, base::DoNothing());
-  }
-
-  content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
-  if (!view) {
-    LOG(WARNING) << "ABP: ForceRedrawThenResumeVirtualTime - RWHV null, "
-                 << "switching to realtime directly for tab " << tab_id;
-    SwitchToRealtimeVirtualTime(tab_id, std::move(then));
-    return;
-  }
-
-  auto* rwhi = static_cast<content::RenderWidgetHostImpl*>(
-      view->GetRenderWidgetHost());
-  if (!rwhi) {
-    LOG(WARNING) << "ABP: ForceRedrawThenResumeVirtualTime - RWHI null, "
-                 << "switching to realtime directly for tab " << tab_id;
-    SwitchToRealtimeVirtualTime(tab_id, std::move(then));
-    return;
-  }
-
-  VLOG(1) << "ABP: ForceRedrawThenResumeVirtualTime - ForceRedraw with fences up"
-           << " renderer_initialized=" << rwhi->renderer_initialized()
-           << " for tab " << tab_id;
-
-  // Guard with 3s timeout. ForceRedraw should be very fast since the main
-  // thread is free (debugger resumed but virtual time fences still block
-  // blink task queues, keeping the main thread uncluttered).
-  struct GuardState {
-    bool done = false;
-    base::OnceClosure cb;
-    base::WeakPtr<AbpController> ctrl;
-    std::string tab_id;
-  };
-  auto guard = std::make_shared<GuardState>();
-  guard->cb = std::move(then);
-  guard->ctrl = weak_factory_.GetWeakPtr();
-  guard->tab_id = tab_id;
-
-  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
-      FROM_HERE,
-      base::BindOnce(
-          [](std::shared_ptr<GuardState> g) {
-            if (g->done) return;
-            g->done = true;
-            LOG(WARNING) << "ABP: ForceRedrawThenResumeVirtualTime timed out (3s)"
-                         << " for tab " << g->tab_id;
-            if (g->ctrl) {
-              g->ctrl->SwitchToRealtimeVirtualTime(g->tab_id, std::move(g->cb));
-            } else {
-              std::move(g->cb).Run();
-            }
-          },
-          guard),
-      base::Seconds(3));
-
-  rwhi->ForceRedrawWithCallback(base::BindOnce(
-      [](std::shared_ptr<GuardState> g) {
-        if (g->done) return;
-        g->done = true;
-        VLOG(1) << "ABP: ForceRedrawThenResumeVirtualTime - ForceRedraw done"
-                << " for tab " << g->tab_id;
-        if (g->ctrl) {
-          g->ctrl->SwitchToRealtimeVirtualTime(g->tab_id, std::move(g->cb));
-        } else {
-          std::move(g->cb).Run();
-        }
-      },
-      guard));
+  // Skip ForceRedraw — profiling showed it always times out (3s wasted)
+  // because the compositor can't produce frames while virtual time fences
+  // are up. The after-screenshot path does its own ForceRedraw with virtual
+  // time running, which works correctly.
+  SwitchToRealtimeVirtualTime(tab_id, std::move(then));
 }
 
 void AbpController::SwitchToRealtimeVirtualTime(
@@ -3112,12 +3098,22 @@ void AbpController::SwitchToRealtimeVirtualTime(
 
   base::Value::Dict params;
   params.Set("policy", "realtime");
-  VLOG(1) << "ABP: Sending Emulation.setVirtualTimePolicy (realtime) for tab "
-            << tab_id;
+  LOG(INFO) << "ABP PROFILE [resume] setVirtualTimePolicy(realtime) SEND tab=" << tab_id;
+  auto vt_send_time = base::TimeTicks::Now();
   client->SendCommand(
       "Emulation.setVirtualTimePolicy", params,
-      base::BindOnce(&AbpController::OnVirtualTimeResumed,
-                     weak_factory_.GetWeakPtr(), tab_id, std::move(then)));
+      base::BindOnce(
+          [](base::WeakPtr<AbpController> ctrl, std::string tid,
+             base::OnceClosure then, base::TimeTicks send_time,
+             bool success, const std::string& result) {
+            LOG(INFO) << "ABP PROFILE [resume] setVirtualTimePolicy(realtime) DONE"
+                      << " elapsed=" << (base::TimeTicks::Now() - send_time).InMilliseconds() << "ms"
+                      << " tab=" << tid;
+            if (ctrl) {
+              ctrl->OnVirtualTimeResumed(tid, std::move(then), success, result);
+            }
+          },
+          weak_factory_.GetWeakPtr(), tab_id, std::move(then), vt_send_time));
 }
 
 void AbpController::PauseExecution(const std::string& tab_id,
@@ -3145,6 +3141,21 @@ void AbpController::PauseExecution(const std::string& tab_id,
 
   state.phase = ExecutionPhase::kPausing;
 
+  // Step 1: Debugger.pause FIRST (halt JS via ScopedPagePauser).
+  // Must happen before setVirtualTimePolicy(pause) — the virtual time pause
+  // freezes the page lifecycle which suspends PerformanceObservers. If the
+  // debugger pause comes after, ScopedPagePauser tries to suspend them again
+  // → DCHECK (observer already in suspended_observers_).
+  // By pausing the debugger first, ScopedPagePauser runs on a non-frozen page.
+  SendDeterministicPause(
+      tab_id,
+      base::BindOnce(&AbpController::PauseVirtualTimeAfterDebugger,
+                     weak_factory_.GetWeakPtr(), tab_id, std::move(then)));
+}
+
+void AbpController::PauseVirtualTimeAfterDebugger(
+    const std::string& tab_id,
+    base::OnceClosure then) {
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
     std::move(then).Run();
@@ -3157,16 +3168,27 @@ void AbpController::PauseExecution(const std::string& tab_id,
     return;
   }
 
-  // Step 1: Pause virtual time first (freeze time before halting JS)
+  // Step 2: Now freeze virtual time (debugger is already paused, so
+  // setVirtualTimePolicy won't trigger observer double-suspend).
   base::Value::Dict params;
   params.Set("policy", "pause");
 
-  LOG(INFO) << "ABP: Sending Emulation.setVirtualTimePolicy (pause) for tab " << tab_id
-            << " phase=" << static_cast<int>(state.phase);
+  LOG(INFO) << "ABP PROFILE [pause] setVirtualTimePolicy(pause) SEND tab=" << tab_id;
+  auto pause_vt_send = base::TimeTicks::Now();
   client->SendCommand(
       "Emulation.setVirtualTimePolicy", params,
-      base::BindOnce(&AbpController::OnVirtualTimePaused,
-                     weak_factory_.GetWeakPtr(), tab_id, std::move(then)));
+      base::BindOnce(
+          [](base::WeakPtr<AbpController> ctrl, std::string tid,
+             base::OnceClosure cb, base::TimeTicks send_time,
+             bool success, const std::string& result) {
+            LOG(INFO) << "ABP PROFILE [pause] setVirtualTimePolicy(pause) DONE"
+                      << " elapsed=" << (base::TimeTicks::Now() - send_time).InMilliseconds() << "ms"
+                      << " tab=" << tid;
+            if (ctrl) {
+              ctrl->OnVirtualTimePaused(tid, std::move(cb), success, result);
+            }
+          },
+          weak_factory_.GetWeakPtr(), tab_id, std::move(then), pause_vt_send));
 }
 
 void AbpController::SendDeterministicPause(const std::string& tab_id,
@@ -3188,19 +3210,18 @@ void AbpController::SendDeterministicPause(const std::string& tab_id,
   // renderer has no CDP domains enabled. Debugger.enable is idempotent
   // so this is safe even if already enabled.
   base::Value::Dict enable_params;
-  VLOG(1) << "ABP: Sending Debugger.enable (before pause) for tab " << tab_id;
+  LOG(INFO) << "ABP PROFILE [pause] Debugger.enable SEND tab=" << tab_id;
+  auto dbg_enable_send = base::TimeTicks::Now();
   client->SendCommand(
       "Debugger.enable", enable_params,
       base::BindOnce(
           [](base::WeakPtr<AbpController> ctrl, std::string tid,
-             base::OnceClosure cb, bool success, const std::string& result) {
+             base::OnceClosure cb, base::TimeTicks send_time,
+             bool success, const std::string& result) {
             if (!ctrl) return;
-            if (success) {
-              VLOG(1) << "ABP: Debugger.enable (before pause) succeeded for tab " << tid;
-            } else {
-              LOG(WARNING) << "ABP: Debugger.enable (before pause) failed for tab " << tid
-                           << " - " << result;
-            }
+            LOG(INFO) << "ABP PROFILE [pause] Debugger.enable DONE"
+                      << " elapsed=" << (base::TimeTicks::Now() - send_time).InMilliseconds() << "ms"
+                      << " tab=" << tid;
             content::WebContents* wc = ctrl->FindWebContents(tid);
             if (!wc) { std::move(cb).Run(); return; }
             AbpCdpClient* c = ctrl->GetOrCreateCdpClient(wc);
@@ -3208,13 +3229,24 @@ void AbpController::SendDeterministicPause(const std::string& tab_id,
 
             // Step 2: Pause debugger (halt JS)
             base::Value::Dict params;
-            VLOG(1) << "ABP: Sending Debugger.pause for tab " << tid;
+            LOG(INFO) << "ABP PROFILE [pause] Debugger.pause SEND tab=" << tid;
+            auto dbg_pause_send = base::TimeTicks::Now();
             c->SendCommand(
                 "Debugger.pause", params,
-                base::BindOnce(&AbpController::OnDebuggerPauseCommandSent,
-                               ctrl, tid, std::move(cb)));
+                base::BindOnce(
+                    [](base::WeakPtr<AbpController> ctrl2, std::string tid2,
+                       base::OnceClosure cb2, base::TimeTicks send_time2,
+                       bool success2, const std::string& result2) {
+                      LOG(INFO) << "ABP PROFILE [pause] Debugger.pause DONE"
+                                << " elapsed=" << (base::TimeTicks::Now() - send_time2).InMilliseconds() << "ms"
+                                << " tab=" << tid2;
+                      if (ctrl2) {
+                        ctrl2->OnDebuggerPauseCommandSent(tid2, std::move(cb2), success2, result2);
+                      }
+                    },
+                    ctrl, tid, std::move(cb), dbg_pause_send));
           },
-          weak_factory_.GetWeakPtr(), tab_id, std::move(then)));
+          weak_factory_.GetWeakPtr(), tab_id, std::move(then), dbg_enable_send));
 }
 
 void AbpController::OnVirtualTimePaused(const std::string& tab_id,
@@ -3245,19 +3277,9 @@ void AbpController::OnVirtualTimePaused(const std::string& tab_id,
     }
   }
 
-  content::WebContents* wc = FindWebContents(tab_id);
-  if (!wc) {
-    std::move(then).Run();
-    return;
-  }
-
-  AbpCdpClient* client = GetOrCreateCdpClient(wc);
-  if (!client) {
-    std::move(then).Run();
-    return;
-  }
-
-  SendDeterministicPause(tab_id, std::move(then));
+  // Debugger is already paused and virtual time is now frozen.
+  // Just run the completion callback.
+  std::move(then).Run();
 }
 
 void AbpController::OnDebuggerPauseCommandSent(
@@ -3282,6 +3304,7 @@ void AbpController::OnDebuggerPauseCommandSent(
 
   // Don't set phase to kPaused yet — wait for Debugger.paused EVENT.
   // Store the callback for OnDebuggerPausedEvent to fire.
+  it->second.pause_event_wait_start = base::TimeTicks::Now();
   it->second.pause_completion_callback = std::move(then);
 
   // Start 2s safety timeout in case Debugger.paused event never arrives.
@@ -3317,7 +3340,9 @@ void AbpController::OnDebuggerPausedEvent(const std::string& tab_id) {
     it->second.pause_confirmation_timer->Stop();
   }
   it->second.execution.phase = ExecutionPhase::kPaused;
-  VLOG(1) << "ABP: Debugger.paused event confirmed for tab " << tab_id;
+  LOG(INFO) << "ABP PROFILE [pause] Debugger.paused EVENT"
+            << " wait=" << (base::TimeTicks::Now() - it->second.pause_event_wait_start).InMilliseconds() << "ms"
+            << " tab=" << tab_id;
   if (lifecycle_observer_for_testing_) {
     lifecycle_observer_for_testing_.Run(tab_id, "", LifecycleStep::kPauseConfirmed);
   }
@@ -3815,7 +3840,12 @@ void AbpController::CheckActionCompleteConditions(const std::string& tab_id) {
   // All conditions met - removing the waiter stops OnCdpEventForWait from processing events
   std::unique_ptr<ActionCompleteWaiter> completed_waiter = std::move(it->second.action_waiter);
 
-  VLOG(1) << "ABP: action_complete conditions met for tab " << tab_id;
+  LOG(INFO) << "ABP PROFILE [wait] complete"
+            << " elapsed=" << (base::TimeTicks::Now() - completed_waiter->action_start_time).InMilliseconds() << "ms"
+            << " load=" << completed_waiter->load_fired
+            << " dcl=" << completed_waiter->dom_content_loaded_fired
+            << " paint=" << completed_waiter->first_paint_fired
+            << " tab=" << tab_id;
 
   if (completed_waiter->on_complete) {
     std::move(completed_waiter->on_complete).Run();
@@ -4096,6 +4126,8 @@ void AbpController::GetScrollPosition(
   }
 
   // Execute JavaScript to get scroll info
+  LOG(INFO) << "ABP PROFILE [scroll] GetScrollPosition SEND tab=" << tab_id;
+  auto scroll_send = base::TimeTicks::Now();
   const std::string script = R"(
     (function() {
       return {
@@ -4147,9 +4179,12 @@ void AbpController::GetScrollPosition(
       base::BindOnce(
           [](std::shared_ptr<bool> d,
              std::shared_ptr<base::OnceCallback<void(base::Value::Dict)>> cb,
+             base::TimeTicks send_time,
              bool success, const std::string& result) {
             if (*d) return;
             *d = true;
+            LOG(INFO) << "ABP PROFILE [scroll] GetScrollPosition DONE"
+                      << " elapsed=" << (base::TimeTicks::Now() - send_time).InMilliseconds() << "ms";
             base::Value::Dict scroll_info;
 
             if (success) {
@@ -4194,7 +4229,7 @@ void AbpController::GetScrollPosition(
 
             std::move(*cb).Run(std::move(scroll_info));
           },
-          done, shared_cb));
+          done, shared_cb, scroll_send));
 }
 
 void AbpController::CaptureScreenshotBase64(
@@ -4621,39 +4656,51 @@ void AbpController::BinaryScreenshot(const std::string& tab_id,
     return;
   }
 
-  // Parse query params for disable_markup tags
-  // Format: ?disable_markup=grid,scrollable
-  // All markup overlays are enabled by default; disable_markup turns off specific ones.
-  std::vector<std::string> disable_tags;
+  // Parse query params for markup tags.
+  // New API: ?markup=clickable,grid — enable specific overlays (none by default).
+  // Legacy: ?disable_markup=grid — all overlays minus disabled ones.
+  std::vector<std::string> markup_tags;
   if (!query.empty()) {
-    size_t pos = query.find("disable_markup=");
-    if (pos != std::string::npos) {
-      size_t start = pos + 15;  // strlen("disable_markup=")
-      size_t end = query.find('&', start);
-      std::string disable_str =
-          query.substr(start, end == std::string::npos ? end : end - start);
-      size_t tag_start = 0;
-      while (tag_start < disable_str.size()) {
-        size_t comma = disable_str.find(',', tag_start);
-        if (comma == std::string::npos) comma = disable_str.size();
-        std::string tag = disable_str.substr(tag_start, comma - tag_start);
-        if (!tag.empty()) {
-          disable_tags.push_back(tag);
+    auto parse_csv = [](const std::string& q, const std::string& key)
+        -> std::vector<std::string> {
+      std::vector<std::string> result;
+      size_t pos = q.find(key + "=");
+      if (pos == std::string::npos) return result;
+      size_t start = pos + key.size() + 1;
+      size_t end = q.find('&', start);
+      std::string val = q.substr(start, end == std::string::npos ? end : end - start);
+      size_t i = 0;
+      while (i < val.size()) {
+        size_t comma = val.find(',', i);
+        if (comma == std::string::npos) comma = val.size();
+        std::string tag = val.substr(i, comma - i);
+        if (!tag.empty()) result.push_back(tag);
+        i = comma + 1;
+      }
+      return result;
+    };
+
+    markup_tags = parse_csv(query, "markup");
+    if (markup_tags.empty()) {
+      // Legacy: disable_markup = all minus disabled
+      auto disable_tags = parse_csv(query, "disable_markup");
+      if (!disable_tags.empty()) {
+        std::set<std::string> disabled(disable_tags.begin(), disable_tags.end());
+        for (const char* tag : kAllMarkupTags) {
+          if (disabled.find(tag) == disabled.end()) {
+            markup_tags.emplace_back(tag);
+          }
         }
-        tag_start = comma + 1;
       }
     }
   }
 
-  // Validate disable tags
+  // Validate markup tags
   std::string invalid_tag;
-  if (!ValidateMarkupTags(disable_tags, &invalid_tag)) {
+  if (!ValidateMarkupTags(markup_tags, &invalid_tag)) {
     SendError(400, "Unknown markup tag: " + invalid_tag, std::move(callback));
     return;
   }
-
-  // Compute effective tags = all - disabled
-  std::vector<std::string> markup_tags = ComputeEffectiveMarkupTags(disable_tags);
 
   bool restore_pause_after_capture = false;
   auto tab_it = tab_states_.find(tab_id);

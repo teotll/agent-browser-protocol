@@ -132,7 +132,7 @@ class AbpPageLoadObserver : public content::WebContentsObserver {
 };
 
 // All available markup tags for screenshot overlays.
-// These are all enabled by default; use disable_markup to turn off specific ones.
+// None are enabled by default; clients pass the specific tags they want.
 inline constexpr const char* kAllMarkupTags[] = {
     "clickable", "typeable", "scrollable", "grid", "selected"};
 inline constexpr size_t kAllMarkupTagsCount = 5;
@@ -181,9 +181,9 @@ class AbpController {
   void SetLifecycleObserverForTesting(LifecycleObserverCallback cb);
   static AbpController* GetInstanceForTesting();
 
-  // Compute effective markup tags = all tags minus disabled ones.
-  static std::vector<std::string> ComputeEffectiveMarkupTags(
-      const std::vector<std::string>& disable_tags);
+  // Validate markup tags — returns true if all tags are known.
+  static bool ValidateMarkupTags(const std::vector<std::string>& tags,
+                                 std::string* invalid_tag);
 
   // Wrappers for RenderWidgetHostImpl ForceRedraw test counters.
   // Avoids exposing content/browser internal headers to test code.
@@ -489,6 +489,7 @@ class AbpController {
     ScreenshotOptions opts;
     base::FilePath h_path;
     std::string tab_id;
+    base::TimeTicks force_redraw_start;
   };
 
   // Grab OS-level view snapshot with retry on blank/empty images.
@@ -673,6 +674,7 @@ class AbpController {
     // Pending callback for deterministic pause confirmation.
     // Set during PauseExecution, fired when Debugger.paused event arrives.
     base::OnceClosure pause_completion_callback;
+    base::TimeTicks pause_event_wait_start;
 
     // Timer for pause confirmation timeout (safety net).
     // Wrapped in unique_ptr to keep TabState moveable.
@@ -760,6 +762,10 @@ class AbpController {
   // Runtime.evaluate("void 0") → wait for Debugger.paused event.
   // Used by both auto-pause (initial setup) and regular pause (action lifecycle).
   void SendDeterministicPause(const std::string& tab_id, base::OnceClosure then);
+  void PauseVirtualTimeAfterDebugger(const std::string& tab_id, base::OnceClosure then);
+  void EnableVirtualTimeAfterDebugger(const std::string& tab_id,
+                                      std::optional<double> initial_virtual_time,
+                                      base::OnceClosure then);
   void OnDebuggerPauseCommandSent(const std::string& tab_id,
                                   base::OnceClosure then,
                                   bool success,

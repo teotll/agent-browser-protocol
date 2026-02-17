@@ -49,10 +49,9 @@ using ActionCallback = base::OnceCallback<void(AbpActionContext* ctx)>;
 //     -> EnsureVirtualCursorVisible()
 //     -> CaptureAfterScreenshot()          // markup inject → ForceRedraw → capture → cleanup → history save
 //     -> OnAfterScreenshotCaptured()       // store path + base64
-//     -> PauseExecutionIfNeeded()
-//     -> OnExecutionPaused()
-//     -> FinalizeResponse()
-//     -> RecordHistory() + SendResponse()
+//     -> FinalizeResponse()                 // RecordHistory() + SendResponse() — client gets response here
+//     -> PauseExecutionIfNeeded()           // runs in background, slot still held
+//     -> OnExecutionPaused()                // release slot + allow next action
 //
 class AbpActionContext : public base::RefCounted<AbpActionContext> {
  public:
@@ -216,7 +215,7 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   int screenshot_after_height_ = 0;
 
   // Screenshot options (parsed from action params)
-  std::string screenshot_format_ = "webp";
+  std::string screenshot_format_ = "jpeg";
   std::vector<std::string> screenshot_markup_tags_;
   int screenshot_quality_ = 80;
 
@@ -242,6 +241,23 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   // Self-reference to prevent destruction during async operations.
   // Set in Start(), cleared in SendResponse()/SendErrorResponse().
   scoped_refptr<AbpActionContext> prevent_destroy_;
+
+  // Profiling: stage timestamps for latency breakdown
+  base::TimeTicks profile_before_ss_start_;
+  base::TimeTicks profile_before_ss_end_;
+  base::TimeTicks profile_resume_start_;
+  base::TimeTicks profile_resume_end_;
+  base::TimeTicks profile_action_start_;
+  base::TimeTicks profile_action_end_;
+  base::TimeTicks profile_wait_start_;
+  base::TimeTicks profile_wait_end_;
+  base::TimeTicks profile_scroll_start_;
+  base::TimeTicks profile_scroll_end_;
+  base::TimeTicks profile_after_ss_start_;
+  base::TimeTicks profile_after_ss_end_;
+  base::TimeTicks profile_pause_start_;
+  base::TimeTicks profile_pause_end_;
+  void LogProfilingSummary();
 
   // Deterministic action runner epoch for stale-callback filtering.
   uint64_t action_epoch_ = 0;

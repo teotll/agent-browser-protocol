@@ -117,6 +117,11 @@ base::Value::List GetToolDefinitions() {
                                  "clickable (green), typeable (orange), scrollable (purple dashed), "
                                  "grid (red coordinate grid), selected (blue, focused element)",
                                  {"clickable", "typeable", "scrollable", "grid", "selected"})
+          .OptionalStringArrayEnum("markup",
+                                 "Markup overlays to enable (none by default). "
+                                 "clickable (green), typeable (orange), scrollable (purple dashed), "
+                                 "grid (red coordinate grid), selected (blue, focused element)",
+                                 {"clickable", "typeable", "scrollable", "grid", "selected"})
           .OptionalString("format", "Image format: png, webp, jpeg")
           .Build());
 
@@ -961,7 +966,9 @@ void AbpMcpHandler::CallBrowserScreenshot(const base::Value::Dict& args,
   // Build screenshot options from flat args
   base::Value::Dict body_dict;
   base::Value::Dict screenshot_opts;
-  if (const base::Value::List* disable_markup = args.FindList("disable_markup")) {
+  if (const base::Value::List* markup = args.FindList("markup")) {
+    screenshot_opts.Set("markup", markup->Clone());
+  } else if (const base::Value::List* disable_markup = args.FindList("disable_markup")) {
     screenshot_opts.Set("disable_markup", disable_markup->Clone());
   }
   if (const std::string* format = args.FindString("format")) {
