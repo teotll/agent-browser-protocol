@@ -327,6 +327,9 @@ class CC_EXPORT Scheduler : public viz::BeginFrameObserverBase {
   base::TimeTicks last_translated_frame_time_;
   // Tracks the last virtual ticks value to detect frozen virtual time.
   base::TimeTicks last_virtual_ticks_;
+  // Global monotonicity clamp for frame_time across all paths (translated
+  // and non-translated). Catches edge cases during virtual time transitions.
+  base::TimeTicks last_monotonic_frame_time_;
   viz::BeginFrameAck last_begin_frame_ack_;
   viz::BeginFrameArgs begin_main_frame_args_;
 

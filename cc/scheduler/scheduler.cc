@@ -567,6 +567,18 @@ void Scheduler::BeginImplFrameWithDeadline(
     }
   }
 
+  // Global monotonicity clamp: regardless of whether virtual time translation
+  // is active, ensure frame_time never goes backwards. This catches edge cases
+  // during kPause→kRealtime transitions where the override may briefly be
+  // absent between two consecutive frames.
+  if (!last_monotonic_frame_time_.is_null() &&
+      args.frame_time < last_monotonic_frame_time_) {
+    base::TimeDelta adjustment = last_monotonic_frame_time_ - args.frame_time;
+    args.frame_time = last_monotonic_frame_time_;
+    args.deadline += adjustment;
+  }
+  last_monotonic_frame_time_ = args.frame_time;
+
   bool main_thread_is_in_high_latency_mode =
       state_machine_.main_thread_missed_last_deadline();
   TRACE_EVENT2("cc,benchmark", "Scheduler::BeginImplFrame", "args",
