@@ -141,6 +141,118 @@ AbpController::PendingDialog& AbpController::PendingDialog::operator=(
 AbpController::ActionSnapState::ActionSnapState() = default;
 AbpController::ActionSnapState::~ActionSnapState() = default;
 
+// ForceRedrawWatcher implementation
+AbpController::ForceRedrawWatcher::ForceRedrawWatcher(
+    content::RenderWidgetHost* rwh,
+    base::WeakPtr<AbpController> controller,
+    std::shared_ptr<ActionSnapState> snap_state)
+    : rwh_(rwh),
+      controller_(std::move(controller)),
+      snap_state_(std::move(snap_state)) {
+  rwh_->AddObserver(this);
+}
+
+AbpController::ForceRedrawWatcher::~ForceRedrawWatcher() {
+  Cancel();
+}
+
+void AbpController::ForceRedrawWatcher::Cancel() {
+  if (cancelled_) {
+    return;
+  }
+  cancelled_ = true;
+  if (rwh_) {
+    rwh_->RemoveObserver(this);
+    rwh_ = nullptr;
+  }
+  snap_state_.reset();  // Break shared_ptr cycle.
+}
+
+void AbpController::ForceRedrawWatcher::RenderWidgetHostDestroyed(
+    content::RenderWidgetHost* widget_host) {
+  rwh_ = nullptr;  // Observer auto-removed by RWHI destruction.
+  if (cancelled_ || !snap_state_ || snap_state_->done) {
+    return;
+  }
+  LOG(INFO) << "ABP: ForceRedrawWatcher - RWHI destroyed during in-flight "
+            << "ForceRedraw, triggering retry tab=" << snap_state_->tab_id;
+  // Steal snap_state before Cancel() clears it.
+  auto stolen_state = std::move(snap_state_);
+  cancelled_ = true;
+  if (controller_) {
+    controller_->OnForceRedrawRwhiDestroyed(std::move(stolen_state));
+  }
+}
+
+void AbpController::OnForceRedrawRwhiDestroyed(
+    std::shared_ptr<ActionSnapState> snap_state) {
+  if (snap_state->done) {
+    return;
+  }
+
+  content::WebContents* wc = FindWebContents(snap_state->tab_id);
+  if (!wc) {
+    LOG(WARNING) << "ABP: OnForceRedrawRwhiDestroyed - WebContents gone"
+                 << " tab=" << snap_state->tab_id;
+    snap_state->done = true;
+    std::move(snap_state->cb).Run(ActionScreenshotResult());
+    return;
+  }
+
+  content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
+  if (!view) {
+    // New renderer hasn't attached yet — poll at 50ms intervals.
+    LOG(INFO) << "ABP: OnForceRedrawRwhiDestroyed - no RWHV yet, polling"
+              << " tab=" << snap_state->tab_id;
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+        FROM_HERE,
+        base::BindOnce(&AbpController::OnForceRedrawRwhiDestroyed,
+                       weak_factory_.GetWeakPtr(), std::move(snap_state)),
+        base::Milliseconds(50));
+    return;
+  }
+
+  // New RWHV is ready — send ForceRedraw on the new RWHI.
+  auto* rwhi = static_cast<content::RenderWidgetHostImpl*>(
+      view->GetRenderWidgetHost());
+  LOG(INFO) << "ABP: OnForceRedrawRwhiDestroyed - retrying ForceRedraw on new "
+            << "RWHI tab=" << snap_state->tab_id;
+
+  // Create a new watcher on the new RWHI.
+  snap_state->watcher = std::make_shared<ForceRedrawWatcher>(
+      rwhi, weak_factory_.GetWeakPtr(), snap_state);
+  snap_state->force_redraw_start = base::TimeTicks::Now();
+
+  rwhi->ForceRedrawWithCallback(base::BindOnce(
+      [](std::shared_ptr<ActionSnapState> s,
+         base::WeakPtr<AbpController> ctrl) {
+        if (s->done) return;
+        // Cancel the watcher — normal completion.
+        if (s->watcher) {
+          s->watcher->Cancel();
+          s->watcher.reset();
+        }
+        LOG(INFO) << "ABP: OnForceRedrawRwhiDestroyed - ForceRedraw completed"
+                  << " elapsed="
+                  << (base::TimeTicks::Now() - s->force_redraw_start)
+                         .InMilliseconds()
+                  << "ms tab=" << s->tab_id;
+        if (!ctrl) {
+          s->done = true;
+          std::move(s->cb).Run(ActionScreenshotResult());
+          return;
+        }
+        // Wait 167ms for CoreAnimation then grab snapshot.
+        base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+            FROM_HERE,
+            base::BindOnce(
+                &AbpController::GrabViewSnapshotWithFreshnessCheck,
+                ctrl, s, /*retry_count=*/0),
+            base::Milliseconds(167));
+      },
+      snap_state, weak_factory_.GetWeakPtr()));
+}
+
 AbpController::TabState::TabState() = default;
 AbpController::TabState::~TabState() = default;
 AbpController::TabState::TabState(TabState&&) = default;
@@ -1184,6 +1296,13 @@ void AbpController::CaptureActionScreenshotWithRetry(
   st->tab_id = tab_id;
   st->force_redraw_start = base::TimeTicks::Now();
 
+  // Layer 2: Watch the RWHI for destruction during in-flight ForceRedraw.
+  // If the RWHI is destroyed (cross-process navigation), the watcher
+  // triggers event-driven retry on the new renderer instead of waiting
+  // for the 1500ms timeout.
+  st->watcher = std::make_shared<ForceRedrawWatcher>(
+      rwhi, weak_factory_.GetWeakPtr(), st);
+
   // Safety-net timeout: fall back to direct GrabViewSnapshot if ForceRedraw
   // doesn't respond in time (heavy JS pages can starve BeginMainFrame).
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
@@ -1194,6 +1313,11 @@ void AbpController::CaptureActionScreenshotWithRetry(
             if (s->done) return;
             LOG(WARNING) << "ABP: CaptureActionScreenshot ForceRedraw timed out"
                          << " — falling back to direct GrabViewSnapshot";
+            // Cancel the RWHI watcher — we're handling this via timeout.
+            if (s->watcher) {
+              s->watcher->Cancel();
+              s->watcher.reset();
+            }
             if (!ctrl) {
               s->done = true;
               std::move(s->cb).Run(ActionScreenshotResult());
@@ -1210,6 +1334,11 @@ void AbpController::CaptureActionScreenshotWithRetry(
       [](std::shared_ptr<ActionSnapState> s,
          base::WeakPtr<AbpController> ctrl) {
         if (s->done) return;
+        // Cancel the RWHI watcher — ForceRedraw completed normally.
+        if (s->watcher) {
+          s->watcher->Cancel();
+          s->watcher.reset();
+        }
         LOG(INFO) << "ABP PROFILE [screenshot] ForceRedraw DONE"
                   << " elapsed=" << (base::TimeTicks::Now() - s->force_redraw_start).InMilliseconds() << "ms"
                   << " tab=" << s->tab_id;

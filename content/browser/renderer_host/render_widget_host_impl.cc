@@ -728,6 +728,9 @@ void RenderWidgetHostImpl::BindWidgetInterfaces(
   // reused RenderViewHostImpl so we need to ensure old channels are dropped.
   // TODO(dcheng): Rather than resetting here, reset when the process goes away.
   blink_widget_host_receiver_.reset();
+  // Rescue any in-flight ForceRedraw callback before resetting the widget —
+  // Mojo silently drops async callbacks when the pipe disconnects.
+  RescueInFlightForceRedrawCallback();
   blink_widget_.reset();
   GetRenderInputRouter()->ResetWidgetInputInterfaces();
   blink_widget_host_receiver_.Bind(
@@ -2395,6 +2398,9 @@ void RenderWidgetHostImpl::RendererExited() {
   // This flag is set when creating the renderer widget.
   waiting_for_init_ = false;
 
+  // Rescue any in-flight ForceRedraw callback before resetting the widget —
+  // Mojo silently drops async callbacks when the pipe disconnects.
+  RescueInFlightForceRedrawCallback();
   blink_widget_.reset();
 
   // No need to perform a deferred show after the renderer crashes, and this
@@ -3537,16 +3543,45 @@ void RenderWidgetHostImpl::ForceRedrawWithCallback(
                        weak_factory_.GetWeakPtr(), std::move(callback)));
     return;
   }
+
+  // If there's already an in-flight ForceRedraw, queue this one — sending
+  // overlapping ForceRedraw calls overwhelms the renderer.
+  if (in_flight_force_redraw_callback_) {
+    LOG(INFO) << "ABP: ForceRedrawWithCallback - already in-flight, "
+              << "queuing new callback";
+    pending_on_widget_bound_callbacks_.push_back(
+        base::BindOnce(&RenderWidgetHostImpl::ForceRedrawWithCallback,
+                       weak_factory_.GetWeakPtr(), std::move(callback)));
+    return;
+  }
+
   LOG(INFO) << "ABP: ForceRedrawWithCallback - blink_widget_ bound, "
             << "sending ForceRedraw to renderer";
+  // Store the caller's callback so we can rescue it if blink_widget_ resets.
+  in_flight_force_redraw_callback_ = std::move(callback);
   blink_widget_->ForceRedraw(
-      base::BindOnce(
-          [](base::OnceClosure cb) {
-            LOG(INFO) << "ABP: ForceRedrawWithCallback - renderer responded, "
-                      << "firing callback";
-            std::move(cb).Run();
-          },
-          std::move(callback)));
+      base::BindOnce(&RenderWidgetHostImpl::OnForceRedrawComplete,
+                     base::Unretained(this)));
+}
+
+void RenderWidgetHostImpl::OnForceRedrawComplete() {
+  LOG(INFO) << "ABP: ForceRedrawWithCallback - renderer responded, "
+            << "firing callback";
+  if (in_flight_force_redraw_callback_) {
+    std::move(in_flight_force_redraw_callback_).Run();
+  }
+}
+
+void RenderWidgetHostImpl::RescueInFlightForceRedrawCallback() {
+  if (!in_flight_force_redraw_callback_) {
+    return;
+  }
+  LOG(INFO) << "ABP: RescueInFlightForceRedrawCallback - requeuing in-flight "
+            << "ForceRedraw callback before widget reset";
+  pending_on_widget_bound_callbacks_.push_back(
+      base::BindOnce(&RenderWidgetHostImpl::ForceRedrawWithCallback,
+                     weak_factory_.GetWeakPtr(),
+                     std::move(in_flight_force_redraw_callback_)));
 }
 
 bool RenderWidgetHostImpl::KeyPressListenersHandleEvent(

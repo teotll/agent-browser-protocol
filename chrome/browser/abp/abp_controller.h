@@ -18,6 +18,7 @@
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/devtools_agent_host_client.h"
 #include "content/public/browser/render_widget_host.h"
+#include "content/public/browser/render_widget_host_observer.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "url/gurl.h"
@@ -480,6 +481,9 @@ class AbpController {
       int view_height,
       int retry_count);
 
+  // Forward declaration for watcher shared_ptr in ActionSnapState.
+  class ForceRedrawWatcher;
+
   // Shared state for action screenshot capture across async callbacks.
   struct ActionSnapState {
     ActionSnapState();
@@ -490,7 +494,37 @@ class AbpController {
     base::FilePath h_path;
     std::string tab_id;
     base::TimeTicks force_redraw_start;
+    std::shared_ptr<ForceRedrawWatcher> watcher;
   };
+
+  // Watches an RWHI for destruction during an in-flight ForceRedraw.
+  // If the RWHI is destroyed (cross-process navigation), triggers retry
+  // on the new renderer's RWHI via OnForceRedrawRwhiDestroyed.
+  class ForceRedrawWatcher : public content::RenderWidgetHostObserver {
+   public:
+    ForceRedrawWatcher(content::RenderWidgetHost* rwh,
+                       base::WeakPtr<AbpController> controller,
+                       std::shared_ptr<ActionSnapState> snap_state);
+    ~ForceRedrawWatcher() override;
+
+    // Unregister without triggering retry (normal completion path).
+    void Cancel();
+
+    // content::RenderWidgetHostObserver:
+    void RenderWidgetHostDestroyed(
+        content::RenderWidgetHost* widget_host) override;
+
+   private:
+    raw_ptr<content::RenderWidgetHost> rwh_;
+    base::WeakPtr<AbpController> controller_;
+    std::shared_ptr<ActionSnapState> snap_state_;
+    bool cancelled_ = false;
+  };
+
+  // Called by ForceRedrawWatcher when the RWHI is destroyed mid-ForceRedraw.
+  // Retries ForceRedraw on the new renderer's RWHI.
+  void OnForceRedrawRwhiDestroyed(
+      std::shared_ptr<ActionSnapState> snap_state);
 
   // Grab OS-level view snapshot with retry on blank/empty images.
   void GrabViewSnapshotWithFreshnessCheck(

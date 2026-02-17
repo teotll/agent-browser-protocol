@@ -903,6 +903,14 @@ class CONTENT_EXPORT RenderWidgetHostImpl
   // queues callback for when BindWidgetInterfaces completes.
   void ForceRedrawWithCallback(base::OnceClosure callback);
 
+  // Internal handler for Mojo ForceRedraw response.
+  void OnForceRedrawComplete();
+
+  // Rescues in-flight ForceRedraw callback before blink_widget_ reset.
+  // Called from BindWidgetInterfaces and RendererExited to prevent
+  // Mojo silently dropping the callback on disconnect.
+  void RescueInFlightForceRedrawCallback();
+
   // Test-only: count of ForceRedrawWithCallback calls that were queued
   // because blink_widget_ was null (pending renderer swap).
   static int force_redraw_queued_count_for_testing() {
@@ -1623,6 +1631,11 @@ class CONTENT_EXPORT RenderWidgetHostImpl
   // Callbacks to fire when blink_widget_ is bound (after renderer swap).
   // Follows the same pattern as pending_virtual_cursor_state_.
   std::vector<base::OnceClosure> pending_on_widget_bound_callbacks_;
+
+  // In-flight ForceRedraw callback sent to the renderer via Mojo.
+  // Tracked so we can rescue it if blink_widget_ is reset before the
+  // renderer responds (Mojo silently drops callbacks on disconnect).
+  base::OnceClosure in_flight_force_redraw_callback_;
 
   // Test-only counter: incremented when ForceRedrawWithCallback queues
   // because blink_widget_ is null.
