@@ -70,7 +70,7 @@ static SkBitmap ScaleBitmapToViewport(const SkBitmap& bitmap,
     return bitmap;
   }
   return skia::ImageOperations::Resize(
-      bitmap, skia::ImageOperations::RESIZE_BOX,
+      bitmap, skia::ImageOperations::RESIZE_GOOD,
       viewport_width, viewport_height);
 }
 

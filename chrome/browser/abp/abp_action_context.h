@@ -212,7 +212,7 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   int screenshot_after_height_ = 0;
 
   // Screenshot options (parsed from action params)
-  std::string screenshot_format_ = "jpeg";
+  std::string screenshot_format_ = "webp";
   std::vector<std::string> screenshot_markup_tags_;
   int screenshot_quality_ = 80;
 
