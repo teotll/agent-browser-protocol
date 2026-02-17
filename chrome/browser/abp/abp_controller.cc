@@ -137,7 +137,13 @@ AbpController::PendingDialog::PendingDialog(const PendingDialog&) = default;
 AbpController::PendingDialog& AbpController::PendingDialog::operator=(
     const PendingDialog&) = default;
 
-// TabState implementation
+// ActionScreenshotResult / ActionSnapState implementation
+AbpController::ActionScreenshotResult::ActionScreenshotResult() = default;
+AbpController::ActionScreenshotResult::~ActionScreenshotResult() = default;
+AbpController::ActionScreenshotResult::ActionScreenshotResult(
+    ActionScreenshotResult&&) = default;
+AbpController::ActionScreenshotResult& AbpController::ActionScreenshotResult::
+    operator=(ActionScreenshotResult&&) = default;
 AbpController::ActionSnapState::ActionSnapState() = default;
 AbpController::ActionSnapState::~ActionSnapState() = default;
 
@@ -1474,6 +1480,52 @@ void AbpController::OnActionScreenshotCaptured(
     return;
   }
 
+  // Read scroll position from compositor's LastRenderFrameMetadata.
+  // By this point, any scroll changes from the action have been committed
+  // and activated (needs_activation_notification=true ensures the viz
+  // roundtrip completes, updating LastRenderFrameMetadata).
+  base::Value::Dict scroll_info;
+  {
+    content::WebContents* scroll_wc = FindWebContents(tab_id);
+    if (scroll_wc) {
+      auto* scroll_view = scroll_wc->GetRenderWidgetHostView();
+      if (scroll_view) {
+        auto* scroll_rwhi = static_cast<content::RenderWidgetHostImpl*>(
+            scroll_view->GetRenderWidgetHost());
+        if (scroll_rwhi) {
+          const auto& meta = scroll_rwhi->render_frame_metadata_provider()
+                                 ->LastRenderFrameMetadata();
+          const float dsf = meta.device_scale_factor;
+          if (meta.root_scroll_offset.has_value()) {
+            scroll_info.Set(
+                "scrollX",
+                static_cast<double>(meta.root_scroll_offset->x() / dsf));
+            scroll_info.Set(
+                "scrollY",
+                static_cast<double>(meta.root_scroll_offset->y() / dsf));
+          } else {
+            scroll_info.Set("scrollX", 0.0);
+            scroll_info.Set("scrollY", 0.0);
+          }
+          scroll_info.Set(
+              "pageWidth",
+              static_cast<double>(meta.root_layer_size.width() / dsf));
+          scroll_info.Set(
+              "pageHeight",
+              static_cast<double>(meta.root_layer_size.height() / dsf));
+          scroll_info.Set(
+              "viewportWidth",
+              static_cast<double>(
+                  meta.scrollable_viewport_size.width() / dsf));
+          scroll_info.Set(
+              "viewportHeight",
+              static_cast<double>(
+                  meta.scrollable_viewport_size.height() / dsf));
+        }
+      }
+    }
+  }
+
   auto pipeline_start = base::TimeTicks::Now();
 
   const SkBitmap& raw_bitmap = *snapshot.ToSkBitmap();
@@ -1516,6 +1568,7 @@ void AbpController::OnActionScreenshotCaptured(
   auto t4 = base::TimeTicks::Now();
   r.width = bitmap.width();
   r.height = bitmap.height();
+  r.scroll_info = std::move(scroll_info);
 
   LOG(INFO) << "ABP PROFILE [screenshot] pipeline"
             << " raw=" << raw_bitmap.width() << "x" << raw_bitmap.height()

@@ -126,6 +126,11 @@ class CC_EXPORT RenderFrameMetadata {
   // setTrackedElementRect).
   TrackedElementBounds tracked_element_bounds;
 
+  // Scrollable viewport size and root layer size — needed on all platforms
+  // for ABP scroll position reporting.
+  gfx::SizeF scrollable_viewport_size;
+  gfx::SizeF root_layer_size;
+
 #if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   // Used to position Android bottom bar, whose position is computed by the
   // renderer compositor.
@@ -142,9 +147,6 @@ class CC_EXPORT RenderFrameMetadata {
   float min_page_scale_factor = 0.f;
   float max_page_scale_factor = 0.f;
   bool root_overflow_y_hidden = false;
-
-  gfx::SizeF scrollable_viewport_size;
-  gfx::SizeF root_layer_size;
 
   // Returns whether the root RenderPass of the CompositorFrame has a
   // transparent background color.

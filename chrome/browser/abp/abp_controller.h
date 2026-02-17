@@ -193,10 +193,17 @@ class AbpController {
 
   // Result from CaptureActionScreenshot
   struct ActionScreenshotResult {
+    ActionScreenshotResult();
+    ~ActionScreenshotResult();
+    ActionScreenshotResult(ActionScreenshotResult&&);
+    ActionScreenshotResult& operator=(ActionScreenshotResult&&);
+
     std::string history_path;  // Path to saved file (empty if history disabled)
     std::string base64;        // Base64-encoded image data
     int width = 0;
     int height = 0;
+    // Scroll position from compositor RenderFrameMetadata (after ForceRedraw).
+    base::Value::Dict scroll_info;
   };
   using ActionScreenshotCallback =
       base::OnceCallback<void(ActionScreenshotResult)>;
@@ -481,7 +488,7 @@ class AbpController {
       int view_height,
       int retry_count);
 
-  // Forward declaration for watcher shared_ptr in ActionSnapState.
+  // Forward declaration for ActionSnapState member.
   class ForceRedrawWatcher;
 
   // Shared state for action screenshot capture across async callbacks.

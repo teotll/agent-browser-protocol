@@ -86,13 +86,8 @@ void RenderFrameMetadataObserverImpl::OnRenderFrameSubmission(
   // value to all the observers.
   if (send_metadata && render_frame_metadata_observer_client_) {
     auto metadata_copy = render_frame_metadata;
-#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
-    // On non-Android, sending |root_scroll_offset| outside of tests would
-    // leave the browser process with out of date information. It is an
-    // optional parameter which we clear here.
-    if (!report_all_frame_submissions_for_testing_enabled_)
-      metadata_copy.root_scroll_offset = std::nullopt;
-#endif
+    // ABP: root_scroll_offset is always sent to the browser process
+    // for compositor-based scroll position reporting.
 
     last_frame_token_ = compositor_frame_metadata->frame_token;
     compositor_frame_metadata->send_frame_token_to_embedder =
@@ -201,6 +196,17 @@ bool RenderFrameMetadataObserverImpl::ShouldSendRenderFrameMetadata(
     return true;
   }
 
+  if (rfm1.scrollable_viewport_size != rfm2.scrollable_viewport_size ||
+      rfm1.root_layer_size != rfm2.root_layer_size) {
+    *needs_activation_notification = true;
+    return true;
+  }
+
+  if (rfm1.root_scroll_offset != rfm2.root_scroll_offset) {
+    *needs_activation_notification = true;
+    return true;
+  }
+
 #if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   if (rfm1.bottom_controls_height != rfm2.bottom_controls_height ||
       rfm1.bottom_controls_shown_ratio != rfm2.bottom_controls_shown_ratio ||
@@ -211,8 +217,6 @@ bool RenderFrameMetadataObserverImpl::ShouldSendRenderFrameMetadata(
       rfm1.min_page_scale_factor != rfm2.min_page_scale_factor ||
       rfm1.max_page_scale_factor != rfm2.max_page_scale_factor ||
       rfm1.root_overflow_y_hidden != rfm2.root_overflow_y_hidden ||
-      rfm1.scrollable_viewport_size != rfm2.scrollable_viewport_size ||
-      rfm1.root_layer_size != rfm2.root_layer_size ||
       rfm1.has_transparent_background != rfm2.has_transparent_background) {
     *needs_activation_notification = true;
     return true;

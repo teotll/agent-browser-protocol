@@ -497,67 +497,22 @@ void AbpActionContext::OnWaitUntilComplete() {
   wait_completed_ms_ = base::Time::Now().InMillisecondsSinceUnixEpoch();
   profile_wait_end_ = base::TimeTicks::Now();
 
-  // Cursor centering already happened in OnActionDispatched (before wait).
-  profile_scroll_start_ = base::TimeTicks::Now();
-  OnCursorCentered();
-}
-
-void AbpActionContext::OnCursorCentered() {
-  // Stop event capture and get scroll position
-  StopEventCaptureAndGetScrollPosition();
-}
-
-void AbpActionContext::StopEventCaptureAndGetScrollPosition() {
-  // Stop event capture and save events
+  // Stop event capture
   if (controller_->event_collector()) {
     captured_events_ = controller_->event_collector()->StopCapturing();
   }
 
-  // Defensive guard: execution may have been paused externally (e.g., via
-  // the /execution API endpoint). The auto-pause timer no longer fires
-  // during actions, but other pause sources are still possible.
-  // GetScrollPosition uses Runtime.evaluate which requires JS to be
-  // running, so resume first. PauseExecutionIfNeeded() later will re-pause.
-  auto it = controller_->tab_states_.find(tab_id_);
-  bool externally_paused =
-      it != controller_->tab_states_.end() && it->second.execution.IsPaused();
-  if (externally_paused && controller_->IsExecutionControlEnabled()) {
-    VLOG(1) << "ABP ActionContext: Execution was paused externally during "
-            << "wait, resuming before GetScrollPosition";
-    controller_->ResumeExecution(
-        tab_id_,
-        base::BindOnce(
-            [](base::WeakPtr<AbpActionContext> ctx) {
-              if (!ctx || !ctx->controller_) return;
-              ctx->controller_->GetScrollPosition(
-                  ctx->tab_id_,
-                  base::BindOnce(
-                      &AbpActionContext::OnScrollPositionReceived,
-                      ctx->weak_factory_.GetWeakPtr()));
-            },
-            weak_factory_.GetWeakPtr()));
-    return;
-  }
+  // Scroll position is now read from compositor RenderFrameMetadata
+  // after ForceRedraw in the after-screenshot pipeline — zero CDP
+  // round-trips, zero main-thread contention.
+  profile_scroll_start_ = base::TimeTicks::Now();
+  profile_scroll_end_ = profile_scroll_start_;  // 0ms — read happens in screenshot
 
-  // Get scroll position (JS is already running)
-  controller_->GetScrollPosition(
-      tab_id_,
-      base::BindOnce(&AbpActionContext::OnScrollPositionReceived,
-                     weak_factory_.GetWeakPtr()));
-}
-
-void AbpActionContext::OnScrollPositionReceived(base::Value::Dict scroll_info) {
-  if (!IsCurrentAction()) {
-    return;
-  }
-  VLOG(1) << "ABP ActionContext: OnScrollPositionReceived() action=" << action_type_;
   if (controller_->lifecycle_observer_for_testing_) {
     controller_->lifecycle_observer_for_testing_.Run(
         tab_id_, action_type_,
         AbpController::LifecycleStep::kScrollPositionReceived);
   }
-  scroll_info_ = std::move(scroll_info);
-  profile_scroll_end_ = base::TimeTicks::Now();
 
   // Capture screenshots BEFORE pausing execution.  The compositor only
   // produces frames while virtual time is running; pausing virtual time
@@ -608,6 +563,9 @@ void AbpActionContext::CaptureAfterScreenshot() {
           [](base::WeakPtr<AbpActionContext> ctx,
              AbpController::ActionScreenshotResult r) {
             if (!ctx) return;
+            // Extract scroll info from compositor metadata (populated after
+            // ForceRedraw in OnActionScreenshotCaptured).
+            ctx->scroll_info_ = std::move(r.scroll_info);
             ctx->OnAfterScreenshotCaptured(
                 std::move(r.history_path), std::move(r.base64),
                 r.width, r.height);

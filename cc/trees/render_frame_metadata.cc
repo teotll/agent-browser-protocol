@@ -36,6 +36,8 @@ bool RenderFrameMetadata::operator==(const RenderFrameMetadata& other) const {
          external_page_scale_factor == other.external_page_scale_factor &&
          top_controls_height == other.top_controls_height &&
          top_controls_shown_ratio == other.top_controls_shown_ratio &&
+         scrollable_viewport_size == other.scrollable_viewport_size &&
+         root_layer_size == other.root_layer_size &&
 #if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
          bottom_controls_height == other.bottom_controls_height &&
          bottom_controls_shown_ratio == other.bottom_controls_shown_ratio &&
@@ -46,8 +48,6 @@ bool RenderFrameMetadata::operator==(const RenderFrameMetadata& other) const {
          min_page_scale_factor == other.min_page_scale_factor &&
          max_page_scale_factor == other.max_page_scale_factor &&
          root_overflow_y_hidden == other.root_overflow_y_hidden &&
-         scrollable_viewport_size == other.scrollable_viewport_size &&
-         root_layer_size == other.root_layer_size &&
          has_transparent_background == other.has_transparent_background &&
 #endif
          tracked_element_bounds == other.tracked_element_bounds &&

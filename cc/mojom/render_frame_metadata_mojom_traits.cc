@@ -51,10 +51,8 @@ bool StructTraits<
   return data.ReadRootScrollOffset(&out->root_scroll_offset) &&
          data.ReadSelection(&out->selection) &&
          data.ReadDelegatedInkMetadata(&out->delegated_ink_metadata) &&
-#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
          data.ReadScrollableViewportSize(&out->scrollable_viewport_size) &&
          data.ReadRootLayerSize(&out->root_layer_size) &&
-#endif
          data.ReadTrackedElementBounds(&out->tracked_element_bounds) &&
          data.ReadViewportSizeInPixels(&out->viewport_size_in_pixels) &&
          data.ReadLocalSurfaceId(&out->local_surface_id) &&

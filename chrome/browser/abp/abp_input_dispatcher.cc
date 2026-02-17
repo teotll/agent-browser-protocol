@@ -210,6 +210,10 @@ void AbpInputDispatcher::ForwardWheelEvent(content::WebContents* wc,
   float fy = static_cast<float>(y);
   // Negate deltas: ABP API convention (positive = down/right) is opposite
   // to WebMouseWheelEvent convention (positive = up/left).
+  // InputRouterImpl::ScaleEvent multiplies deltas by device_scale_factor,
+  // converting from DIP to physical pixels for the renderer. Since we provide
+  // CSS pixel deltas (=DIP), the scaling gives the correct physical pixel
+  // values. Do NOT pre-divide by DSF — that would halve the actual scroll.
   float fdx = -static_cast<float>(delta_x);
   float fdy = -static_cast<float>(delta_y);
 

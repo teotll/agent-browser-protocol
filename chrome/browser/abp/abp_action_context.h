@@ -159,9 +159,6 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   void ExecuteAction();
   void DoWaitUntil();
   void OnWaitUntilComplete();
-  void OnCursorCentered();
-  void StopEventCaptureAndGetScrollPosition();
-  void OnScrollPositionReceived(base::Value::Dict scroll_info);
   void FlushCompositorFrame();
   void OnCompositorFrameFlushed();
   void PauseExecutionIfNeeded();

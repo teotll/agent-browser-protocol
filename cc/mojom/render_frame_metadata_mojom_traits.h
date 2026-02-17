@@ -142,6 +142,12 @@ struct COMPONENT_EXPORT(CC_SHARED_MOJOM_TRAITS)
     return metadata.root_overflow_y_hidden;
   }
 
+  static bool has_transparent_background(
+      const cc::RenderFrameMetadata& metadata) {
+    return metadata.has_transparent_background;
+  }
+#endif
+
   static const gfx::SizeF& scrollable_viewport_size(
       const cc::RenderFrameMetadata& metadata) {
     return metadata.scrollable_viewport_size;
@@ -151,12 +157,6 @@ struct COMPONENT_EXPORT(CC_SHARED_MOJOM_TRAITS)
       const cc::RenderFrameMetadata& metadata) {
     return metadata.root_layer_size;
   }
-
-  static bool has_transparent_background(
-      const cc::RenderFrameMetadata& metadata) {
-    return metadata.has_transparent_background;
-  }
-#endif
 
   static bool Read(cc::mojom::RenderFrameMetadataDataView data,
                    cc::RenderFrameMetadata* out);
