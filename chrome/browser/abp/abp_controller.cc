@@ -53,6 +53,11 @@
 
 namespace abp {
 
+// CoreAnimation delay after ForceRedraw before GrabViewSnapshot.
+// ForceRedraw confirms the compositor committed a frame; this delay gives
+// CoreAnimation time to present it on screen. 3 frames @ 16.7ms ≈ 50ms.
+constexpr base::TimeDelta kCoreAnimationDelay = base::Milliseconds(50);
+
 // Scale a bitmap down to viewport (DIP) dimensions if it was captured at
 // a higher device pixel ratio (e.g. 2x on Retina displays).
 static SkBitmap ScaleBitmapToViewport(const SkBitmap& bitmap,
@@ -248,13 +253,13 @@ void AbpController::OnForceRedrawRwhiDestroyed(
           std::move(s->cb).Run(ActionScreenshotResult());
           return;
         }
-        // Wait 167ms for CoreAnimation then grab snapshot.
+        // Wait 50ms for CoreAnimation then grab snapshot.
         base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
             FROM_HERE,
             base::BindOnce(
                 &AbpController::GrabViewSnapshotWithFreshnessCheck,
                 ctrl, s, /*retry_count=*/0),
-            base::Milliseconds(167));
+            kCoreAnimationDelay);
       },
       snap_state, weak_factory_.GetWeakPtr()));
 }
@@ -942,7 +947,7 @@ void AbpController::CaptureScreenshotForHistory(
           std::move(s->cb).Run("");
           return;
         }
-        // 167ms CoreAnimation delay for compositor to present frame.
+        // 50ms CoreAnimation delay for compositor to present frame.
         base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
             FROM_HERE,
             base::BindOnce(
@@ -1017,7 +1022,7 @@ void AbpController::CaptureScreenshotForHistory(
                           s));
                 },
                 s, ctrl),
-            base::Milliseconds(167));
+            kCoreAnimationDelay);
       },
       st, weak_factory_.GetWeakPtr()));
 }
@@ -1353,15 +1358,15 @@ void AbpController::CaptureActionScreenshotWithRetry(
           std::move(s->cb).Run(ActionScreenshotResult());
           return;
         }
-        // Wait 167ms for CoreAnimation to composite the frame to the
+        // Wait 50ms for CoreAnimation to composite the frame to the
         // window server buffer before OS-level capture.
-        LOG(INFO) << "ABP PROFILE [screenshot] CoreAnimation wait 167ms tab=" << s->tab_id;
+        LOG(INFO) << "ABP PROFILE [screenshot] CoreAnimation wait 50ms tab=" << s->tab_id;
         base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
             FROM_HERE,
             base::BindOnce(
                 &AbpController::GrabViewSnapshotWithFreshnessCheck,
                 ctrl, s, /*retry_count=*/0),
-            base::Milliseconds(167));
+            kCoreAnimationDelay);
       },
       st, weak_factory_.GetWeakPtr()));
 }
@@ -1417,7 +1422,7 @@ void AbpController::GrabViewSnapshotWithFreshnessCheck(
                       << " retry=" << retry_count
                       << " tab=" << s->tab_id;
             if (image.IsEmpty() && retry_count < 5) {
-              // Retry after 167ms — compositor may not have presented yet.
+              // Retry after 50ms — compositor may not have presented yet.
               VLOG(1) << "ABP: GrabViewSnapshotWithFreshnessCheck - retrying"
                         << " tab=" << s->tab_id;
               if (ctrl) {
@@ -1428,7 +1433,7 @@ void AbpController::GrabViewSnapshotWithFreshnessCheck(
                             &AbpController::
                                 GrabViewSnapshotWithFreshnessCheck,
                             ctrl, s, retry_count + 1),
-                        base::Milliseconds(167));
+                        kCoreAnimationDelay);
               }
               return;
             }
@@ -4475,7 +4480,7 @@ void AbpController::CaptureScreenshotBase64(
           std::move(s->cb).Run(std::string(), 0, 0);
           return;
         }
-        // 167ms CoreAnimation delay
+        // 50ms CoreAnimation delay
         base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
             FROM_HERE,
             base::BindOnce(
@@ -4544,7 +4549,7 @@ void AbpController::CaptureScreenshotBase64(
                           s));
                 },
                 s, ctrl),
-            base::Milliseconds(167));
+            kCoreAnimationDelay);
       },
       st, weak_factory_.GetWeakPtr()));
 }
@@ -4948,7 +4953,7 @@ void AbpController::BinaryScreenshot(const std::string& tab_id,
                   [](base::WeakPtr<AbpController> ctrl, std::string tid,
                      std::vector<std::string> tags, ResponseCallback cb) {
                     if (!ctrl) return;
-                    // Wait 167ms for CoreAnimation then capture
+                    // Wait 50ms for CoreAnimation then capture
                     base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
                         FROM_HERE,
                         base::BindOnce(
@@ -5026,7 +5031,7 @@ void AbpController::BinaryScreenshot(const std::string& tab_id,
                                       std::move(cb), vw, vh));
                             },
                             ctrl, tid, tags, std::move(cb)),
-                        base::Milliseconds(167));
+                        kCoreAnimationDelay);
                   },
                   ctrl->weak_factory_.GetWeakPtr(), tid, tags,
                   std::move(cb)));
