@@ -452,9 +452,10 @@ constexpr KeyMapping kKeyMappings[] = {
 
 // Key info helper - defined outside anonymous namespace so it's accessible
 KeyInfo GetKeyInfo(const std::string& key_name) {
-  // First check the mapping table
+  // First check the mapping table (case-insensitive to accept ALL-CAPS from
+  // NormalizeKey as well as MixedCase CDP names).
   for (const auto& mapping : kKeyMappings) {
-    if (key_name == mapping.name) {
+    if (base::EqualsCaseInsensitiveASCII(key_name, mapping.name)) {
       KeyInfo info;
       info.key = mapping.key;
       info.code = mapping.code;
@@ -491,13 +492,14 @@ KeyInfo GetKeyInfo(const std::string& key_name) {
 int ModifiersToFlags(const std::vector<std::string>& modifiers) {
   int flags = 0;
   for (const auto& mod : modifiers) {
-    if (mod == "Alt" || mod == "AltLeft" || mod == "AltRight") {
+    std::string m = base::ToUpperASCII(mod);
+    if (m == "ALT" || m == "ALTLEFT" || m == "ALTRIGHT") {
       flags |= 1;
-    } else if (mod == "Control" || mod == "ControlLeft" || mod == "ControlRight") {
+    } else if (m == "CONTROL" || m == "CONTROLLEFT" || m == "CONTROLRIGHT") {
       flags |= 2;
-    } else if (mod == "Meta" || mod == "MetaLeft" || mod == "MetaRight") {
+    } else if (m == "META" || m == "METALEFT" || m == "METARIGHT") {
       flags |= 4;
-    } else if (mod == "Shift" || mod == "ShiftLeft" || mod == "ShiftRight") {
+    } else if (m == "SHIFT" || m == "SHIFTLEFT" || m == "SHIFTRIGHT") {
       flags |= 8;
     }
   }
@@ -546,8 +548,8 @@ std::optional<std::string> NormalizeKey(const std::string& input) {
     for (char c = '0'; c <= '9'; ++c) {
       keys.emplace_back(1, c);
     }
-    // Function keys F1-F24
-    for (int i = 1; i <= 24; ++i) {
+    // Function keys F1-F12 (kKeyMappings only defines F1-F12)
+    for (int i = 1; i <= 12; ++i) {
       keys.push_back("F" + base::NumberToString(i));
     }
     // Navigation keys
@@ -562,12 +564,6 @@ std::optional<std::string> NormalizeKey(const std::string& input) {
     }
     // Modifier keys
     for (const char* k : {"SHIFT", "CONTROL", "ALT", "META"}) {
-      keys.push_back(k);
-    }
-    // Symbol keys
-    for (const char* k : {"COMMA", "PERIOD", "SLASH", "BACKSLASH",
-                           "SEMICOLON", "QUOTE", "BRACKETLEFT",
-                           "BRACKETRIGHT", "MINUS", "EQUAL", "BACKQUOTE"}) {
       keys.push_back(k);
     }
     return base::flat_set<std::string>(std::move(keys));
