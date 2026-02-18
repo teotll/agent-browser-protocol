@@ -6,6 +6,9 @@
 #include <vector>
 
 #include "base/base64.h"
+#include "base/containers/flat_map.h"
+#include "base/containers/flat_set.h"
+#include "base/no_destructor.h"
 #include "chrome/browser/abp/abp_action_context.h"
 #include "chrome/browser/abp/abp_input_dispatcher.h"
 #include "base/command_line.h"
@@ -499,6 +502,102 @@ int ModifiersToFlags(const std::vector<std::string>& modifiers) {
     }
   }
   return flags;
+}
+
+std::optional<std::string> NormalizeKey(const std::string& input) {
+  // Static abbreviation map — built once, never destroyed.
+  static const base::NoDestructor<base::flat_map<std::string, std::string>>
+      kAbbreviations(base::flat_map<std::string, std::string>({
+          // Modifier abbreviations
+          {"CTRL", "CONTROL"},
+          {"\xe2\x8c\x83", "CONTROL"},   // ⌃ (U+2303)
+          {"CMD", "META"},
+          {"COMMAND", "META"},
+          {"\xe2\x8c\x98", "META"},      // ⌘ (U+2318)
+          {"OPT", "ALT"},
+          {"OPTION", "ALT"},
+          {"\xe2\x8c\xa5", "ALT"},       // ⌥ (U+2325)
+          {"\xe2\x87\xa7", "SHIFT"},     // ⇧ (U+21E7)
+          // Special key abbreviations
+          {"ESC", "ESCAPE"},
+          {"DEL", "DELETE"},
+          {"BS", "BACKSPACE"},
+          {"CR", "ENTER"},
+          {"RETURN", "ENTER"},
+          {"INS", "INSERT"},
+          {"PGUP", "PAGEUP"},
+          {"PGDN", "PAGEDOWN"},
+          {"PGDOWN", "PAGEDOWN"},
+          // Arrow key abbreviations
+          {"UP", "ARROWUP"},
+          {"DOWN", "ARROWDOWN"},
+          {"LEFT", "ARROWLEFT"},
+          {"RIGHT", "ARROWRIGHT"},
+      }));
+
+  // Static valid key set — built once, never destroyed.
+  static const base::NoDestructor<base::flat_set<std::string>> kValidKeys([] {
+    std::vector<std::string> keys;
+    // Letters A-Z
+    for (char c = 'A'; c <= 'Z'; ++c) {
+      keys.emplace_back(1, c);
+    }
+    // Digits 0-9
+    for (char c = '0'; c <= '9'; ++c) {
+      keys.emplace_back(1, c);
+    }
+    // Function keys F1-F24
+    for (int i = 1; i <= 24; ++i) {
+      keys.push_back("F" + base::NumberToString(i));
+    }
+    // Navigation keys
+    for (const char* k : {"ARROWUP", "ARROWDOWN", "ARROWLEFT", "ARROWRIGHT",
+                           "HOME", "END", "PAGEUP", "PAGEDOWN"}) {
+      keys.push_back(k);
+    }
+    // Editing keys
+    for (const char* k : {"BACKSPACE", "DELETE", "INSERT", "ENTER", "TAB",
+                           "ESCAPE", "SPACE"}) {
+      keys.push_back(k);
+    }
+    // Modifier keys
+    for (const char* k : {"SHIFT", "CONTROL", "ALT", "META"}) {
+      keys.push_back(k);
+    }
+    // Symbol keys
+    for (const char* k : {"COMMA", "PERIOD", "SLASH", "BACKSLASH",
+                           "SEMICOLON", "QUOTE", "BRACKETLEFT",
+                           "BRACKETRIGHT", "MINUS", "EQUAL", "BACKQUOTE"}) {
+      keys.push_back(k);
+    }
+    return base::flat_set<std::string>(std::move(keys));
+  }());
+
+  if (input.empty()) {
+    return std::nullopt;
+  }
+
+  // Uppercase the input for case-insensitive matching.
+  std::string upper = base::ToUpperASCII(input);
+
+  // Check abbreviation map with the uppercased string first.
+  auto it = kAbbreviations->find(upper);
+  if (it != kAbbreviations->end()) {
+    return it->second;
+  }
+  // Also check with the original input (for Unicode symbols like ⌘ that
+  // don't change under ASCII uppercasing).
+  it = kAbbreviations->find(input);
+  if (it != kAbbreviations->end()) {
+    return it->second;
+  }
+
+  // Validate against the known key set.
+  if (kValidKeys->contains(upper)) {
+    return upper;
+  }
+
+  return std::nullopt;
 }
 
 namespace {

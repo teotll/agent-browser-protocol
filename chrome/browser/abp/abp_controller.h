@@ -70,6 +70,12 @@ KeyInfo GetKeyInfo(const std::string& key_name);
 // Modifier names: "Alt", "Control", "Meta", "Shift"
 int ModifiersToFlags(const std::vector<std::string>& modifiers);
 
+// Normalize a key name for keyboard input.
+// Uppercases the input, expands common abbreviations (Ctrl->CONTROL,
+// Cmd/Meta->META, Opt->ALT, etc.), and validates against known keys.
+// Returns the normalized key name, or nullopt if the key is not recognized.
+std::optional<std::string> NormalizeKey(const std::string& input);
+
 // CDP client for sending commands and receiving responses/events
 class AbpCdpClient : public content::DevToolsAgentHostClient {
  public:
