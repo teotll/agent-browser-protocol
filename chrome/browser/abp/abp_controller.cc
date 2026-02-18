@@ -3417,10 +3417,8 @@ void AbpController::OnDebuggerEnabled(
   }
 
   // Step 2: Debugger.pause FIRST (halt JS before freezing virtual time).
-  // Must happen before setVirtualTimePolicy(pause) — the virtual time pause
-  // freezes the page lifecycle which suspends PerformanceObservers. If the
-  // debugger pause comes after, ScopedPagePauser tries to suspend them again
-  // → DCHECK (observer already in suspended_observers_).
+  // Debugger pause must happen before setVirtualTimePolicy(pause) so that
+  // JS is halted before the virtual time fence is installed.
   SendDeterministicPause(
       tab_id,
       base::BindOnce(&AbpController::EnableVirtualTimeAfterDebugger,
@@ -3661,14 +3659,19 @@ void AbpController::OnVirtualTimeResumed(const std::string& tab_id,
 void AbpController::ForceRedrawThenResumeVirtualTime(
     const std::string& tab_id,
     base::OnceClosure then) {
-  // Page.bringToFront ensures this tab is the active tab — GrabViewSnapshot
-  // captures from the OS compositor which only renders the active tab.
+  // Activate the tab (required — GrabViewSnapshot captures from the OS
+  // compositor which only renders the active tab) but do NOT bring the
+  // window to front.  ScreenCaptureKit captures by window ID regardless
+  // of z-order, so window focus is unnecessary and disruptive.
   content::WebContents* wc = FindWebContents(tab_id);
   if (wc) {
-    AbpCdpClient* client = GetOrCreateCdpClient(wc);
-    if (client) {
-      base::Value::Dict empty;
-      client->SendCommand("Page.bringToFront", empty, base::DoNothing());
+    for (Browser* browser : *BrowserList::GetInstance()) {
+      TabStripModel* tab_strip = browser->tab_strip_model();
+      int idx = tab_strip->GetIndexOfWebContents(wc);
+      if (idx != TabStripModel::kNoTab) {
+        tab_strip->ActivateTabAt(idx);
+        break;
+      }
     }
   }
 
@@ -3740,11 +3743,8 @@ void AbpController::PauseExecution(const std::string& tab_id,
   state.phase = ExecutionPhase::kPausing;
 
   // Step 1: Debugger.pause FIRST (halt JS via ScopedPagePauser).
-  // Must happen before setVirtualTimePolicy(pause) — the virtual time pause
-  // freezes the page lifecycle which suspends PerformanceObservers. If the
-  // debugger pause comes after, ScopedPagePauser tries to suspend them again
-  // → DCHECK (observer already in suspended_observers_).
-  // By pausing the debugger first, ScopedPagePauser runs on a non-frozen page.
+  // Debugger pause must happen before setVirtualTimePolicy(pause) so that
+  // JS is halted before the virtual time fence is installed.
   SendDeterministicPause(
       tab_id,
       base::BindOnce(&AbpController::PauseVirtualTimeAfterDebugger,
@@ -3993,9 +3993,9 @@ void AbpController::EnsureCompositorActive(const std::string& tab_id,
           guard),
       base::Seconds(3));
 
-  // Full resume: Debugger.resume + setVirtualTimePolicy("realtime") +
-  // Page.bringToFront.  The renderer main thread must be unblocked for the
-  // compositor to produce a frame that CopyFromSurface can grab.
+  // Full resume: Debugger.resume + setVirtualTimePolicy("realtime").
+  // The renderer main thread must be unblocked for the compositor to
+  // produce a frame that CopyFromSurface can grab.
   // ResumeExecution sets phase to kRunning.
   ResumeExecution(
       tab_id,

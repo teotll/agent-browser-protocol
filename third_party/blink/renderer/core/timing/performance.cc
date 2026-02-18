@@ -1209,7 +1209,12 @@ void Performance::ActivateObserver(PerformanceObserver& observer) {
 }
 
 void Performance::SuspendObserver(PerformanceObserver& observer) {
-  DCHECK(!suspended_observers_.Contains(&observer));
+  // Already suspended — can happen when transitioning between non-running
+  // lifecycle states (e.g. kFrozen → kPaused), since
+  // PerformanceObserver::ContextLifecycleStateChanged calls SuspendObserver
+  // for any non-kRunning state.
+  if (suspended_observers_.Contains(&observer))
+    return;
   if (!active_observers_.Contains(&observer))
     return;
   active_observers_.erase(&observer);
