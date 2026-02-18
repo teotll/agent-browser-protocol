@@ -434,6 +434,19 @@ constexpr KeyMapping kKeyMappings[] = {
     {"F11", "F11", "F11", "", 122, false, 0},
     {"F12", "F12", "F12", "", 123, false, 0},
 
+    // Symbol keys (DOM key values)
+    {"Comma",        ",",  "Comma",        "", 188, false, 0},
+    {"Period",       ".",  "Period",       "", 190, false, 0},
+    {"Slash",        "/",  "Slash",        "", 191, false, 0},
+    {"Backslash",    "\\", "Backslash",    "", 220, false, 0},
+    {"Semicolon",    ";",  "Semicolon",    "", 186, false, 0},
+    {"Quote",        "'",  "Quote",        "", 222, false, 0},
+    {"BracketLeft",  "[",  "BracketLeft",  "", 219, false, 0},
+    {"BracketRight", "]",  "BracketRight", "", 221, false, 0},
+    {"Minus",        "-",  "Minus",        "", 189, false, 0},
+    {"Equal",        "=",  "Equal",        "", 187, false, 0},
+    {"Backquote",    "`",  "Backquote",    "", 192, false, 0},
+
     // Number row
     {"0", "0", "Digit0", "", 48, false, 0},
     {"1", "1", "Digit1", "", 49, false, 0},
@@ -564,6 +577,12 @@ std::optional<std::string> NormalizeKey(const std::string& input) {
     }
     // Modifier keys
     for (const char* k : {"SHIFT", "CONTROL", "ALT", "META"}) {
+      keys.push_back(k);
+    }
+    // Symbol keys (mapped from DOM key values)
+    for (const char* k : {"COMMA", "PERIOD", "SLASH", "BACKSLASH",
+                           "SEMICOLON", "QUOTE", "BRACKETLEFT",
+                           "BRACKETRIGHT", "MINUS", "EQUAL", "BACKQUOTE"}) {
       keys.push_back(k);
     }
     return base::flat_set<std::string>(std::move(keys));
@@ -2693,6 +2712,11 @@ void AbpController::KeyUp(const std::string& tab_id,
 // ==========================================================================
 namespace {
 
+// NOTE: |dispatcher| is a raw pointer to AbpController::input_dispatcher_,
+// which lives for the browser session lifetime.  Batch actions complete within
+// ~60ms (max 3 actions with 20ms delays), so the pointer is safe across the
+// PostDelayedTask chain.  If AbpInputDispatcher gains a destructor that can
+// run during tab teardown, switch to base::WeakPtr.
 void DispatchBatchAction(base::Value::List actions,
                          int index,
                          std::string tab_id,

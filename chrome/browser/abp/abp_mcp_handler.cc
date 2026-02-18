@@ -52,7 +52,9 @@ base::Value::List GetToolDefinitions() {
         "(press|down|up). Common abbreviations accepted: CTRL->CONTROL, "
         "CMD->META, ESC->ESCAPE, DEL->DELETE.\n"
         "- mouse_hover: x, y\n"
-        "- mouse_drag: start_x, start_y, end_x, end_y, steps?");
+        "- mouse_drag: start_x, start_y, end_x, end_y, steps?\n\n"
+        "For mouse actions: determine x,y from the red coordinate grid "
+        "overlay on your most recent screenshot.");
 
     base::Value::Dict schema;
     schema.Set("type", "object");
@@ -750,12 +752,6 @@ void AbpMcpHandler::CallBrowserNavigate(const base::Value::Dict& args,
     return;
   }
 
-  auto make_cb = [this, &request_id, &callback]() {
-    return base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                          weak_factory_.GetWeakPtr(), std::move(request_id),
-                          std::move(callback));
-  };
-
   const std::string* url = args.FindString("url");
   const std::string* action = args.FindString("action");
 
@@ -765,17 +761,29 @@ void AbpMcpHandler::CallBrowserNavigate(const base::Value::Dict& args,
     std::string body;
     base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
     controller_->HandleRequest(
-        "POST", "/api/v1/tabs/" + tab_id + "/navigate", body, make_cb());
+        "POST", "/api/v1/tabs/" + tab_id + "/navigate", body,
+        base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                       weak_factory_.GetWeakPtr(), std::move(request_id),
+                       std::move(callback)));
   } else if (action) {
     if (*action == "back") {
       controller_->HandleRequest(
-          "POST", "/api/v1/tabs/" + tab_id + "/back", "", make_cb());
+          "POST", "/api/v1/tabs/" + tab_id + "/back", "",
+          base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                         weak_factory_.GetWeakPtr(), std::move(request_id),
+                         std::move(callback)));
     } else if (*action == "forward") {
       controller_->HandleRequest(
-          "POST", "/api/v1/tabs/" + tab_id + "/forward", "", make_cb());
+          "POST", "/api/v1/tabs/" + tab_id + "/forward", "",
+          base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                         weak_factory_.GetWeakPtr(), std::move(request_id),
+                         std::move(callback)));
     } else if (*action == "reload") {
       controller_->HandleRequest(
-          "POST", "/api/v1/tabs/" + tab_id + "/reload", "", make_cb());
+          "POST", "/api/v1/tabs/" + tab_id + "/reload", "",
+          base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                         weak_factory_.GetWeakPtr(), std::move(request_id),
+                         std::move(callback)));
     } else {
       SendJsonRpcError(std::move(request_id), kInvalidParams,
                        "Invalid action: " + *action +
@@ -832,14 +840,12 @@ void AbpMcpHandler::CallBrowserTabs(const base::Value::Dict& args,
   const std::string* action = args.FindString("action");
   std::string act = action ? *action : "list";
 
-  auto make_cb = [this, &request_id, &callback]() {
-    return base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                          weak_factory_.GetWeakPtr(), std::move(request_id),
-                          std::move(callback));
-  };
-
   if (act == "list") {
-    controller_->HandleRequest("GET", "/api/v1/tabs", "", make_cb());
+    controller_->HandleRequest(
+        "GET", "/api/v1/tabs", "",
+        base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                       weak_factory_.GetWeakPtr(), std::move(request_id),
+                       std::move(callback)));
   } else if (act == "new") {
     // Reuse the existing new-tab-then-navigate logic.
     const std::string* url = args.FindString("url");
@@ -922,16 +928,28 @@ void AbpMcpHandler::CallBrowserTabs(const base::Value::Dict& args,
 
     if (act == "close") {
       controller_->HandleRequest(
-          "DELETE", "/api/v1/tabs/" + tab_id, "", make_cb());
+          "DELETE", "/api/v1/tabs/" + tab_id, "",
+          base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                         weak_factory_.GetWeakPtr(), std::move(request_id),
+                         std::move(callback)));
     } else if (act == "info") {
       controller_->HandleRequest(
-          "GET", "/api/v1/tabs/" + tab_id, "", make_cb());
+          "GET", "/api/v1/tabs/" + tab_id, "",
+          base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                         weak_factory_.GetWeakPtr(), std::move(request_id),
+                         std::move(callback)));
     } else if (act == "activate") {
       controller_->HandleRequest(
-          "POST", "/api/v1/tabs/" + tab_id + "/activate", "", make_cb());
+          "POST", "/api/v1/tabs/" + tab_id + "/activate", "",
+          base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                         weak_factory_.GetWeakPtr(), std::move(request_id),
+                         std::move(callback)));
     } else if (act == "stop") {
       controller_->HandleRequest(
-          "POST", "/api/v1/tabs/" + tab_id + "/stop", "", make_cb());
+          "POST", "/api/v1/tabs/" + tab_id + "/stop", "",
+          base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                         weak_factory_.GetWeakPtr(), std::move(request_id),
+                         std::move(callback)));
     } else {
       SendJsonRpcError(std::move(request_id), kInvalidParams,
                        "Invalid action: " + act +
@@ -1012,15 +1030,12 @@ void AbpMcpHandler::CallBrowserDialog(const base::Value::Dict& args,
   const std::string* action = args.FindString("action");
   std::string act = action ? *action : "check";
 
-  auto make_cb = [this, &request_id, &callback]() {
-    return base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                          weak_factory_.GetWeakPtr(), std::move(request_id),
-                          std::move(callback));
-  };
-
   if (act == "check") {
     controller_->HandleRequest(
-        "GET", "/api/v1/tabs/" + tab_id + "/dialog", "", make_cb());
+        "GET", "/api/v1/tabs/" + tab_id + "/dialog", "",
+        base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                       weak_factory_.GetWeakPtr(), std::move(request_id),
+                       std::move(callback)));
   } else if (act == "accept") {
     base::Value::Dict body_dict;
     if (const std::string* prompt_text = args.FindString("prompt_text")) {
@@ -1030,11 +1045,15 @@ void AbpMcpHandler::CallBrowserDialog(const base::Value::Dict& args,
     base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
     controller_->HandleRequest(
         "POST", "/api/v1/tabs/" + tab_id + "/dialog/accept", body,
-        make_cb());
+        base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                       weak_factory_.GetWeakPtr(), std::move(request_id),
+                       std::move(callback)));
   } else if (act == "dismiss") {
     controller_->HandleRequest(
         "POST", "/api/v1/tabs/" + tab_id + "/dialog/dismiss", "",
-        make_cb());
+        base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                       weak_factory_.GetWeakPtr(), std::move(request_id),
+                       std::move(callback)));
   } else {
     SendJsonRpcError(std::move(request_id), kInvalidParams,
                      "Invalid action: " + act +
@@ -1049,12 +1068,6 @@ void AbpMcpHandler::CallBrowserDownloads(const base::Value::Dict& args,
                                          ResponseWithHeadersCallback callback) {
   const std::string* action = args.FindString("action");
   std::string act = action ? *action : "list";
-
-  auto make_cb = [this, &request_id, &callback]() {
-    return base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                          weak_factory_.GetWeakPtr(), std::move(request_id),
-                          std::move(callback));
-  };
 
   if (act == "list") {
     // Build query string from optional params
@@ -1078,7 +1091,11 @@ void AbpMcpHandler::CallBrowserDownloads(const base::Value::Dict& args,
       }
     }
 
-    controller_->HandleRequest("GET", path, "", make_cb());
+    controller_->HandleRequest(
+        "GET", path, "",
+        base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                       weak_factory_.GetWeakPtr(), std::move(request_id),
+                       std::move(callback)));
   } else if (act == "status") {
     const std::string* download_id = args.FindString("download_id");
     if (!download_id) {
@@ -1088,7 +1105,10 @@ void AbpMcpHandler::CallBrowserDownloads(const base::Value::Dict& args,
       return;
     }
     controller_->HandleRequest(
-        "GET", "/api/v1/downloads/" + *download_id, "", make_cb());
+        "GET", "/api/v1/downloads/" + *download_id, "",
+        base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                       weak_factory_.GetWeakPtr(), std::move(request_id),
+                       std::move(callback)));
   } else if (act == "cancel") {
     const std::string* download_id = args.FindString("download_id");
     if (!download_id) {
@@ -1099,7 +1119,9 @@ void AbpMcpHandler::CallBrowserDownloads(const base::Value::Dict& args,
     }
     controller_->HandleRequest(
         "POST", "/api/v1/downloads/" + *download_id + "/cancel", "",
-        make_cb());
+        base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                       weak_factory_.GetWeakPtr(), std::move(request_id),
+                       std::move(callback)));
   } else {
     SendJsonRpcError(std::move(request_id), kInvalidParams,
                      "Invalid action: " + act +
