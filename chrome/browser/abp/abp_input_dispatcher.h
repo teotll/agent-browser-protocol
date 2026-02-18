@@ -134,7 +134,7 @@ class AbpInputDispatcher {
                          size_t char_index);
 
   // Type characters one-by-one with delays for Raw dispatch (no action context)
-  void TypeNextCharacterRaw(content::WebContents* wc,
+  void TypeNextCharacterRaw(const std::string& tab_id,
                             std::string text,
                             size_t char_index,
                             RawCallback callback);
@@ -150,7 +150,6 @@ class AbpInputDispatcher {
 
   // Dispatch the next step in a raw drag sequence (no action context)
   void DragNextStepRaw(const std::string& tab_id,
-                       AbpCdpClient* cdp_client,
                        double start_x,
                        double start_y,
                        double end_x,

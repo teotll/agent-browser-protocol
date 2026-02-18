@@ -451,9 +451,7 @@ class AbpController {
   // Execute validated batch actions within a single AbpActionContext
   void ExecuteBatchActions(const std::string& tab_id,
                            base::Value::List actions,
-                           int current_index,
                            base::Value::Dict screenshot_config,
-                           base::Value::Dict original_params,
                            ResponseCallback callback);
 
   // File chooser endpoint

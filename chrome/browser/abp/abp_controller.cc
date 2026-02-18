@@ -1944,6 +1944,10 @@ void AbpController::HandleRequest(const std::string& method,
           SendError(405, "Method not allowed", std::move(callback));
         }
       } else if (action == "batch") {
+        if (method != "POST") {
+          SendError(405, "Method not allowed", std::move(callback));
+          return;
+        }
         HandleBatchRequest(tab_id, params, std::move(callback));
       } else if (action == "keyboard") {
         // Handle /api/v1/tabs/{id}/keyboard/{sub_action}
@@ -2710,42 +2714,7 @@ void DispatchBatchAction(base::Value::List actions,
   base::Value::Dict params = action.Clone();
   params.Remove("type");
 
-  // For keyboard_press with action param, route to press/down/up
-  if (*type == "keyboard_press") {
-    const std::string* key_action = params.FindString("action");
-    std::string actual_action = key_action ? *key_action : "press";
-    params.Remove("action");
-
-    auto dispatch_next = base::BindOnce(
-        [](base::Value::List actions, int next_index, std::string tab_id,
-           AbpInputDispatcher* dispatcher,
-           scoped_refptr<AbpActionContext> ctx) {
-          if (next_index >= static_cast<int>(actions.size())) {
-            // Last action — no delay needed
-            DispatchBatchAction(std::move(actions), next_index,
-                                std::move(tab_id), dispatcher, ctx);
-            return;
-          }
-          content::GetUIThreadTaskRunner({})->PostDelayedTask(
-              FROM_HERE,
-              base::BindOnce(&DispatchBatchAction,
-                             std::move(actions), next_index,
-                             std::move(tab_id), dispatcher, ctx),
-              base::Milliseconds(20));
-        },
-        std::move(actions), index + 1, tab_id, dispatcher, ctx);
-
-    if (actual_action == "press") {
-      dispatcher->KeyPressRaw(tab_id, params, std::move(dispatch_next));
-    } else if (actual_action == "down") {
-      dispatcher->KeyDownRaw(tab_id, params, std::move(dispatch_next));
-    } else {
-      dispatcher->KeyUpRaw(tab_id, params, std::move(dispatch_next));
-    }
-    return;
-  }
-
-  // For all other types, dispatch and chain
+  // Chain callback: schedule next action with 20ms delay (or directly if last)
   auto dispatch_next = base::BindOnce(
       [](base::Value::List actions, int next_index, std::string tab_id,
          AbpInputDispatcher* dispatcher,
@@ -2764,6 +2733,22 @@ void DispatchBatchAction(base::Value::List actions,
             base::Milliseconds(20));
       },
       std::move(actions), index + 1, tab_id, dispatcher, ctx);
+
+  // For keyboard_press with action param, route to press/down/up
+  if (*type == "keyboard_press") {
+    const std::string* key_action = params.FindString("action");
+    std::string actual_action = key_action ? *key_action : "press";
+    params.Remove("action");
+
+    if (actual_action == "press") {
+      dispatcher->KeyPressRaw(tab_id, params, std::move(dispatch_next));
+    } else if (actual_action == "down") {
+      dispatcher->KeyDownRaw(tab_id, params, std::move(dispatch_next));
+    } else {
+      dispatcher->KeyUpRaw(tab_id, params, std::move(dispatch_next));
+    }
+    return;
+  }
 
   if (*type == "mouse_click") {
     dispatcher->ClickRaw(tab_id, params, std::move(dispatch_next));
@@ -2954,16 +2939,14 @@ void AbpController::HandleBatchRequest(
   }
 
   // All validation passed — start batch execution within a single action context
-  ExecuteBatchActions(tab_id, std::move(validated_actions), 0,
-                      std::move(sc_copy), params.Clone(), std::move(callback));
+  ExecuteBatchActions(tab_id, std::move(validated_actions),
+                      std::move(sc_copy), std::move(callback));
 }
 
 void AbpController::ExecuteBatchActions(
     const std::string& tab_id,
     base::Value::List actions,
-    int current_index,
     base::Value::Dict screenshot_config,
-    base::Value::Dict original_params,
     ResponseCallback callback) {
 
   // Build combined params for action context
@@ -2978,15 +2961,15 @@ void AbpController::ExecuteBatchActions(
       this, tab_id, "batch", batch_params,
       // Action callback — this runs after execution is resumed
       base::BindOnce(
-          [](base::Value::List actions, int start_index,
+          [](base::Value::List actions,
              std::string tab_id, AbpInputDispatcher* dispatcher,
              AbpActionContext* ctx) {
             scoped_refptr<AbpActionContext> ctx_ref(ctx);
             // Dispatch all actions with 20ms delays between them
-            DispatchBatchAction(std::move(actions), start_index,
+            DispatchBatchAction(std::move(actions), 0,
                                 std::move(tab_id), dispatcher, ctx_ref);
           },
-          std::move(actions), current_index, tab_id,
+          std::move(actions), tab_id,
           input_dispatcher_.get()),
       std::move(callback));
 }

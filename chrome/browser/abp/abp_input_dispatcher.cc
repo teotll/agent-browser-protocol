@@ -1140,10 +1140,21 @@ void AbpInputDispatcher::ClickRaw(const std::string& tab_id,
       "Input.dispatchMouseEvent", std::move(press_params),
       base::BindOnce(
           [](double x, double y, std::string button, int click_count,
-             int mods, AbpCdpClient* cdp_client,
+             int mods, std::string tab_id, AbpInputDispatcher* dispatcher,
              AbpInputDispatcher::RawCallback callback,
              bool success, const std::string& result) {
-            if (!success || !cdp_client) {
+            if (!success) {
+              std::move(callback).Run();
+              return;
+            }
+
+            // Re-resolve CDP client for mouseReleased (tab may have closed)
+            content::WebContents* wc =
+                dispatcher->controller_->FindWebContents(tab_id);
+            AbpCdpClient* client =
+                wc ? dispatcher->controller_->GetOrCreateCdpClient(wc)
+                   : nullptr;
+            if (!client) {
               std::move(callback).Run();
               return;
             }
@@ -1157,7 +1168,7 @@ void AbpInputDispatcher::ClickRaw(const std::string& tab_id,
             release_params.Set("clickCount", click_count);
             release_params.Set("modifiers", mods);
 
-            cdp_client->SendCommand(
+            client->SendCommand(
                 "Input.dispatchMouseEvent", std::move(release_params),
                 base::BindOnce(
                     [](AbpInputDispatcher::RawCallback callback,
@@ -1167,7 +1178,7 @@ void AbpInputDispatcher::ClickRaw(const std::string& tab_id,
                     std::move(callback)));
           },
           x, y, std::move(button), click_count, mod_flags,
-          cdp_client, std::move(callback)));
+          tab_id, this, std::move(callback)));
 }
 
 void AbpInputDispatcher::TypeRaw(const std::string& tab_id,
@@ -1185,15 +1196,22 @@ void AbpInputDispatcher::TypeRaw(const std::string& tab_id,
     return;
   }
 
-  TypeNextCharacterRaw(wc, *text, 0, std::move(callback));
+  TypeNextCharacterRaw(tab_id, *text, 0, std::move(callback));
 }
 
 void AbpInputDispatcher::TypeNextCharacterRaw(
-    content::WebContents* wc,
+    const std::string& tab_id,
     std::string text,
     size_t char_index,
     RawCallback callback) {
-  if (!wc || char_index >= text.size()) {
+  if (char_index >= text.size()) {
+    std::move(callback).Run();
+    return;
+  }
+
+  // Re-resolve WebContents each iteration (tab may have been closed)
+  content::WebContents* wc = controller_->FindWebContents(tab_id);
+  if (!wc) {
     std::move(callback).Run();
     return;
   }
@@ -1252,7 +1270,7 @@ void AbpInputDispatcher::TypeNextCharacterRaw(
   content::GetUIThreadTaskRunner({})->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&AbpInputDispatcher::TypeNextCharacterRaw,
-                     base::Unretained(this), wc, std::move(text),
+                     base::Unretained(this), tab_id, std::move(text),
                      char_index + 1, std::move(callback)),
       base::Milliseconds(2));
 }
@@ -1441,11 +1459,21 @@ void AbpInputDispatcher::DragRaw(const std::string& tab_id,
       "Input.dispatchMouseEvent", std::move(move_params),
       base::BindOnce(
           [](std::string tab_id, double s_x, double s_y, double e_x,
-             double e_y, int num_steps, AbpCdpClient* cdp_client,
-             AbpInputDispatcher* dispatcher,
+             double e_y, int num_steps, AbpInputDispatcher* dispatcher,
              AbpInputDispatcher::RawCallback callback,
              bool success, const std::string& result) {
-            if (!success || !cdp_client) {
+            if (!success) {
+              std::move(callback).Run();
+              return;
+            }
+
+            // Re-resolve CDP client (tab may have closed)
+            content::WebContents* wc =
+                dispatcher->controller_->FindWebContents(tab_id);
+            AbpCdpClient* client =
+                wc ? dispatcher->controller_->GetOrCreateCdpClient(wc)
+                   : nullptr;
+            if (!client) {
               std::move(callback).Run();
               return;
             }
@@ -1458,12 +1486,11 @@ void AbpInputDispatcher::DragRaw(const std::string& tab_id,
             press_params.Set("button", "left");
             press_params.Set("clickCount", 1);
 
-            cdp_client->SendCommand(
+            client->SendCommand(
                 "Input.dispatchMouseEvent", std::move(press_params),
                 base::BindOnce(
                     [](std::string tab_id, double s_x, double s_y, double e_x,
                        double e_y, int num_steps, AbpInputDispatcher* dispatcher,
-                       AbpCdpClient* cdp_client,
                        AbpInputDispatcher::RawCallback callback,
                        bool success, const std::string& result) {
                       if (!success) {
@@ -1473,19 +1500,18 @@ void AbpInputDispatcher::DragRaw(const std::string& tab_id,
 
                       // 3. Start interpolated moves
                       dispatcher->DragNextStepRaw(
-                          tab_id, cdp_client, s_x, s_y, e_x, e_y,
+                          tab_id, s_x, s_y, e_x, e_y,
                           1, num_steps, std::move(callback));
                     },
                     std::move(tab_id), s_x, s_y, e_x, e_y, num_steps,
-                    dispatcher, cdp_client, std::move(callback)));
+                    dispatcher, std::move(callback)));
           },
           tab_id, start_x, start_y, end_x, end_y, steps,
-          cdp_client, this, std::move(callback)));
+          this, std::move(callback)));
 }
 
 void AbpInputDispatcher::DragNextStepRaw(
     const std::string& tab_id,
-    AbpCdpClient* cdp_client,
     double start_x,
     double start_y,
     double end_x,
@@ -1493,6 +1519,10 @@ void AbpInputDispatcher::DragNextStepRaw(
     int current_step,
     int total_steps,
     RawCallback callback) {
+  // Re-resolve WebContents and CDP client each step (tab may have closed)
+  content::WebContents* wc = controller_->FindWebContents(tab_id);
+  AbpCdpClient* cdp_client =
+      wc ? controller_->GetOrCreateCdpClient(wc) : nullptr;
   if (!cdp_client) {
     std::move(callback).Run();
     return;
@@ -1506,7 +1536,6 @@ void AbpInputDispatcher::DragNextStepRaw(
 
     // Update virtual cursor as we drag
     controller_->UpdateVirtualCursorState(tab_id, x, y);
-    content::WebContents* wc = controller_->FindWebContents(tab_id);
     if (wc) {
       controller_->SetVirtualCursorViaMojo(wc, x, y, true);
     }
@@ -1520,7 +1549,7 @@ void AbpInputDispatcher::DragNextStepRaw(
     cdp_client->SendCommand(
         "Input.dispatchMouseEvent", std::move(move_params),
         base::BindOnce(
-            [](std::string tab_id, AbpCdpClient* cdp_client,
+            [](std::string tab_id,
                double s_x, double s_y, double e_x, double e_y,
                int step, int total, AbpInputDispatcher* dispatcher,
                AbpInputDispatcher::RawCallback callback,
@@ -1535,17 +1564,16 @@ void AbpInputDispatcher::DragNextStepRaw(
                   FROM_HERE,
                   base::BindOnce(&AbpInputDispatcher::DragNextStepRaw,
                                  base::Unretained(dispatcher),
-                                 std::move(tab_id), cdp_client,
+                                 std::move(tab_id),
                                  s_x, s_y, e_x, e_y,
                                  step + 1, total, std::move(callback)),
                   base::Milliseconds(5));
             },
-            tab_id, cdp_client, start_x, start_y, end_x, end_y,
+            tab_id, start_x, start_y, end_x, end_y,
             current_step, total_steps, this, std::move(callback)));
   } else {
     // All steps done — send mouseReleased at end position
     controller_->UpdateVirtualCursorState(tab_id, end_x, end_y);
-    content::WebContents* wc = controller_->FindWebContents(tab_id);
     if (wc) {
       controller_->SetVirtualCursorViaMojo(wc, end_x, end_y, true);
     }
