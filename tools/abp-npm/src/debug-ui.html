@@ -788,8 +788,10 @@ footer .status-dot.connected { background: var(--success); }
       const wasRunning = abpRunning;
       setAbpRunning(data.running);
       if (data.running && !wasRunning) {
-        // Just came online — refresh tabs
+        // Just came online — refresh everything (session dir may have changed)
+        loadSession();
         loadTabs();
+        refreshHistory();
       }
     } catch {
       // Debug server itself is down
@@ -1419,6 +1421,7 @@ footer .status-dot.connected { background: var(--success); }
         } else if (data.type === "session_changed") {
           // DB was re-opened on server side, reload everything
           loadSession();
+          loadTabs();
           refreshHistory();
           if (data.session_dir) {
             lcSessionDir.value = data.session_dir;

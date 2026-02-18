@@ -441,6 +441,7 @@ async function main() {
   let lastMaxId = 0;
   let watcher: fs.FSWatcher | null = null;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastAbpRunning = false;
 
   function openSessionDb(sessionDir: string): boolean {
     const dbPath = path.join(sessionDir, "history.db");
@@ -602,6 +603,26 @@ async function main() {
     // --- ABP Control ---
     if (req.method === "GET" && pathname === "/control/status") {
       const running = await checkAbpStatus(args.abpUrl);
+      // Auto-reattach on transition to running, or when running but DB is missing
+      if (running && (!lastAbpRunning || !db)) {
+        const sessionData = await fetchAbpSessionData(args.abpUrl);
+        if (sessionData && sessionData.session_dir !== currentSessionDir) {
+          openSessionDb(sessionData.session_dir);
+          broadcastSSE(JSON.stringify({ type: "session_changed", session_dir: currentSessionDir }));
+        } else if (!db && sessionData) {
+          openSessionDb(sessionData.session_dir);
+          broadcastSSE(JSON.stringify({ type: "session_changed", session_dir: currentSessionDir }));
+        }
+      }
+      if (!running && lastAbpRunning) {
+        // ABP went offline — close stale DB so next startup gets fresh state
+        if (db) { try { db.close(); } catch { /* ignore */ } db = null; }
+        if (watcher) { watcher.close(); watcher = null; }
+        sessionId = "";
+        currentSessionDir = "";
+        broadcastSSE(JSON.stringify({ type: "session_changed", session_dir: "" }));
+      }
+      lastAbpRunning = running;
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
         running,
