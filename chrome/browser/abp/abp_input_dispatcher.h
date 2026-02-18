@@ -16,6 +16,7 @@ class WebContents;
 namespace abp {
 
 class AbpActionContext;
+class AbpCdpClient;
 struct KeyInfo;
 
 class AbpController;
@@ -82,6 +83,35 @@ class AbpInputDispatcher {
             const base::Value::Dict& params,
             ResponseCallback callback);
 
+  // ========================================================================
+  // Raw dispatch methods — dispatch input without creating an AbpActionContext.
+  // Used by batch execution where a single action context wraps multiple
+  // actions. Call completion_callback when the event is fully dispatched.
+  // ========================================================================
+  using RawCallback = base::OnceCallback<void()>;
+
+  void ClickRaw(const std::string& tab_id,
+                const base::Value::Dict& params,
+                RawCallback callback);
+  void TypeRaw(const std::string& tab_id,
+               const base::Value::Dict& params,
+               RawCallback callback);
+  void MoveRaw(const std::string& tab_id,
+               const base::Value::Dict& params,
+               RawCallback callback);
+  void KeyPressRaw(const std::string& tab_id,
+                   const base::Value::Dict& params,
+                   RawCallback callback);
+  void KeyDownRaw(const std::string& tab_id,
+                  const base::Value::Dict& params,
+                  RawCallback callback);
+  void KeyUpRaw(const std::string& tab_id,
+                const base::Value::Dict& params,
+                RawCallback callback);
+  void DragRaw(const std::string& tab_id,
+               const base::Value::Dict& params,
+               RawCallback callback);
+
  private:
   // Forward a native keyboard event to the renderer (bypasses CDP entirely).
   // Uses the same code path as real keyboard input.
@@ -103,6 +133,12 @@ class AbpInputDispatcher {
                          std::string text,
                          size_t char_index);
 
+  // Type characters one-by-one with delays for Raw dispatch (no action context)
+  void TypeNextCharacterRaw(content::WebContents* wc,
+                            std::string text,
+                            size_t char_index,
+                            RawCallback callback);
+
   // Dispatch the next step in a drag sequence (recursive via PostDelayedTask)
   void DragNextStep(scoped_refptr<AbpActionContext> ctx,
                     double start_x,
@@ -111,6 +147,17 @@ class AbpInputDispatcher {
                     double end_y,
                     int current_step,
                     int total_steps);
+
+  // Dispatch the next step in a raw drag sequence (no action context)
+  void DragNextStepRaw(const std::string& tab_id,
+                       AbpCdpClient* cdp_client,
+                       double start_x,
+                       double start_y,
+                       double end_x,
+                       double end_y,
+                       int current_step,
+                       int total_steps,
+                       RawCallback callback);
 
   // Controller reference (not owned)
   raw_ptr<AbpController> controller_;

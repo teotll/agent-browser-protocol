@@ -1080,4 +1080,492 @@ void AbpInputDispatcher::DragNextStep(
   }
 }
 
+// ==========================================================================
+// Raw dispatch methods — no AbpActionContext, no visual state fence.
+// Used within batch execution where a single action context wraps all actions.
+// ==========================================================================
+
+void AbpInputDispatcher::ClickRaw(const std::string& tab_id,
+                                  const base::Value::Dict& params,
+                                  RawCallback callback) {
+  double x = params.FindDouble("x").value_or(0);
+  double y = params.FindDouble("y").value_or(0);
+
+  const std::string* button_param = params.FindString("button");
+  std::string button = (button_param && (*button_param == "right" ||
+                                          *button_param == "middle"))
+                            ? *button_param
+                            : "left";
+
+  int click_count = params.FindInt("click_count").value_or(1);
+  if (click_count < 1) click_count = 1;
+  if (click_count > 3) click_count = 3;
+
+  int mod_flags = 0;
+  const base::Value::List* mod_list = params.FindList("modifiers");
+  if (mod_list) {
+    std::vector<std::string> modifiers;
+    for (const auto& mod : *mod_list) {
+      if (mod.is_string())
+        modifiers.push_back(mod.GetString());
+    }
+    mod_flags = ModifiersToFlags(modifiers);
+  }
+
+  // Update virtual cursor
+  controller_->UpdateVirtualCursorState(tab_id, x, y);
+  content::WebContents* wc = controller_->FindWebContents(tab_id);
+  if (wc) {
+    controller_->SetVirtualCursorEnabledViaMojo(wc, true);
+    controller_->SetVirtualCursorViaMojo(wc, x, y, true);
+  }
+
+  AbpCdpClient* cdp_client = wc ? controller_->GetOrCreateCdpClient(wc)
+                                 : nullptr;
+  if (!cdp_client) {
+    std::move(callback).Run();
+    return;
+  }
+
+  // Send mousePressed
+  base::Value::Dict press_params;
+  press_params.Set("type", "mousePressed");
+  press_params.Set("x", x);
+  press_params.Set("y", y);
+  press_params.Set("button", button);
+  press_params.Set("clickCount", click_count);
+  press_params.Set("modifiers", mod_flags);
+
+  cdp_client->SendCommand(
+      "Input.dispatchMouseEvent", std::move(press_params),
+      base::BindOnce(
+          [](double x, double y, std::string button, int click_count,
+             int mods, AbpCdpClient* cdp_client,
+             AbpInputDispatcher::RawCallback callback,
+             bool success, const std::string& result) {
+            if (!success || !cdp_client) {
+              std::move(callback).Run();
+              return;
+            }
+
+            // Send mouseReleased
+            base::Value::Dict release_params;
+            release_params.Set("type", "mouseReleased");
+            release_params.Set("x", x);
+            release_params.Set("y", y);
+            release_params.Set("button", button);
+            release_params.Set("clickCount", click_count);
+            release_params.Set("modifiers", mods);
+
+            cdp_client->SendCommand(
+                "Input.dispatchMouseEvent", std::move(release_params),
+                base::BindOnce(
+                    [](AbpInputDispatcher::RawCallback callback,
+                       bool success, const std::string& result) {
+                      std::move(callback).Run();
+                    },
+                    std::move(callback)));
+          },
+          x, y, std::move(button), click_count, mod_flags,
+          cdp_client, std::move(callback)));
+}
+
+void AbpInputDispatcher::TypeRaw(const std::string& tab_id,
+                                 const base::Value::Dict& params,
+                                 RawCallback callback) {
+  const std::string* text = params.FindString("text");
+  if (!text || text->empty()) {
+    std::move(callback).Run();
+    return;
+  }
+
+  content::WebContents* wc = controller_->FindWebContents(tab_id);
+  if (!wc) {
+    std::move(callback).Run();
+    return;
+  }
+
+  TypeNextCharacterRaw(wc, *text, 0, std::move(callback));
+}
+
+void AbpInputDispatcher::TypeNextCharacterRaw(
+    content::WebContents* wc,
+    std::string text,
+    size_t char_index,
+    RawCallback callback) {
+  if (!wc || char_index >= text.size()) {
+    std::move(callback).Run();
+    return;
+  }
+
+  char c = text[char_index];
+  int web_mods = 0;
+
+  KeyInfo char_info;
+  char_info.text = std::string(1, c);
+
+  if (c >= 'a' && c <= 'z') {
+    char_info.key = std::string(1, c);
+    char_info.code = std::string("Key") + static_cast<char>(std::toupper(c));
+    char_info.windows_virtual_key = std::toupper(c);
+  } else if (c >= 'A' && c <= 'Z') {
+    char_info.key = std::string(1, c);
+    char_info.code = std::string("Key") + c;
+    char_info.windows_virtual_key = c;
+    web_mods = blink::WebInputEvent::kShiftKey;
+  } else if (c >= '0' && c <= '9') {
+    char_info.key = std::string(1, c);
+    char_info.code = std::string("Digit") + c;
+    char_info.windows_virtual_key = c;
+  } else if (c == ' ') {
+    char_info.key = " ";
+    char_info.code = "Space";
+    char_info.windows_virtual_key = 32;
+  } else if (c == '\n' || c == '\r') {
+    char_info.key = "Enter";
+    char_info.code = "Enter";
+    char_info.text = "\r";
+    char_info.windows_virtual_key = 13;
+  } else if (c == '\t') {
+    char_info.key = "Tab";
+    char_info.code = "Tab";
+    char_info.text = "\t";
+    char_info.windows_virtual_key = 9;
+  } else if (const UsKeyMapping* mapping = GetUsKeyMapping(c)) {
+    char_info.key = std::string(1, c);
+    char_info.code = mapping->code;
+    char_info.windows_virtual_key = mapping->windows_virtual_key;
+    if (mapping->shift)
+      web_mods = blink::WebInputEvent::kShiftKey;
+  } else {
+    char_info.key = std::string(1, c);
+    char_info.windows_virtual_key = std::toupper(c);
+  }
+  char_info.native_virtual_key = char_info.windows_virtual_key;
+
+  ForwardKeyEvent(wc, blink::WebInputEvent::Type::kKeyDown, char_info,
+                  web_mods);
+  ForwardKeyEvent(wc, blink::WebInputEvent::Type::kKeyUp, char_info,
+                  web_mods);
+
+  // 2ms delay before next character
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&AbpInputDispatcher::TypeNextCharacterRaw,
+                     base::Unretained(this), wc, std::move(text),
+                     char_index + 1, std::move(callback)),
+      base::Milliseconds(2));
+}
+
+void AbpInputDispatcher::MoveRaw(const std::string& tab_id,
+                                 const base::Value::Dict& params,
+                                 RawCallback callback) {
+  double x = params.FindDouble("x").value_or(0);
+  double y = params.FindDouble("y").value_or(0);
+
+  // Update virtual cursor
+  controller_->UpdateVirtualCursorState(tab_id, x, y);
+  content::WebContents* wc = controller_->FindWebContents(tab_id);
+  if (wc) {
+    controller_->SetVirtualCursorEnabledViaMojo(wc, true);
+    controller_->SetVirtualCursorViaMojo(wc, x, y, true);
+  }
+
+  AbpCdpClient* cdp_client = wc ? controller_->GetOrCreateCdpClient(wc)
+                                 : nullptr;
+  if (!cdp_client) {
+    std::move(callback).Run();
+    return;
+  }
+
+  base::Value::Dict move_params;
+  move_params.Set("type", "mouseMoved");
+  move_params.Set("x", x);
+  move_params.Set("y", y);
+
+  cdp_client->SendCommand(
+      "Input.dispatchMouseEvent", std::move(move_params),
+      base::BindOnce(
+          [](AbpInputDispatcher::RawCallback callback,
+             bool success, const std::string& result) {
+            std::move(callback).Run();
+          },
+          std::move(callback)));
+}
+
+void AbpInputDispatcher::KeyPressRaw(const std::string& tab_id,
+                                     const base::Value::Dict& params,
+                                     RawCallback callback) {
+  const std::string* key = params.FindString("key");
+  if (!key || key->empty()) {
+    std::move(callback).Run();
+    return;
+  }
+
+  content::WebContents* wc = controller_->FindWebContents(tab_id);
+  if (!wc) {
+    std::move(callback).Run();
+    return;
+  }
+
+  std::vector<std::string> modifiers;
+  const base::Value::List* mod_list = params.FindList("modifiers");
+  if (mod_list) {
+    for (const auto& mod : *mod_list) {
+      if (mod.is_string())
+        modifiers.push_back(mod.GetString());
+    }
+  }
+
+  KeyInfo key_info = GetKeyInfo(*key);
+  int mod_flags = ModifiersToFlags(modifiers);
+  int web_mods = ModifierFlagsToWebModifiers(mod_flags);
+
+  // Press modifier keys down
+  for (const auto& mod_name : modifiers) {
+    KeyInfo mod_info = GetKeyInfo(mod_name);
+    ForwardKeyEvent(wc, blink::WebInputEvent::Type::kKeyDown, mod_info,
+                    web_mods);
+  }
+
+  // Press and release the main key
+  ForwardKeyEvent(wc, blink::WebInputEvent::Type::kKeyDown, key_info,
+                  web_mods);
+  ForwardKeyEvent(wc, blink::WebInputEvent::Type::kKeyUp, key_info, web_mods);
+
+  // Release modifier keys in reverse order
+  for (auto it = modifiers.rbegin(); it != modifiers.rend(); ++it) {
+    KeyInfo mod_info = GetKeyInfo(*it);
+    ForwardKeyEvent(wc, blink::WebInputEvent::Type::kKeyUp, mod_info, 0);
+  }
+
+  std::move(callback).Run();
+}
+
+void AbpInputDispatcher::KeyDownRaw(const std::string& tab_id,
+                                    const base::Value::Dict& params,
+                                    RawCallback callback) {
+  const std::string* key = params.FindString("key");
+  if (!key || key->empty()) {
+    std::move(callback).Run();
+    return;
+  }
+
+  content::WebContents* wc = controller_->FindWebContents(tab_id);
+  if (!wc) {
+    std::move(callback).Run();
+    return;
+  }
+
+  KeyInfo key_info = GetKeyInfo(*key);
+
+  // Track the held key
+  auto& held_state =
+      controller_->GetOrCreateTabState(tab_id).held_keys;
+  held_state.held_keys.insert(*key);
+  if (key_info.is_modifier) {
+    held_state.current_modifiers |= key_info.modifier_flag;
+  }
+
+  int web_mods = ModifierFlagsToWebModifiers(held_state.current_modifiers);
+  ForwardKeyEvent(wc, blink::WebInputEvent::Type::kKeyDown, key_info,
+                  web_mods);
+
+  std::move(callback).Run();
+}
+
+void AbpInputDispatcher::KeyUpRaw(const std::string& tab_id,
+                                  const base::Value::Dict& params,
+                                  RawCallback callback) {
+  const std::string* key = params.FindString("key");
+  if (!key || key->empty()) {
+    std::move(callback).Run();
+    return;
+  }
+
+  content::WebContents* wc = controller_->FindWebContents(tab_id);
+  if (!wc) {
+    std::move(callback).Run();
+    return;
+  }
+
+  KeyInfo key_info = GetKeyInfo(*key);
+
+  // Update held key tracking
+  auto& held_state =
+      controller_->GetOrCreateTabState(tab_id).held_keys;
+  held_state.held_keys.erase(*key);
+  if (key_info.is_modifier) {
+    held_state.current_modifiers &= ~key_info.modifier_flag;
+  }
+
+  int web_mods = ModifierFlagsToWebModifiers(held_state.current_modifiers);
+  ForwardKeyEvent(wc, blink::WebInputEvent::Type::kKeyUp, key_info, web_mods);
+
+  std::move(callback).Run();
+}
+
+void AbpInputDispatcher::DragRaw(const std::string& tab_id,
+                                 const base::Value::Dict& params,
+                                 RawCallback callback) {
+  double start_x = params.FindDouble("start_x").value_or(0);
+  double start_y = params.FindDouble("start_y").value_or(0);
+  double end_x = params.FindDouble("end_x").value_or(0);
+  double end_y = params.FindDouble("end_y").value_or(0);
+  int steps = params.FindInt("steps").value_or(10);
+  if (steps < 1) steps = 1;
+  if (steps > 100) steps = 100;
+
+  // Update virtual cursor to start position
+  controller_->UpdateVirtualCursorState(tab_id, start_x, start_y);
+  content::WebContents* wc = controller_->FindWebContents(tab_id);
+  if (wc) {
+    controller_->SetVirtualCursorEnabledViaMojo(wc, true);
+    controller_->SetVirtualCursorViaMojo(wc, start_x, start_y, true);
+  }
+
+  AbpCdpClient* cdp_client = wc ? controller_->GetOrCreateCdpClient(wc)
+                                 : nullptr;
+  if (!cdp_client) {
+    std::move(callback).Run();
+    return;
+  }
+
+  // 1. mouseMoved to start position
+  base::Value::Dict move_params;
+  move_params.Set("type", "mouseMoved");
+  move_params.Set("x", start_x);
+  move_params.Set("y", start_y);
+
+  cdp_client->SendCommand(
+      "Input.dispatchMouseEvent", std::move(move_params),
+      base::BindOnce(
+          [](std::string tab_id, double s_x, double s_y, double e_x,
+             double e_y, int num_steps, AbpCdpClient* cdp_client,
+             AbpInputDispatcher* dispatcher,
+             AbpInputDispatcher::RawCallback callback,
+             bool success, const std::string& result) {
+            if (!success || !cdp_client) {
+              std::move(callback).Run();
+              return;
+            }
+
+            // 2. mousePressed at start
+            base::Value::Dict press_params;
+            press_params.Set("type", "mousePressed");
+            press_params.Set("x", s_x);
+            press_params.Set("y", s_y);
+            press_params.Set("button", "left");
+            press_params.Set("clickCount", 1);
+
+            cdp_client->SendCommand(
+                "Input.dispatchMouseEvent", std::move(press_params),
+                base::BindOnce(
+                    [](std::string tab_id, double s_x, double s_y, double e_x,
+                       double e_y, int num_steps, AbpInputDispatcher* dispatcher,
+                       AbpCdpClient* cdp_client,
+                       AbpInputDispatcher::RawCallback callback,
+                       bool success, const std::string& result) {
+                      if (!success) {
+                        std::move(callback).Run();
+                        return;
+                      }
+
+                      // 3. Start interpolated moves
+                      dispatcher->DragNextStepRaw(
+                          tab_id, cdp_client, s_x, s_y, e_x, e_y,
+                          1, num_steps, std::move(callback));
+                    },
+                    std::move(tab_id), s_x, s_y, e_x, e_y, num_steps,
+                    dispatcher, cdp_client, std::move(callback)));
+          },
+          tab_id, start_x, start_y, end_x, end_y, steps,
+          cdp_client, this, std::move(callback)));
+}
+
+void AbpInputDispatcher::DragNextStepRaw(
+    const std::string& tab_id,
+    AbpCdpClient* cdp_client,
+    double start_x,
+    double start_y,
+    double end_x,
+    double end_y,
+    int current_step,
+    int total_steps,
+    RawCallback callback) {
+  if (!cdp_client) {
+    std::move(callback).Run();
+    return;
+  }
+
+  if (current_step <= total_steps) {
+    // Interpolate position
+    double t = static_cast<double>(current_step) / total_steps;
+    double x = start_x + (end_x - start_x) * t;
+    double y = start_y + (end_y - start_y) * t;
+
+    // Update virtual cursor as we drag
+    controller_->UpdateVirtualCursorState(tab_id, x, y);
+    content::WebContents* wc = controller_->FindWebContents(tab_id);
+    if (wc) {
+      controller_->SetVirtualCursorViaMojo(wc, x, y, true);
+    }
+
+    base::Value::Dict move_params;
+    move_params.Set("type", "mouseMoved");
+    move_params.Set("x", x);
+    move_params.Set("y", y);
+    move_params.Set("button", "left");
+
+    cdp_client->SendCommand(
+        "Input.dispatchMouseEvent", std::move(move_params),
+        base::BindOnce(
+            [](std::string tab_id, AbpCdpClient* cdp_client,
+               double s_x, double s_y, double e_x, double e_y,
+               int step, int total, AbpInputDispatcher* dispatcher,
+               AbpInputDispatcher::RawCallback callback,
+               bool success, const std::string& result) {
+              if (!success) {
+                std::move(callback).Run();
+                return;
+              }
+
+              // Schedule next step with 5ms delay
+              content::GetUIThreadTaskRunner({})->PostDelayedTask(
+                  FROM_HERE,
+                  base::BindOnce(&AbpInputDispatcher::DragNextStepRaw,
+                                 base::Unretained(dispatcher),
+                                 std::move(tab_id), cdp_client,
+                                 s_x, s_y, e_x, e_y,
+                                 step + 1, total, std::move(callback)),
+                  base::Milliseconds(5));
+            },
+            tab_id, cdp_client, start_x, start_y, end_x, end_y,
+            current_step, total_steps, this, std::move(callback)));
+  } else {
+    // All steps done — send mouseReleased at end position
+    controller_->UpdateVirtualCursorState(tab_id, end_x, end_y);
+    content::WebContents* wc = controller_->FindWebContents(tab_id);
+    if (wc) {
+      controller_->SetVirtualCursorViaMojo(wc, end_x, end_y, true);
+    }
+
+    base::Value::Dict release_params;
+    release_params.Set("type", "mouseReleased");
+    release_params.Set("x", end_x);
+    release_params.Set("y", end_y);
+    release_params.Set("button", "left");
+    release_params.Set("clickCount", 1);
+
+    cdp_client->SendCommand(
+        "Input.dispatchMouseEvent", std::move(release_params),
+        base::BindOnce(
+            [](AbpInputDispatcher::RawCallback callback,
+               bool success, const std::string& result) {
+              std::move(callback).Run();
+            },
+            std::move(callback)));
+  }
+}
+
 }  // namespace abp
