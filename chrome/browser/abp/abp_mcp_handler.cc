@@ -307,47 +307,63 @@ constexpr char kGuideContent[] = R"md(# ABP Browser Control Guide
 
 ABP **pauses JavaScript and virtual time** between your actions. The page is frozen until your next tool call.
 
-When you call any action tool (click, type, navigate, scroll, etc.):
+When you call any action tool (browser_action, browser_scroll, browser_navigate, etc.):
 1. ABP **resumes** JS execution
-2. ABP dispatches your action
+2. ABP dispatches your action(s)
 3. ABP **waits ~500ms** for the page to settle (rendering, network, scripts)
-4. ABP captures **before and after screenshots** automatically
+4. ABP captures a **screenshot** automatically
 5. ABP **re-pauses** JS execution
-6. You receive the response with both screenshots
+6. You receive the response with the screenshot
 
 **One tool call = one complete turn.** Screenshots are included automatically with every action response. There is no need to take a separate screenshot after performing an action.
 
+## Batching Actions
+
+`browser_action` accepts 1-3 actions per call. Batch common workflows to reduce round-trips:
+
+- **Click, type, submit:** `[{mouse_click, x, y}, {keyboard_type, text}, {keyboard_press, key: ENTER}]`
+- **Click and type:** `[{mouse_click, x, y}, {keyboard_type, text}]`
+- **Single click:** `[{mouse_click, x, y}]`
+
+Actions execute sequentially with a 20ms pause between each. One screenshot is taken after all actions complete.
+
+**Do NOT batch scrolling** — use `browser_scroll` separately.
+
 ## Waiting for Slow Content
 
-Sometimes 500ms isn't enough for the page to finish loading (AJAX, animations, redirects). When the after screenshot shows incomplete content:
+Sometimes 500ms isn't enough for the page to finish loading (AJAX, animations, redirects). When the screenshot shows incomplete content:
 
 **Call `browser_screenshot` to wait and observe.** It runs the same resume-wait-capture-pause cycle without performing any action, giving the page another chance to settle. Repeat until the content appears.
 
 ## Markup Overlays
 
-Pass `markup: "interactive"` to `browser_screenshot` to see numbered labels overlaid on all interactive elements. Each label shows the element's coordinates for targeting clicks and typing.
+Pass `markup: ["clickable", "typeable", "grid"]` to `browser_screenshot` to see labeled overlays on interactive elements. Each label shows the element's coordinates for targeting clicks and typing.
 
-## Tool Reference
+## Tool Reference (12 tools)
 
 All `tab_id` parameters are optional and default to the active tab.
 
-**Tab Management:** `browser_get_status`, `browser_list_tabs`, `browser_new_tab` (url), `browser_close_tab`, `browser_get_tab_info`, `browser_activate_tab`, `browser_stop_loading`
+**Input:**
+- `browser_action` — 1-3 actions: mouse_click (x, y), keyboard_type (text), keyboard_press (key, modifiers?), mouse_hover (x, y), mouse_drag (start_x, start_y, end_x, end_y). Keys are ALL-CAPS (ENTER, TAB, ESCAPE, CONTROL, META, etc.). Abbreviations accepted: CTRL, CMD, ESC, DEL.
+- `browser_scroll` — x, y (where wheel fires), delta_x?, delta_y? (positive=down/right)
 
-**Navigation:** `browser_navigate` (url required), `browser_go_back`, `browser_go_forward`, `browser_reload`
+**Navigation:**
+- `browser_navigate` — url? OR action? (back, forward, reload)
+- `browser_tabs` — action? (list, new, close, info, activate, stop; default: list), tab_id?, url?
 
-**Input:** `browser_click` (x, y required), `browser_type` (text required), `browser_keyboard_press` (key required, modifiers), `browser_keyboard_down` (key), `browser_keyboard_up` (key), `browser_scroll` (x, y required; delta_x, delta_y), `browser_mouse_move` (x, y required), `browser_drag` (start_x, start_y, end_x, end_y required; steps)
+**Observation:**
+- `browser_screenshot` — markup?, disable_markup?, format?
+- `browser_javascript` — expression (required)
+- `browser_text` — selector?
 
-**Content:** `browser_screenshot` (markup, format), `browser_execute_javascript` (expression required), `browser_get_text` (selector)
+**Situational:**
+- `browser_dialog` — action? (check, accept, dismiss; default: check), prompt_text?
+- `browser_downloads` — action? (list, status, cancel; default: list), download_id?, state?, limit?
+- `browser_files` — chooser_id (required), files?, path?, cancel?
 
-**Dialogs:** `browser_get_dialog`, `browser_accept_dialog` (prompt_text), `browser_dismiss_dialog`
-
-**Downloads:** `browser_list_downloads` (state, limit), `browser_get_download` (download_id), `browser_cancel_download` (download_id)
-
-**File Chooser:** `browser_provide_files` (chooser_id required, files, path, cancel)
-
-**Execution Control:** `browser_get_execution_state`, `browser_set_execution_state` (paused required)
-
-**Browser:** `browser_get_session_data`, `browser_shutdown` (timeout_ms)
+**Browser:**
+- `browser_get_status` — no params
+- `browser_shutdown` — timeout_ms?
 
 ## Debugging
 
@@ -371,10 +387,12 @@ SELECT screenshot_before_path, screenshot_after_path FROM actions WHERE id = <id
 
 ## Tips
 
-- `browser_execute_javascript` uses `expression` as its parameter name (not `script`)
+- `browser_javascript` uses `expression` as its parameter name (not `script`)
 - `browser_scroll` requires `x`, `y` coordinates where the mouse wheel fires — target the element center
 - Scroll direction: `delta_y` positive = scroll down, negative = scroll up
 - JS is paused between actions — timers and animations don't advance until your next tool call
+- Key names are ALL-CAPS: ENTER, TAB, ESCAPE, BACKSPACE, ARROWUP, ARROWDOWN, etc.
+- Modifier keys for keyboard_press: SHIFT, CONTROL, ALT, META (or abbreviations CTRL, CMD, OPT)
 )md";
 
 }  // namespace
