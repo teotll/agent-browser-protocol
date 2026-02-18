@@ -26,84 +26,175 @@ constexpr int kInvalidParams = -32602;
 base::Value::List GetToolDefinitions() {
   base::Value::List tools;
 
-  // Browser status and tab management
-  tools.Append(ToolBuilder("browser_get_status")
-                   .Description("Get browser status and readiness")
-                   .Build());
+  // 1. browser_action — batched input actions (custom schema, ToolBuilder
+  //    lacks array support)
+  {
+    base::Value::Dict tool;
+    tool.Set("name", "browser_action");
+    tool.Set("description",
+        "Execute one or more browser actions (max 3). Each action has a "
+        "'type' and type-specific params. Actions run sequentially with "
+        "a 20ms pause between each. Screenshot is taken once after all "
+        "actions complete.\n\n"
+        "Batch these common workflows:\n"
+        "- mouse_click -> keyboard_type -> keyboard_press(ENTER) — click "
+        "field, type text, submit\n"
+        "- mouse_click -> keyboard_type — click field, type text\n"
+        "keyboard_press handles key combos: key:'A', modifiers:['CONTROL'] "
+        "for Ctrl+A.\n"
+        "Use a single action for standalone clicks, keypresses, etc.\n"
+        "Use browser_scroll for scrolling (not part of this tool).\n\n"
+        "Action params by type:\n"
+        "- mouse_click: x, y, button?, click_count?, modifiers?\n"
+        "- keyboard_type: text\n"
+        "- keyboard_press: key (ENTER, TAB, ESCAPE, A-Z, F1-F12, ARROWUP, "
+        "etc.), modifiers? ([SHIFT, CONTROL, ALT, META]), action? "
+        "(press|down|up). Common abbreviations accepted: CTRL->CONTROL, "
+        "CMD->META, ESC->ESCAPE, DEL->DELETE.\n"
+        "- mouse_hover: x, y\n"
+        "- mouse_drag: start_x, start_y, end_x, end_y, steps?");
 
-  tools.Append(ToolBuilder("browser_list_tabs")
-                   .Description("List all open browser tabs")
-                   .Build());
+    base::Value::Dict schema;
+    schema.Set("type", "object");
 
-  tools.Append(ToolBuilder("browser_new_tab")
-                   .Description("Create a new browser tab")
-                   .OptionalString("url", "URL to navigate to")
-                   .Build());
+    base::Value::Dict properties;
 
-  tools.Append(ToolBuilder("browser_close_tab")
-                   .Description("Close a browser tab")
-                   .OptionalString("tab_id", "ID of tab to close")
-                   .Build());
+    // actions array
+    base::Value::Dict actions_prop;
+    actions_prop.Set("type", "array");
 
-  tools.Append(ToolBuilder("browser_get_tab_info")
-                   .Description("Get detailed information about a tab")
-                   .OptionalString("tab_id", "ID of tab")
-                   .Build());
+    base::Value::Dict item_schema;
+    item_schema.Set("type", "object");
+    base::Value::Dict item_props;
 
-  // Navigation
-  tools.Append(ToolBuilder("browser_navigate")
-                   .Description("Navigate to a URL")
-                   .OptionalString("tab_id", "Target tab ID")
-                   .RequiredString("url", "URL to navigate to")
-                   .Build());
+    // type enum
+    base::Value::Dict type_prop;
+    type_prop.Set("type", "string");
+    base::Value::List type_enum;
+    type_enum.Append("mouse_click");
+    type_enum.Append("keyboard_type");
+    type_enum.Append("keyboard_press");
+    type_enum.Append("mouse_hover");
+    type_enum.Append("mouse_drag");
+    type_prop.Set("enum", std::move(type_enum));
+    item_props.Set("type", std::move(type_prop));
 
-  tools.Append(ToolBuilder("browser_go_back")
-                   .Description("Navigate back in history")
-                   .OptionalString("tab_id", "Target tab ID")
-                   .Build());
+    // All possible params as optional
+    base::Value::Dict num_prop;
+    num_prop.Set("type", "number");
+    item_props.Set("x", num_prop.Clone());
+    item_props.Set("y", num_prop.Clone());
+    item_props.Set("start_x", num_prop.Clone());
+    item_props.Set("start_y", num_prop.Clone());
+    item_props.Set("end_x", num_prop.Clone());
+    item_props.Set("end_y", num_prop.Clone());
+    item_props.Set("click_count", num_prop.Clone());
+    item_props.Set("steps", num_prop.Clone());
 
-  tools.Append(ToolBuilder("browser_go_forward")
-                   .Description("Navigate forward in history")
-                   .OptionalString("tab_id", "Target tab ID")
-                   .Build());
+    base::Value::Dict str_prop;
+    str_prop.Set("type", "string");
+    item_props.Set("text", str_prop.Clone());
+    item_props.Set("key", str_prop.Clone());
 
-  tools.Append(ToolBuilder("browser_reload")
-                   .Description("Reload the current page")
-                   .OptionalString("tab_id", "Target tab ID")
-                   .Build());
+    // button enum
+    base::Value::Dict button_prop;
+    button_prop.Set("type", "string");
+    base::Value::List button_enum;
+    button_enum.Append("left");
+    button_enum.Append("right");
+    button_enum.Append("middle");
+    button_prop.Set("enum", std::move(button_enum));
+    item_props.Set("button", std::move(button_prop));
 
-  // Input actions
-  tools.Append(ToolBuilder("browser_click")
+    // action enum (for keyboard_press)
+    base::Value::Dict action_prop;
+    action_prop.Set("type", "string");
+    base::Value::List action_enum;
+    action_enum.Append("press");
+    action_enum.Append("down");
+    action_enum.Append("up");
+    action_prop.Set("enum", std::move(action_enum));
+    item_props.Set("action", std::move(action_prop));
+
+    // modifiers array
+    base::Value::Dict mods_prop;
+    mods_prop.Set("type", "array");
+    base::Value::Dict mod_item;
+    mod_item.Set("type", "string");
+    base::Value::List mod_enum;
+    mod_enum.Append("SHIFT");
+    mod_enum.Append("CONTROL");
+    mod_enum.Append("ALT");
+    mod_enum.Append("META");
+    mod_item.Set("enum", std::move(mod_enum));
+    mods_prop.Set("items", std::move(mod_item));
+    item_props.Set("modifiers", std::move(mods_prop));
+
+    item_schema.Set("properties", std::move(item_props));
+    base::Value::List required_type;
+    required_type.Append("type");
+    item_schema.Set("required", std::move(required_type));
+
+    actions_prop.Set("items", std::move(item_schema));
+    actions_prop.Set("minItems", 1);
+    actions_prop.Set("maxItems", 3);
+    properties.Set("actions", std::move(actions_prop));
+
+    // tab_id
+    properties.Set("tab_id", str_prop.Clone());
+
+    // screenshot object (open schema)
+    base::Value::Dict ss_prop;
+    ss_prop.Set("type", "object");
+    properties.Set("screenshot", std::move(ss_prop));
+
+    schema.Set("properties", std::move(properties));
+    base::Value::List required;
+    required.Append("actions");
+    schema.Set("required", std::move(required));
+
+    tool.Set("inputSchema", std::move(schema));
+    tools.Append(std::move(tool));
+  }
+
+  // 2. browser_scroll — standalone scroll
+  tools.Append(ToolBuilder("browser_scroll")
                    .Description(
-                       "Click at coordinates on the page. IMPORTANT: Determine x,y by "
-                       "reading the red coordinate grid overlay on your most recent "
-                       "screenshot. Never guess coordinates. Coordinates MUST be within "
-                       "the viewport (visible area shown in the screenshot). Never output "
-                       "x or y values outside the screenshot boundaries.")
+                       "Scroll using mouse wheel at element coordinates. "
+                       "Simulates moving mouse over element and scrolling. At "
+                       "least one of delta_x or delta_y must be non-zero. "
+                       "IMPORTANT: Determine x,y by reading the red coordinate "
+                       "grid overlay on your most recent screenshot.")
                    .OptionalString("tab_id", "Target tab ID")
                    .RequiredNumber("x",
-                       "X pixel coordinate. Read from the red grid: find the vertical "
-                       "grid line left of your target, note its label, then estimate "
-                       "how far right the target's center is between that line and the next. "
-                       "Must be within the viewport width shown in the screenshot.")
+                       "X pixel coordinate of element center where mouse wheel "
+                       "fires. Read from the red grid on your screenshot. Must "
+                       "be within viewport bounds.")
                    .RequiredNumber("y",
-                       "Y pixel coordinate. Read from the red grid: find the horizontal "
-                       "grid line above your target, note its label, then estimate "
-                       "how far down the target's center is between that line and the next. "
-                       "Must be within the viewport height shown in the screenshot.")
-                   .OptionalStringEnum("button", "Mouse button",
-                                       {"left", "right", "middle"})
-                   .OptionalNumber("click_count", "1=single, 2=double, 3=triple click")
-                   .OptionalStringArrayEnum("modifiers", "Modifier keys to hold",
-                                            {"Shift", "Control", "Alt", "Meta"})
+                       "Y pixel coordinate of element center where mouse wheel "
+                       "fires. Read from the red grid on your screenshot. Must "
+                       "be within viewport bounds.")
+                   .OptionalNumber("delta_x",
+                       "Horizontal scroll in pixels (positive=right, "
+                       "negative=left, default=0)")
+                   .OptionalNumber("delta_y",
+                       "Vertical scroll in pixels (negative=up, positive=down, "
+                       "default=0)")
                    .Build());
 
-  tools.Append(ToolBuilder("browser_type")
-                   .Description("Type text at current focus position")
+  // 3. browser_navigate — url or back/forward/reload
+  tools.Append(ToolBuilder("browser_navigate")
+                   .Description(
+                       "Navigate to a URL, or go back/forward/reload. "
+                       "Provide 'url' to navigate, or 'action' for "
+                       "back/forward/reload.")
                    .OptionalString("tab_id", "Target tab ID")
-                   .RequiredString("text", "Text to type")
+                   .OptionalString("url", "URL to navigate to")
+                   .OptionalStringEnum("action", "Navigation action",
+                                       {"back", "forward", "reload"})
                    .Build());
 
+  // 4. browser_screenshot
   tools.Append(
       ToolBuilder("browser_screenshot")
           .Description(
@@ -113,194 +204,97 @@ base::Value::List GetToolDefinitions() {
               "to let the page load or update before your next action.")
           .OptionalString("tab_id", "Target tab ID")
           .OptionalStringArrayEnum("disable_markup",
-                                 "Markup overlays to disable. All overlays are enabled by default: "
-                                 "clickable (green), typeable (orange), scrollable (purple dashed), "
-                                 "grid (red coordinate grid), selected (blue, focused element)",
-                                 {"clickable", "typeable", "scrollable", "grid", "selected"})
+              "Markup overlays to disable. All overlays are enabled by "
+              "default: clickable (green), typeable (orange), scrollable "
+              "(purple dashed), grid (red coordinate grid), selected "
+              "(blue, focused element)",
+              {"clickable", "typeable", "scrollable", "grid", "selected"})
           .OptionalStringArrayEnum("markup",
-                                 "Markup overlays to enable (none by default). "
-                                 "clickable (green), typeable (orange), scrollable (purple dashed), "
-                                 "grid (red coordinate grid), selected (blue, focused element)",
-                                 {"clickable", "typeable", "scrollable", "grid", "selected"})
+              "Markup overlays to enable (none by default). clickable "
+              "(green), typeable (orange), scrollable (purple dashed), "
+              "grid (red coordinate grid), selected (blue, focused element)",
+              {"clickable", "typeable", "scrollable", "grid", "selected"})
           .OptionalString("format", "Image format: png, webp, jpeg")
           .Build());
 
+  // 5. browser_tabs — list/new/close/info/activate/stop
+  tools.Append(ToolBuilder("browser_tabs")
+                   .Description(
+                       "Manage browser tabs. Default: list all tabs. "
+                       "Actions: list, new (create tab), close, info "
+                       "(tab details), activate (switch to tab), stop "
+                       "(stop loading).")
+                   .OptionalStringEnum("action", "Tab action",
+                       {"list", "new", "close", "info", "activate", "stop"})
+                   .OptionalString("tab_id",
+                       "Target tab ID (for close/info/activate/stop)")
+                   .OptionalString("url", "URL for new tab")
+                   .Build());
+
+  // 6. browser_javascript
   tools.Append(
-      ToolBuilder("browser_execute_javascript")
+      ToolBuilder("browser_javascript")
           .Description("Execute JavaScript in the page context")
           .OptionalString("tab_id", "Target tab ID")
           .RequiredString("expression", "JavaScript expression to evaluate")
           .Build());
 
+  // 7. browser_text
+  tools.Append(ToolBuilder("browser_text")
+                   .Description("Get the visible text content of the page")
+                   .OptionalString("tab_id", "Target tab ID")
+                   .OptionalString("selector",
+                       "CSS selector to scope text extraction")
+                   .Build());
+
+  // 8. browser_dialog — check/accept/dismiss
   tools.Append(
-      ToolBuilder("browser_keyboard_press")
+      ToolBuilder("browser_dialog")
           .Description(
-              "Press a key or key combination (e.g., Enter, Escape, Ctrl+C)")
+              "Handle browser dialogs (alert/confirm/prompt). Default: "
+              "check if a dialog is pending.")
           .OptionalString("tab_id", "Target tab ID")
-          .RequiredString("key", "Key to press (e.g., Enter, Escape, a, F1, Tab)")
-          .OptionalStringArrayEnum("modifiers", "Modifier keys to hold",
-                                   {"Shift", "Control", "Alt", "Meta"})
+          .OptionalStringEnum("action", "Dialog action",
+                              {"check", "accept", "dismiss"})
+          .OptionalString("prompt_text",
+              "Text to enter for prompt dialogs (used with accept)")
           .Build());
 
-  tools.Append(ToolBuilder("browser_scroll")
-                   .Description(
-                       "Scroll using mouse wheel at element coordinates. Simulates "
-                       "moving mouse over element and scrolling. At least one of "
-                       "delta_x or delta_y must be non-zero. IMPORTANT: Determine "
-                       "x,y by reading the red coordinate grid overlay on your most "
-                       "recent screenshot.")
-                   .OptionalString("tab_id", "Target tab ID")
-                   .RequiredNumber("x",
-                       "X pixel coordinate of element center where mouse wheel fires. "
-                       "Read from the red grid on your screenshot. Must be within viewport bounds.")
-                   .RequiredNumber("y",
-                       "Y pixel coordinate of element center where mouse wheel fires. "
-                       "Read from the red grid on your screenshot. Must be within viewport bounds.")
-                   .OptionalNumber("delta_x", "Horizontal scroll in pixels (positive=right, negative=left, default=0)")
-                   .OptionalNumber("delta_y", "Vertical scroll in pixels (negative=up, positive=down, default=0)")
-                   .Build());
-
-  tools.Append(ToolBuilder("browser_mouse_move")
-                   .Description(
-                       "Move mouse to coordinates (for hover effects). IMPORTANT: "
-                       "Determine x,y by reading the red coordinate grid overlay on "
-                       "your most recent screenshot. Never guess coordinates. Coordinates "
-                       "MUST be within the viewport (visible area shown in the screenshot).")
-                   .OptionalString("tab_id", "Target tab ID")
-                   .RequiredNumber("x",
-                       "X pixel coordinate. Read from the red grid: find the vertical "
-                       "grid line left of your target, note its label, then estimate "
-                       "how far right the target's center is between that line and the next. "
-                       "Must be within the viewport width shown in the screenshot.")
-                   .RequiredNumber("y",
-                       "Y pixel coordinate. Read from the red grid: find the horizontal "
-                       "grid line above your target, note its label, then estimate "
-                       "how far down the target's center is between that line and the next. "
-                       "Must be within the viewport height shown in the screenshot.")
-                   .Build());
-
-  tools.Append(ToolBuilder("browser_drag")
-                   .Description(
-                       "Drag and drop from one position to another. Performs "
-                       "mousedown at start, interpolated mousemoves along the "
-                       "path, and mouseup at end. IMPORTANT: Determine "
-                       "coordinates by reading the red coordinate grid overlay "
-                       "on your most recent screenshot. All coordinates MUST be "
-                       "within the viewport (visible area shown in the screenshot).")
-                   .OptionalString("tab_id", "Target tab ID")
-                   .RequiredNumber("start_x",
-                       "X coordinate of drag start. Read from the red grid on "
-                       "your screenshot. Must be within viewport bounds.")
-                   .RequiredNumber("start_y",
-                       "Y coordinate of drag start. Read from the red grid on "
-                       "your screenshot. Must be within viewport bounds.")
-                   .RequiredNumber("end_x",
-                       "X coordinate of drop target. Read from the red grid on "
-                       "your screenshot. Must be within viewport bounds.")
-                   .RequiredNumber("end_y",
-                       "Y coordinate of drop target. Read from the red grid on "
-                       "your screenshot. Must be within viewport bounds.")
-                   .OptionalNumber("steps",
-                       "Number of intermediate mouse move events (default: 10)")
-                   .Build());
-
-  // Tab control
-  tools.Append(ToolBuilder("browser_activate_tab")
-                   .Description("Switch to a specific tab")
-                   .OptionalString("tab_id", "ID of tab to activate")
-                   .Build());
-
-  tools.Append(ToolBuilder("browser_stop_loading")
-                   .Description("Stop page loading")
-                   .OptionalString("tab_id", "Target tab ID")
-                   .Build());
-
-  // Dialog handling
+  // 9. browser_downloads — list/status/cancel
   tools.Append(
-      ToolBuilder("browser_get_dialog")
-          .Description("Check if a dialog (alert/confirm/prompt) is pending")
-          .OptionalString("tab_id", "Target tab ID")
+      ToolBuilder("browser_downloads")
+          .Description(
+              "Manage downloads. Default: list all downloads.")
+          .OptionalStringEnum("action", "Download action",
+                              {"list", "status", "cancel"})
+          .OptionalString("download_id",
+              "Download ID (required for status/cancel)")
+          .OptionalStringEnum("state", "Filter by download state (for list)",
+              {"in_progress", "completed", "cancelled", "failed"})
+          .OptionalNumber("limit",
+              "Maximum number of downloads to return (for list)")
           .Build());
 
-  tools.Append(ToolBuilder("browser_accept_dialog")
-                   .Description("Accept (click OK on) a pending dialog")
-                   .OptionalString("tab_id", "Target tab ID")
-                   .OptionalString("prompt_text", "Text to enter for prompt dialogs")
-                   .Build());
-
-  tools.Append(ToolBuilder("browser_dismiss_dialog")
-                   .Description("Dismiss (click Cancel on) a pending dialog")
-                   .OptionalString("tab_id", "Target tab ID")
-                   .Build());
-
-  // Downloads
-  tools.Append(
-      ToolBuilder("browser_list_downloads")
-          .Description("List all downloads")
-          .OptionalStringEnum("state", "Filter by download state",
-                              {"in_progress", "completed", "cancelled", "failed"})
-          .OptionalNumber("limit", "Maximum number of downloads to return")
-          .Build());
-
-  tools.Append(ToolBuilder("browser_get_download")
-                   .Description("Get download status")
-                   .RequiredString("download_id", "Download ID")
-                   .Build());
-
-  tools.Append(ToolBuilder("browser_cancel_download")
-                   .Description("Cancel an in-progress download")
-                   .RequiredString("download_id", "Download ID")
-                   .Build());
-
-  // File chooser
-  tools.Append(ToolBuilder("browser_provide_files")
-                   .Description("Provide files to a pending file chooser dialog")
+  // 10. browser_files
+  tools.Append(ToolBuilder("browser_files")
+                   .Description(
+                       "Provide files to a pending file chooser dialog")
                    .RequiredString("chooser_id", "File chooser ID from event")
                    .OptionalStringArray("files", "File paths to provide")
                    .OptionalString("path", "Save path for save dialogs")
                    .OptionalBoolean("cancel", "Cancel the file chooser")
                    .Build());
 
-  // Keyboard hold/release
-  tools.Append(ToolBuilder("browser_keyboard_down")
-                   .Description("Press and hold a key")
-                   .OptionalString("tab_id", "Target tab ID")
-                   .RequiredString("key", "Key to press down")
+  // 11. browser_get_status
+  tools.Append(ToolBuilder("browser_get_status")
+                   .Description("Get browser status and readiness")
                    .Build());
 
-  tools.Append(ToolBuilder("browser_keyboard_up")
-                   .Description("Release a held key")
-                   .OptionalString("tab_id", "Target tab ID")
-                   .RequiredString("key", "Key to release")
-                   .Build());
-
-  // Execution control
-  tools.Append(ToolBuilder("browser_get_execution_state")
-                   .Description("Get JavaScript execution state for a tab")
-                   .OptionalString("tab_id", "Target tab ID")
-                   .Build());
-
-  tools.Append(ToolBuilder("browser_set_execution_state")
-                   .Description("Pause or resume JavaScript execution")
-                   .OptionalString("tab_id", "Target tab ID")
-                   .RequiredBoolean("paused", "True to pause, false to resume")
-                   .Build());
-
-  // Text extraction
-  tools.Append(ToolBuilder("browser_get_text")
-                   .Description("Get the visible text content of the page")
-                   .OptionalString("tab_id", "Target tab ID")
-                   .OptionalString("selector", "CSS selector to scope text extraction")
-                   .Build());
-
-  // Browser control
-  tools.Append(ToolBuilder("browser_get_session_data")
-                   .Description("Get session data file paths (database, screenshots directory)")
-                   .Build());
-
+  // 12. browser_shutdown
   tools.Append(ToolBuilder("browser_shutdown")
                    .Description("Gracefully shut down the browser")
-                   .OptionalNumber("timeout_ms", "Timeout before force quit in ms")
+                   .OptionalNumber("timeout_ms",
+                       "Timeout before force quit in ms")
                    .Build());
 
   return tools;
@@ -561,70 +555,28 @@ void AbpMcpHandler::HandleToolsCall(const base::Value::Dict& params,
   }
 
   // Route to tool implementation
-  if (*name == "browser_get_status") {
-    CallBrowserGetStatus(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_list_tabs") {
-    CallBrowserListTabs(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_new_tab") {
-    CallBrowserNewTab(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_close_tab") {
-    CallBrowserCloseTab(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_get_tab_info") {
-    CallBrowserGetTabInfo(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_navigate") {
-    CallBrowserNavigate(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_go_back") {
-    CallBrowserGoBack(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_go_forward") {
-    CallBrowserGoForward(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_reload") {
-    CallBrowserReload(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_click") {
-    CallBrowserClick(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_type") {
-    CallBrowserType(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_screenshot") {
-    CallBrowserScreenshot(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_execute_javascript") {
-    CallBrowserExecuteJavascript(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_keyboard_press") {
-    CallBrowserKeyboardPress(*args, std::move(request_id), std::move(callback));
+  if (*name == "browser_action") {
+    CallBrowserAction(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_scroll") {
     CallBrowserScroll(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_mouse_move") {
-    CallBrowserMouseMove(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_drag") {
-    CallBrowserDrag(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_activate_tab") {
-    CallBrowserActivateTab(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_stop_loading") {
-    CallBrowserStopLoading(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_get_dialog") {
-    CallBrowserGetDialog(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_accept_dialog") {
-    CallBrowserAcceptDialog(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_dismiss_dialog") {
-    CallBrowserDismissDialog(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_list_downloads") {
-    CallBrowserListDownloads(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_get_download") {
-    CallBrowserGetDownload(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_cancel_download") {
-    CallBrowserCancelDownload(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_provide_files") {
-    CallBrowserProvideFiles(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_keyboard_down") {
-    CallBrowserKeyboardDown(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_keyboard_up") {
-    CallBrowserKeyboardUp(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_get_execution_state") {
-    CallBrowserGetExecutionState(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_set_execution_state") {
-    CallBrowserSetExecutionState(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_get_text") {
-    CallBrowserGetText(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_get_session_data") {
-    CallBrowserGetSessionData(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_navigate") {
+    CallBrowserNavigate(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_screenshot") {
+    CallBrowserScreenshot(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_tabs") {
+    CallBrowserTabs(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_javascript") {
+    CallBrowserJavascript(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_text") {
+    CallBrowserText(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_dialog") {
+    CallBrowserDialog(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_downloads") {
+    CallBrowserDownloads(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_files") {
+    CallBrowserFiles(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_get_status") {
+    CallBrowserGetStatus(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_shutdown") {
     CallBrowserShutdown(*args, std::move(request_id), std::move(callback));
   } else {
@@ -683,106 +635,10 @@ void AbpMcpHandler::HandleResourcesRead(const base::Value::Dict& params,
                     std::move(callback));
 }
 
-void AbpMcpHandler::CallBrowserGetStatus(const base::Value::Dict& args,
-                                         base::Value request_id,
-                                         ResponseWithHeadersCallback callback) {
-  controller_->GetBrowserStatus(
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserListTabs(const base::Value::Dict& args,
-                                        base::Value request_id,
-                                        ResponseWithHeadersCallback callback) {
-  controller_->HandleRequest(
-      "GET", "/api/v1/tabs", "",
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserNewTab(const base::Value::Dict& args,
+// --- 1. browser_action: batched input via /batch endpoint ---
+void AbpMcpHandler::CallBrowserAction(const base::Value::Dict& args,
                                       base::Value request_id,
                                       ResponseWithHeadersCallback callback) {
-  const std::string* url = args.FindString("url");
-  std::string nav_url = url ? *url : "";
-
-  // Always create tab at about:blank first.  If a URL was requested we
-  // follow up with a navigate call so it goes through AbpActionContext
-  // (which captures before/after screenshots and waits for page load).
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs", R"({"url":"about:blank"})",
-      base::BindOnce(
-          [](base::WeakPtr<AbpMcpHandler> self, std::string nav_url,
-             base::Value request_id, ResponseWithHeadersCallback callback,
-             int status, const std::string& content_type, std::string body) {
-            if (!self) return;
-
-            // If no URL was requested (or about:blank), return create response.
-            if (nav_url.empty() || nav_url == "about:blank") {
-              self->OnControllerResponse(std::move(request_id),
-                                         std::move(callback), status,
-                                         content_type, std::move(body));
-              return;
-            }
-
-            // Parse tab ID from create response.
-            auto parsed = base::JSONReader::Read(body, base::JSON_PARSE_RFC);
-            std::string tab_id;
-            if (parsed && parsed->is_dict()) {
-              const std::string* id = parsed->GetDict().FindString("id");
-              if (id) tab_id = *id;
-            }
-            if (tab_id.empty()) {
-              self->OnControllerResponse(std::move(request_id),
-                                         std::move(callback), status,
-                                         content_type, std::move(body));
-              return;
-            }
-
-            // Defer the navigate to give the new tab's renderer and native
-            // view time to initialize.  Without a delay, GrabViewSnapshot
-            // returns empty for the before screenshot and ForceRedraw may
-            // timeout for heavy pages.
-            VLOG(1) << "ABP MCP: CallBrowserNewTab - tab created: " << tab_id
-                    << ", scheduling navigate to " << nav_url
-                    << " in 500ms";
-            base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
-                FROM_HERE,
-                base::BindOnce(
-                    [](base::WeakPtr<AbpMcpHandler> handler,
-                       std::string tid, std::string url,
-                       base::Value req_id,
-                       ResponseWithHeadersCallback cb) {
-                      if (!handler) return;
-                      VLOG(1) << "ABP MCP: CallBrowserNewTab - "
-                              << "executing deferred navigate for tab "
-                              << tid << " to " << url;
-                      base::Value::Dict nav_body;
-                      nav_body.Set("url", url);
-                      std::string nav_body_str;
-                      base::JSONWriter::Write(
-                          base::Value(std::move(nav_body)), &nav_body_str);
-
-                      handler->controller_->HandleRequest(
-                          "POST", "/api/v1/tabs/" + tid + "/navigate",
-                          nav_body_str,
-                          base::BindOnce(
-                              &AbpMcpHandler::OnControllerResponse,
-                              handler, std::move(req_id), std::move(cb)));
-                    },
-                    self, std::move(tab_id), std::move(nav_url),
-                    std::move(request_id), std::move(callback)),
-                base::Milliseconds(500));
-          },
-          weak_factory_.GetWeakPtr(), std::move(nav_url),
-          std::move(request_id), std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserCloseTab(const base::Value::Dict& args,
-                                        base::Value request_id,
-                                        ResponseWithHeadersCallback callback) {
   std::string tab_id = ResolveTabId(args);
   if (tab_id.empty()) {
     SendJsonRpcError(std::move(request_id), kInvalidParams,
@@ -791,16 +647,25 @@ void AbpMcpHandler::CallBrowserCloseTab(const base::Value::Dict& args,
     return;
   }
 
+  // Forward everything except tab_id to the batch REST endpoint.
+  // The body includes "actions" array and optional "screenshot" config.
+  base::Value::Dict body_dict = args.Clone();
+  body_dict.Remove("tab_id");
+
+  std::string body;
+  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
+
   controller_->HandleRequest(
-      "DELETE", "/api/v1/tabs/" + tab_id, "",
+      "POST", "/api/v1/tabs/" + tab_id + "/batch", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
 }
 
-void AbpMcpHandler::CallBrowserGetTabInfo(const base::Value::Dict& args,
-                                          base::Value request_id,
-                                          ResponseWithHeadersCallback callback) {
+// --- 2. browser_scroll: standalone scroll ---
+void AbpMcpHandler::CallBrowserScroll(const base::Value::Dict& args,
+                                      base::Value request_id,
+                                      ResponseWithHeadersCallback callback) {
   std::string tab_id = ResolveTabId(args);
   if (tab_id.empty()) {
     SendJsonRpcError(std::move(request_id), kInvalidParams,
@@ -809,13 +674,20 @@ void AbpMcpHandler::CallBrowserGetTabInfo(const base::Value::Dict& args,
     return;
   }
 
+  base::Value::Dict body_dict = args.Clone();
+  body_dict.Remove("tab_id");
+
+  std::string body;
+  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
+
   controller_->HandleRequest(
-      "GET", "/api/v1/tabs/" + tab_id, "",
+      "POST", "/api/v1/tabs/" + tab_id + "/scroll", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
 }
 
+// --- 3. browser_navigate: url or back/forward/reload ---
 void AbpMcpHandler::CallBrowserNavigate(const base::Value::Dict& args,
                                         base::Value request_id,
                                         ResponseWithHeadersCallback callback) {
@@ -827,131 +699,46 @@ void AbpMcpHandler::CallBrowserNavigate(const base::Value::Dict& args,
     return;
   }
 
-  // Forward all args except URL path params to REST API
-  base::Value::Dict body_dict = args.Clone();
-  body_dict.Remove("tab_id");
+  auto make_cb = [this, &request_id, &callback]() {
+    return base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                          weak_factory_.GetWeakPtr(), std::move(request_id),
+                          std::move(callback));
+  };
 
-  std::string body;
-  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
+  const std::string* url = args.FindString("url");
+  const std::string* action = args.FindString("action");
 
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + tab_id + "/navigate", body,
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserGoBack(const base::Value::Dict& args,
-                                      base::Value request_id,
-                                      ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
+  if (url) {
+    base::Value::Dict body_dict;
+    body_dict.Set("url", *url);
+    std::string body;
+    base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
+    controller_->HandleRequest(
+        "POST", "/api/v1/tabs/" + tab_id + "/navigate", body, make_cb());
+  } else if (action) {
+    if (*action == "back") {
+      controller_->HandleRequest(
+          "POST", "/api/v1/tabs/" + tab_id + "/back", "", make_cb());
+    } else if (*action == "forward") {
+      controller_->HandleRequest(
+          "POST", "/api/v1/tabs/" + tab_id + "/forward", "", make_cb());
+    } else if (*action == "reload") {
+      controller_->HandleRequest(
+          "POST", "/api/v1/tabs/" + tab_id + "/reload", "", make_cb());
+    } else {
+      SendJsonRpcError(std::move(request_id), kInvalidParams,
+                       "Invalid action: " + *action +
+                           " (expected back, forward, or reload)",
+                       std::move(callback));
+    }
+  } else {
     SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
+                     "Provide 'url' or 'action' (back/forward/reload)",
                      std::move(callback));
-    return;
   }
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + tab_id + "/back", "",
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
 }
 
-void AbpMcpHandler::CallBrowserGoForward(const base::Value::Dict& args,
-                                         base::Value request_id,
-                                         ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
-                     std::move(callback));
-    return;
-  }
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + tab_id + "/forward", "",
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserReload(const base::Value::Dict& args,
-                                      base::Value request_id,
-                                      ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
-                     std::move(callback));
-    return;
-  }
-
-  // Forward all args except URL path params to REST API
-  base::Value::Dict body_dict = args.Clone();
-  body_dict.Remove("tab_id");
-
-  std::string body;
-  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + tab_id + "/reload", body,
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserClick(const base::Value::Dict& args,
-                                     base::Value request_id,
-                                     ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
-                     std::move(callback));
-    return;
-  }
-
-  // Forward all args except URL path params to REST API
-  base::Value::Dict body_dict = args.Clone();
-  body_dict.Remove("tab_id");
-
-  std::string body;
-  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + tab_id + "/click", body,
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserType(const base::Value::Dict& args,
-                                    base::Value request_id,
-                                    ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
-                     std::move(callback));
-    return;
-  }
-
-  // Forward all args except URL path params to REST API
-  base::Value::Dict body_dict = args.Clone();
-  body_dict.Remove("tab_id");
-
-  std::string body;
-  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + tab_id + "/type", body,
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
+// --- 4. browser_screenshot ---
 void AbpMcpHandler::CallBrowserScreenshot(const base::Value::Dict& args,
                                           base::Value request_id,
                                           ResponseWithHeadersCallback callback) {
@@ -968,7 +755,8 @@ void AbpMcpHandler::CallBrowserScreenshot(const base::Value::Dict& args,
   base::Value::Dict screenshot_opts;
   if (const base::Value::List* markup = args.FindList("markup")) {
     screenshot_opts.Set("markup", markup->Clone());
-  } else if (const base::Value::List* disable_markup = args.FindList("disable_markup")) {
+  } else if (const base::Value::List* disable_markup =
+                 args.FindList("disable_markup")) {
     screenshot_opts.Set("disable_markup", disable_markup->Clone());
   }
   if (const std::string* format = args.FindString("format")) {
@@ -986,9 +774,127 @@ void AbpMcpHandler::CallBrowserScreenshot(const base::Value::Dict& args,
                      std::move(callback)));
 }
 
-void AbpMcpHandler::CallBrowserExecuteJavascript(const base::Value::Dict& args,
-                                                 base::Value request_id,
-                                                 ResponseWithHeadersCallback callback) {
+// --- 5. browser_tabs: list/new/close/info/activate/stop ---
+void AbpMcpHandler::CallBrowserTabs(const base::Value::Dict& args,
+                                    base::Value request_id,
+                                    ResponseWithHeadersCallback callback) {
+  const std::string* action = args.FindString("action");
+  std::string act = action ? *action : "list";
+
+  auto make_cb = [this, &request_id, &callback]() {
+    return base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                          weak_factory_.GetWeakPtr(), std::move(request_id),
+                          std::move(callback));
+  };
+
+  if (act == "list") {
+    controller_->HandleRequest("GET", "/api/v1/tabs", "", make_cb());
+  } else if (act == "new") {
+    // Reuse the existing new-tab-then-navigate logic.
+    const std::string* url = args.FindString("url");
+    std::string nav_url = url ? *url : "";
+
+    // Always create tab at about:blank first.  If a URL was requested we
+    // follow up with a navigate call so it goes through AbpActionContext
+    // (which captures before/after screenshots and waits for page load).
+    controller_->HandleRequest(
+        "POST", "/api/v1/tabs", R"({"url":"about:blank"})",
+        base::BindOnce(
+            [](base::WeakPtr<AbpMcpHandler> self, std::string nav_url,
+               base::Value request_id, ResponseWithHeadersCallback callback,
+               int status, const std::string& content_type,
+               std::string body) {
+              if (!self)
+                return;
+
+              if (nav_url.empty() || nav_url == "about:blank") {
+                self->OnControllerResponse(std::move(request_id),
+                                           std::move(callback), status,
+                                           content_type, std::move(body));
+                return;
+              }
+
+              auto parsed =
+                  base::JSONReader::Read(body, base::JSON_PARSE_RFC);
+              std::string tab_id;
+              if (parsed && parsed->is_dict()) {
+                const std::string* id = parsed->GetDict().FindString("id");
+                if (id)
+                  tab_id = *id;
+              }
+              if (tab_id.empty()) {
+                self->OnControllerResponse(std::move(request_id),
+                                           std::move(callback), status,
+                                           content_type, std::move(body));
+                return;
+              }
+
+              VLOG(1) << "ABP MCP: browser_tabs new - tab created: "
+                      << tab_id << ", scheduling navigate to " << nav_url
+                      << " in 500ms";
+              base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
+                  FROM_HERE,
+                  base::BindOnce(
+                      [](base::WeakPtr<AbpMcpHandler> handler,
+                         std::string tid, std::string url,
+                         base::Value req_id,
+                         ResponseWithHeadersCallback cb) {
+                        if (!handler)
+                          return;
+                        base::Value::Dict nav_body;
+                        nav_body.Set("url", url);
+                        std::string nav_body_str;
+                        base::JSONWriter::Write(
+                            base::Value(std::move(nav_body)), &nav_body_str);
+                        handler->controller_->HandleRequest(
+                            "POST", "/api/v1/tabs/" + tid + "/navigate",
+                            nav_body_str,
+                            base::BindOnce(
+                                &AbpMcpHandler::OnControllerResponse,
+                                handler, std::move(req_id), std::move(cb)));
+                      },
+                      self, std::move(tab_id), std::move(nav_url),
+                      std::move(request_id), std::move(callback)),
+                  base::Milliseconds(500));
+            },
+            weak_factory_.GetWeakPtr(), std::move(nav_url),
+            std::move(request_id), std::move(callback)));
+  } else {
+    // close, info, activate, stop all need a tab_id
+    std::string tab_id = ResolveTabId(args);
+    if (tab_id.empty()) {
+      SendJsonRpcError(std::move(request_id), kInvalidParams,
+                       "No tab_id provided and no active tab available",
+                       std::move(callback));
+      return;
+    }
+
+    if (act == "close") {
+      controller_->HandleRequest(
+          "DELETE", "/api/v1/tabs/" + tab_id, "", make_cb());
+    } else if (act == "info") {
+      controller_->HandleRequest(
+          "GET", "/api/v1/tabs/" + tab_id, "", make_cb());
+    } else if (act == "activate") {
+      controller_->HandleRequest(
+          "POST", "/api/v1/tabs/" + tab_id + "/activate", "", make_cb());
+    } else if (act == "stop") {
+      controller_->HandleRequest(
+          "POST", "/api/v1/tabs/" + tab_id + "/stop", "", make_cb());
+    } else {
+      SendJsonRpcError(std::move(request_id), kInvalidParams,
+                       "Invalid action: " + act +
+                           " (expected list, new, close, info, activate, "
+                           "or stop)",
+                       std::move(callback));
+    }
+  }
+}
+
+// --- 6. browser_javascript ---
+void AbpMcpHandler::CallBrowserJavascript(const base::Value::Dict& args,
+                                          base::Value request_id,
+                                          ResponseWithHeadersCallback callback) {
   std::string tab_id = ResolveTabId(args);
   if (tab_id.empty()) {
     SendJsonRpcError(std::move(request_id), kInvalidParams,
@@ -1013,82 +919,8 @@ void AbpMcpHandler::CallBrowserExecuteJavascript(const base::Value::Dict& args,
                      std::move(callback)));
 }
 
-void AbpMcpHandler::CallBrowserKeyboardPress(const base::Value::Dict& args,
-                                             base::Value request_id,
-                                             ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
-                     std::move(callback));
-    return;
-  }
-
-  // Forward all args except URL path params to REST API
-  base::Value::Dict body_dict = args.Clone();
-  body_dict.Remove("tab_id");
-
-  std::string body;
-  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + tab_id + "/keyboard/press", body,
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserScroll(const base::Value::Dict& args,
-                                      base::Value request_id,
-                                      ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
-                     std::move(callback));
-    return;
-  }
-
-  // Forward all args except URL path params to REST API
-  base::Value::Dict body_dict = args.Clone();
-  body_dict.Remove("tab_id");
-
-  std::string body;
-  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + tab_id + "/scroll", body,
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserMouseMove(const base::Value::Dict& args,
-                                         base::Value request_id,
-                                         ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
-                     std::move(callback));
-    return;
-  }
-
-  // Forward all args except URL path params to REST API
-  base::Value::Dict body_dict = args.Clone();
-  body_dict.Remove("tab_id");
-
-  std::string body;
-  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + tab_id + "/move", body,
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserDrag(const base::Value::Dict& args,
+// --- 7. browser_text ---
+void AbpMcpHandler::CallBrowserText(const base::Value::Dict& args,
                                     base::Value request_id,
                                     ResponseWithHeadersCallback callback) {
   std::string tab_id = ResolveTabId(args);
@@ -1099,308 +931,6 @@ void AbpMcpHandler::CallBrowserDrag(const base::Value::Dict& args,
     return;
   }
 
-  base::Value::Dict body_dict = args.Clone();
-  body_dict.Remove("tab_id");
-
-  std::string body;
-  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + tab_id + "/drag", body,
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserActivateTab(const base::Value::Dict& args,
-                                           base::Value request_id,
-                                           ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
-                     std::move(callback));
-    return;
-  }
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + tab_id + "/activate", "",
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserStopLoading(const base::Value::Dict& args,
-                                           base::Value request_id,
-                                           ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
-                     std::move(callback));
-    return;
-  }
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + tab_id + "/stop", "",
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserGetDialog(const base::Value::Dict& args,
-                                         base::Value request_id,
-                                         ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
-                     std::move(callback));
-    return;
-  }
-
-  controller_->HandleRequest(
-      "GET", "/api/v1/tabs/" + tab_id + "/dialog", "",
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserAcceptDialog(const base::Value::Dict& args,
-                                            base::Value request_id,
-                                            ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
-                     std::move(callback));
-    return;
-  }
-
-  // Forward all args except URL path params to REST API
-  base::Value::Dict body_dict = args.Clone();
-  body_dict.Remove("tab_id");
-
-  std::string body;
-  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + tab_id + "/dialog/accept", body,
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserDismissDialog(const base::Value::Dict& args,
-                                             base::Value request_id,
-                                             ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
-                     std::move(callback));
-    return;
-  }
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + tab_id + "/dialog/dismiss", "",
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserListDownloads(const base::Value::Dict& args,
-                                             base::Value request_id,
-                                             ResponseWithHeadersCallback callback) {
-  // Build query string from optional params
-  std::string path = "/api/v1/downloads";
-  std::vector<std::string> query_parts;
-
-  if (const std::string* state = args.FindString("state")) {
-    query_parts.push_back("state=" + *state);
-  }
-  if (auto limit = args.FindDouble("limit")) {
-    query_parts.push_back("limit=" + base::NumberToString(static_cast<int>(*limit)));
-  }
-
-  if (!query_parts.empty()) {
-    path += "?";
-    for (size_t i = 0; i < query_parts.size(); ++i) {
-      if (i > 0) path += "&";
-      path += query_parts[i];
-    }
-  }
-
-  controller_->HandleRequest(
-      "GET", path, "",
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserGetDownload(const base::Value::Dict& args,
-                                           base::Value request_id,
-                                           ResponseWithHeadersCallback callback) {
-  const std::string* download_id = args.FindString("download_id");
-  if (!download_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing download_id",
-                     std::move(callback));
-    return;
-  }
-
-  controller_->HandleRequest(
-      "GET", "/api/v1/downloads/" + *download_id, "",
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserCancelDownload(const base::Value::Dict& args,
-                                              base::Value request_id,
-                                              ResponseWithHeadersCallback callback) {
-  const std::string* download_id = args.FindString("download_id");
-  if (!download_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing download_id",
-                     std::move(callback));
-    return;
-  }
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/downloads/" + *download_id + "/cancel", "",
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserProvideFiles(const base::Value::Dict& args,
-                                            base::Value request_id,
-                                            ResponseWithHeadersCallback callback) {
-  const std::string* chooser_id = args.FindString("chooser_id");
-  if (!chooser_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams, "Missing chooser_id",
-                     std::move(callback));
-    return;
-  }
-
-  // Forward all args except URL path params to REST API
-  base::Value::Dict body_dict = args.Clone();
-  body_dict.Remove("chooser_id");
-
-  std::string body;
-  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/file-chooser/" + *chooser_id, body,
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserKeyboardDown(const base::Value::Dict& args,
-                                            base::Value request_id,
-                                            ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
-                     std::move(callback));
-    return;
-  }
-
-  // Forward all args except URL path params to REST API
-  base::Value::Dict body_dict = args.Clone();
-  body_dict.Remove("tab_id");
-
-  std::string body;
-  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + tab_id + "/keyboard/down", body,
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserKeyboardUp(const base::Value::Dict& args,
-                                          base::Value request_id,
-                                          ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
-                     std::move(callback));
-    return;
-  }
-
-  // Forward all args except URL path params to REST API
-  base::Value::Dict body_dict = args.Clone();
-  body_dict.Remove("tab_id");
-
-  std::string body;
-  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + tab_id + "/keyboard/up", body,
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserGetExecutionState(const base::Value::Dict& args,
-                                                 base::Value request_id,
-                                                 ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
-                     std::move(callback));
-    return;
-  }
-
-  controller_->HandleRequest(
-      "GET", "/api/v1/tabs/" + tab_id + "/execution", "",
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserSetExecutionState(const base::Value::Dict& args,
-                                                 base::Value request_id,
-                                                 ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
-                     std::move(callback));
-    return;
-  }
-
-  // Forward all args except URL path params to REST API
-  base::Value::Dict body_dict = args.Clone();
-  body_dict.Remove("tab_id");
-
-  std::string body;
-  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/tabs/" + tab_id + "/execution", body,
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-void AbpMcpHandler::CallBrowserGetText(const base::Value::Dict& args,
-                                       base::Value request_id,
-                                       ResponseWithHeadersCallback callback) {
-  std::string tab_id = ResolveTabId(args);
-  if (tab_id.empty()) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "No tab_id provided and no active tab available",
-                     std::move(callback));
-    return;
-  }
-
-  // Forward selector param to REST API
   base::Value::Dict body_dict;
   if (const std::string* selector = args.FindString("selector")) {
     body_dict.Set("selector", *selector);
@@ -1416,20 +946,155 @@ void AbpMcpHandler::CallBrowserGetText(const base::Value::Dict& args,
                      std::move(callback)));
 }
 
-void AbpMcpHandler::CallBrowserGetSessionData(
-    const base::Value::Dict& args,
-    base::Value request_id,
-    ResponseWithHeadersCallback callback) {
-  controller_->GetSessionData(
+// --- 8. browser_dialog: check/accept/dismiss ---
+void AbpMcpHandler::CallBrowserDialog(const base::Value::Dict& args,
+                                      base::Value request_id,
+                                      ResponseWithHeadersCallback callback) {
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
+                     std::move(callback));
+    return;
+  }
+
+  const std::string* action = args.FindString("action");
+  std::string act = action ? *action : "check";
+
+  auto make_cb = [this, &request_id, &callback]() {
+    return base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                          weak_factory_.GetWeakPtr(), std::move(request_id),
+                          std::move(callback));
+  };
+
+  if (act == "check") {
+    controller_->HandleRequest(
+        "GET", "/api/v1/tabs/" + tab_id + "/dialog", "", make_cb());
+  } else if (act == "accept") {
+    base::Value::Dict body_dict;
+    if (const std::string* prompt_text = args.FindString("prompt_text")) {
+      body_dict.Set("prompt_text", *prompt_text);
+    }
+    std::string body;
+    base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
+    controller_->HandleRequest(
+        "POST", "/api/v1/tabs/" + tab_id + "/dialog/accept", body,
+        make_cb());
+  } else if (act == "dismiss") {
+    controller_->HandleRequest(
+        "POST", "/api/v1/tabs/" + tab_id + "/dialog/dismiss", "",
+        make_cb());
+  } else {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "Invalid action: " + act +
+                         " (expected check, accept, or dismiss)",
+                     std::move(callback));
+  }
+}
+
+// --- 9. browser_downloads: list/status/cancel ---
+void AbpMcpHandler::CallBrowserDownloads(const base::Value::Dict& args,
+                                         base::Value request_id,
+                                         ResponseWithHeadersCallback callback) {
+  const std::string* action = args.FindString("action");
+  std::string act = action ? *action : "list";
+
+  auto make_cb = [this, &request_id, &callback]() {
+    return base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                          weak_factory_.GetWeakPtr(), std::move(request_id),
+                          std::move(callback));
+  };
+
+  if (act == "list") {
+    // Build query string from optional params
+    std::string path = "/api/v1/downloads";
+    std::vector<std::string> query_parts;
+
+    if (const std::string* state = args.FindString("state")) {
+      query_parts.push_back("state=" + *state);
+    }
+    if (auto limit = args.FindDouble("limit")) {
+      query_parts.push_back(
+          "limit=" + base::NumberToString(static_cast<int>(*limit)));
+    }
+
+    if (!query_parts.empty()) {
+      path += "?";
+      for (size_t i = 0; i < query_parts.size(); ++i) {
+        if (i > 0)
+          path += "&";
+        path += query_parts[i];
+      }
+    }
+
+    controller_->HandleRequest("GET", path, "", make_cb());
+  } else if (act == "status") {
+    const std::string* download_id = args.FindString("download_id");
+    if (!download_id) {
+      SendJsonRpcError(std::move(request_id), kInvalidParams,
+                       "Missing download_id for status action",
+                       std::move(callback));
+      return;
+    }
+    controller_->HandleRequest(
+        "GET", "/api/v1/downloads/" + *download_id, "", make_cb());
+  } else if (act == "cancel") {
+    const std::string* download_id = args.FindString("download_id");
+    if (!download_id) {
+      SendJsonRpcError(std::move(request_id), kInvalidParams,
+                       "Missing download_id for cancel action",
+                       std::move(callback));
+      return;
+    }
+    controller_->HandleRequest(
+        "POST", "/api/v1/downloads/" + *download_id + "/cancel", "",
+        make_cb());
+  } else {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "Invalid action: " + act +
+                         " (expected list, status, or cancel)",
+                     std::move(callback));
+  }
+}
+
+// --- 10. browser_files ---
+void AbpMcpHandler::CallBrowserFiles(const base::Value::Dict& args,
+                                     base::Value request_id,
+                                     ResponseWithHeadersCallback callback) {
+  const std::string* chooser_id = args.FindString("chooser_id");
+  if (!chooser_id) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "Missing chooser_id", std::move(callback));
+    return;
+  }
+
+  base::Value::Dict body_dict = args.Clone();
+  body_dict.Remove("chooser_id");
+
+  std::string body;
+  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
+
+  controller_->HandleRequest(
+      "POST", "/api/v1/file-chooser/" + *chooser_id, body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
 }
 
+// --- 11. browser_get_status ---
+void AbpMcpHandler::CallBrowserGetStatus(const base::Value::Dict& args,
+                                         base::Value request_id,
+                                         ResponseWithHeadersCallback callback) {
+  controller_->GetBrowserStatus(
+      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                     weak_factory_.GetWeakPtr(), std::move(request_id),
+                     std::move(callback)));
+}
+
+// --- 12. browser_shutdown ---
 void AbpMcpHandler::CallBrowserShutdown(const base::Value::Dict& args,
                                         base::Value request_id,
                                         ResponseWithHeadersCallback callback) {
-  // Forward all args to REST API
   std::string body;
   base::JSONWriter::Write(base::Value(args.Clone()), &body);
 

@@ -51,102 +51,39 @@ class AbpMcpHandler {
                            ResponseWithHeadersCallback callback);
 
   // Tool implementations (delegate to AbpController)
-  void CallBrowserGetStatus(const base::Value::Dict& args,
-                            base::Value request_id,
-                            ResponseWithHeadersCallback callback);
-  void CallBrowserListTabs(const base::Value::Dict& args,
-                           base::Value request_id,
-                           ResponseWithHeadersCallback callback);
-  void CallBrowserNewTab(const base::Value::Dict& args,
+  void CallBrowserAction(const base::Value::Dict& args,
                          base::Value request_id,
                          ResponseWithHeadersCallback callback);
-  void CallBrowserCloseTab(const base::Value::Dict& args,
-                           base::Value request_id,
-                           ResponseWithHeadersCallback callback);
-  void CallBrowserGetTabInfo(const base::Value::Dict& args,
-                             base::Value request_id,
-                             ResponseWithHeadersCallback callback);
-  void CallBrowserNavigate(const base::Value::Dict& args,
-                           base::Value request_id,
-                           ResponseWithHeadersCallback callback);
-  void CallBrowserGoBack(const base::Value::Dict& args,
-                         base::Value request_id,
-                         ResponseWithHeadersCallback callback);
-  void CallBrowserGoForward(const base::Value::Dict& args,
-                            base::Value request_id,
-                            ResponseWithHeadersCallback callback);
-  void CallBrowserReload(const base::Value::Dict& args,
-                         base::Value request_id,
-                         ResponseWithHeadersCallback callback);
-  void CallBrowserClick(const base::Value::Dict& args,
-                        base::Value request_id,
-                        ResponseWithHeadersCallback callback);
-  void CallBrowserType(const base::Value::Dict& args,
-                       base::Value request_id,
-                       ResponseWithHeadersCallback callback);
-  void CallBrowserScreenshot(const base::Value::Dict& args,
-                             base::Value request_id,
-                             ResponseWithHeadersCallback callback);
-  void CallBrowserExecuteJavascript(const base::Value::Dict& args,
-                                    base::Value request_id,
-                                    ResponseWithHeadersCallback callback);
-  void CallBrowserKeyboardPress(const base::Value::Dict& args,
-                                base::Value request_id,
-                                ResponseWithHeadersCallback callback);
   void CallBrowserScroll(const base::Value::Dict& args,
                          base::Value request_id,
                          ResponseWithHeadersCallback callback);
-  void CallBrowserMouseMove(const base::Value::Dict& args,
-                            base::Value request_id,
-                            ResponseWithHeadersCallback callback);
-  void CallBrowserDrag(const base::Value::Dict& args,
-                       base::Value request_id,
-                       ResponseWithHeadersCallback callback);
-  void CallBrowserActivateTab(const base::Value::Dict& args,
-                              base::Value request_id,
-                              ResponseWithHeadersCallback callback);
-  void CallBrowserStopLoading(const base::Value::Dict& args,
-                              base::Value request_id,
-                              ResponseWithHeadersCallback callback);
-  void CallBrowserGetDialog(const base::Value::Dict& args,
-                            base::Value request_id,
-                            ResponseWithHeadersCallback callback);
-  void CallBrowserAcceptDialog(const base::Value::Dict& args,
-                               base::Value request_id,
-                               ResponseWithHeadersCallback callback);
-  void CallBrowserDismissDialog(const base::Value::Dict& args,
-                                base::Value request_id,
-                                ResponseWithHeadersCallback callback);
-  void CallBrowserListDownloads(const base::Value::Dict& args,
-                                base::Value request_id,
-                                ResponseWithHeadersCallback callback);
-  void CallBrowserGetDownload(const base::Value::Dict& args,
-                              base::Value request_id,
-                              ResponseWithHeadersCallback callback);
-  void CallBrowserCancelDownload(const base::Value::Dict& args,
-                                 base::Value request_id,
-                                 ResponseWithHeadersCallback callback);
-  void CallBrowserProvideFiles(const base::Value::Dict& args,
-                               base::Value request_id,
-                               ResponseWithHeadersCallback callback);
-  void CallBrowserKeyboardDown(const base::Value::Dict& args,
-                               base::Value request_id,
-                               ResponseWithHeadersCallback callback);
-  void CallBrowserKeyboardUp(const base::Value::Dict& args,
+  void CallBrowserNavigate(const base::Value::Dict& args,
+                           base::Value request_id,
+                           ResponseWithHeadersCallback callback);
+  void CallBrowserScreenshot(const base::Value::Dict& args,
                              base::Value request_id,
                              ResponseWithHeadersCallback callback);
-  void CallBrowserGetExecutionState(const base::Value::Dict& args,
-                                    base::Value request_id,
-                                    ResponseWithHeadersCallback callback);
-  void CallBrowserSetExecutionState(const base::Value::Dict& args,
-                                    base::Value request_id,
-                                    ResponseWithHeadersCallback callback);
-  void CallBrowserGetText(const base::Value::Dict& args,
-                          base::Value request_id,
-                          ResponseWithHeadersCallback callback);
-  void CallBrowserGetSessionData(const base::Value::Dict& args,
-                                 base::Value request_id,
-                                 ResponseWithHeadersCallback callback);
+  void CallBrowserTabs(const base::Value::Dict& args,
+                       base::Value request_id,
+                       ResponseWithHeadersCallback callback);
+  void CallBrowserJavascript(const base::Value::Dict& args,
+                             base::Value request_id,
+                             ResponseWithHeadersCallback callback);
+  void CallBrowserText(const base::Value::Dict& args,
+                       base::Value request_id,
+                       ResponseWithHeadersCallback callback);
+  void CallBrowserDialog(const base::Value::Dict& args,
+                         base::Value request_id,
+                         ResponseWithHeadersCallback callback);
+  void CallBrowserDownloads(const base::Value::Dict& args,
+                            base::Value request_id,
+                            ResponseWithHeadersCallback callback);
+  void CallBrowserFiles(const base::Value::Dict& args,
+                        base::Value request_id,
+                        ResponseWithHeadersCallback callback);
+  void CallBrowserGetStatus(const base::Value::Dict& args,
+                            base::Value request_id,
+                            ResponseWithHeadersCallback callback);
   void CallBrowserShutdown(const base::Value::Dict& args,
                            base::Value request_id,
                            ResponseWithHeadersCallback callback);
