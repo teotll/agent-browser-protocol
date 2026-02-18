@@ -1943,6 +1943,8 @@ void AbpController::HandleRequest(const std::string& method,
         } else {
           SendError(405, "Method not allowed", std::move(callback));
         }
+      } else if (action == "batch") {
+        HandleBatchRequest(tab_id, params, std::move(callback));
       } else if (action == "keyboard") {
         // Handle /api/v1/tabs/{id}/keyboard/{sub_action}
         SendError(400, "Missing keyboard sub-action (press, down, up)",
@@ -2680,6 +2682,313 @@ void AbpController::KeyUp(const std::string& tab_id,
                           const base::Value::Dict& params,
                           ResponseCallback callback) {
   input_dispatcher_->KeyUp(tab_id, params, std::move(callback));
+}
+
+// ==========================================================================
+// Batch action dispatch helper (anonymous namespace)
+// ==========================================================================
+namespace {
+
+void DispatchBatchAction(base::Value::List actions,
+                         int index,
+                         std::string tab_id,
+                         AbpInputDispatcher* dispatcher,
+                         scoped_refptr<AbpActionContext> ctx) {
+  if (index >= static_cast<int>(actions.size())) {
+    // All actions dispatched
+    base::Value::Dict result;
+    result.Set("actions_executed", static_cast<int>(actions.size()));
+    ctx->SetResult(std::move(result));
+    ctx->OnActionDispatched();
+    return;
+  }
+
+  const base::Value::Dict& action = actions[index].GetDict();
+  const std::string* type = action.FindString("type");
+
+  // Build params dict for the dispatcher (exclude "type" field)
+  base::Value::Dict params = action.Clone();
+  params.Remove("type");
+
+  // For keyboard_press with action param, route to press/down/up
+  if (*type == "keyboard_press") {
+    const std::string* key_action = params.FindString("action");
+    std::string actual_action = key_action ? *key_action : "press";
+    params.Remove("action");
+
+    auto dispatch_next = base::BindOnce(
+        [](base::Value::List actions, int next_index, std::string tab_id,
+           AbpInputDispatcher* dispatcher,
+           scoped_refptr<AbpActionContext> ctx) {
+          if (next_index >= static_cast<int>(actions.size())) {
+            // Last action — no delay needed
+            DispatchBatchAction(std::move(actions), next_index,
+                                std::move(tab_id), dispatcher, ctx);
+            return;
+          }
+          content::GetUIThreadTaskRunner({})->PostDelayedTask(
+              FROM_HERE,
+              base::BindOnce(&DispatchBatchAction,
+                             std::move(actions), next_index,
+                             std::move(tab_id), dispatcher, ctx),
+              base::Milliseconds(20));
+        },
+        std::move(actions), index + 1, tab_id, dispatcher, ctx);
+
+    if (actual_action == "press") {
+      dispatcher->KeyPressRaw(tab_id, params, std::move(dispatch_next));
+    } else if (actual_action == "down") {
+      dispatcher->KeyDownRaw(tab_id, params, std::move(dispatch_next));
+    } else {
+      dispatcher->KeyUpRaw(tab_id, params, std::move(dispatch_next));
+    }
+    return;
+  }
+
+  // For all other types, dispatch and chain
+  auto dispatch_next = base::BindOnce(
+      [](base::Value::List actions, int next_index, std::string tab_id,
+         AbpInputDispatcher* dispatcher,
+         scoped_refptr<AbpActionContext> ctx) {
+        if (next_index >= static_cast<int>(actions.size())) {
+          // Last action — no delay needed
+          DispatchBatchAction(std::move(actions), next_index,
+                              std::move(tab_id), dispatcher, ctx);
+          return;
+        }
+        content::GetUIThreadTaskRunner({})->PostDelayedTask(
+            FROM_HERE,
+            base::BindOnce(&DispatchBatchAction,
+                           std::move(actions), next_index,
+                           std::move(tab_id), dispatcher, ctx),
+            base::Milliseconds(20));
+      },
+      std::move(actions), index + 1, tab_id, dispatcher, ctx);
+
+  if (*type == "mouse_click") {
+    dispatcher->ClickRaw(tab_id, params, std::move(dispatch_next));
+  } else if (*type == "keyboard_type") {
+    dispatcher->TypeRaw(tab_id, params, std::move(dispatch_next));
+  } else if (*type == "mouse_hover") {
+    dispatcher->MoveRaw(tab_id, params, std::move(dispatch_next));
+  } else if (*type == "mouse_drag") {
+    dispatcher->DragRaw(tab_id, params, std::move(dispatch_next));
+  }
+}
+
+}  // namespace
+
+void AbpController::HandleBatchRequest(
+    const std::string& tab_id,
+    const base::Value::Dict& params,
+    ResponseCallback callback) {
+  const base::Value::List* actions = params.FindList("actions");
+  if (!actions || actions->empty()) {
+    std::move(callback).Run(
+        400, "application/json",
+        R"({"error":"'actions' array is required and must not be empty"})");
+    return;
+  }
+  if (actions->size() > 3) {
+    std::move(callback).Run(
+        400, "application/json",
+        R"({"error":"'actions' array must have at most 3 elements"})");
+    return;
+  }
+
+  // Get viewport size for coordinate validation
+  auto* web_contents = FindWebContents(tab_id);
+  if (!web_contents) {
+    std::move(callback).Run(
+        404, "application/json",
+        R"({"error":"Tab not found"})");
+    return;
+  }
+  gfx::Size viewport = web_contents->GetContainerBounds().size();
+
+  // Validate all actions upfront
+  base::Value::List validated_actions;
+  for (size_t i = 0; i < actions->size(); i++) {
+    if (!(*actions)[i].is_dict()) {
+      std::move(callback).Run(
+          400, "application/json",
+          base::StringPrintf(
+              R"({"error":"action %zu: must be an object"})", i));
+      return;
+    }
+    const base::Value::Dict& action = (*actions)[i].GetDict();
+    const std::string* type = action.FindString("type");
+    if (!type) {
+      std::move(callback).Run(
+          400, "application/json",
+          base::StringPrintf(
+              R"({"error":"action %zu: missing 'type'"})", i));
+      return;
+    }
+
+    base::Value::Dict validated = action.Clone();
+
+    if (*type == "mouse_click" || *type == "mouse_hover") {
+      auto x = action.FindDouble("x");
+      auto y = action.FindDouble("y");
+      if (!x || !y) {
+        std::move(callback).Run(
+            400, "application/json",
+            base::StringPrintf(
+                R"({"error":"action %zu: %s requires 'x' and 'y'"})",
+                i, type->c_str()));
+        return;
+      }
+      if (*x < 0 || *x >= viewport.width() ||
+          *y < 0 || *y >= viewport.height()) {
+        std::move(callback).Run(
+            400, "application/json",
+            base::StringPrintf(
+                R"json({"error":"action %zu: %s coordinates (%.0f, %.0f) outside viewport (%dx%d)"})json",
+                i, type->c_str(), *x, *y,
+                viewport.width(), viewport.height()));
+        return;
+      }
+    } else if (*type == "mouse_drag") {
+      auto sx = action.FindDouble("start_x");
+      auto sy = action.FindDouble("start_y");
+      auto ex = action.FindDouble("end_x");
+      auto ey = action.FindDouble("end_y");
+      if (!sx || !sy || !ex || !ey) {
+        std::move(callback).Run(
+            400, "application/json",
+            base::StringPrintf(
+                R"({"error":"action %zu: mouse_drag requires start_x, start_y, end_x, end_y"})",
+                i));
+        return;
+      }
+      if (*sx < 0 || *sx >= viewport.width() ||
+          *sy < 0 || *sy >= viewport.height() ||
+          *ex < 0 || *ex >= viewport.width() ||
+          *ey < 0 || *ey >= viewport.height()) {
+        std::move(callback).Run(
+            400, "application/json",
+            base::StringPrintf(
+                R"json({"error":"action %zu: mouse_drag coordinates outside viewport (%dx%d)"})json",
+                i, viewport.width(), viewport.height()));
+        return;
+      }
+    } else if (*type == "keyboard_type") {
+      if (!action.FindString("text")) {
+        std::move(callback).Run(
+            400, "application/json",
+            base::StringPrintf(
+                R"({"error":"action %zu: keyboard_type requires 'text'"})", i));
+        return;
+      }
+    } else if (*type == "keyboard_press") {
+      const std::string* key = action.FindString("key");
+      if (!key) {
+        std::move(callback).Run(
+            400, "application/json",
+            base::StringPrintf(
+                R"({"error":"action %zu: keyboard_press requires 'key'"})", i));
+        return;
+      }
+      // Normalize key
+      auto normalized = NormalizeKey(*key);
+      if (!normalized) {
+        std::move(callback).Run(
+            400, "application/json",
+            base::StringPrintf(
+                R"({"error":"action %zu: keyboard_press invalid key '%s'"})",
+                i, key->c_str()));
+        return;
+      }
+      validated.Set("key", *normalized);
+
+      // Normalize modifiers if present
+      const base::Value::List* mods = action.FindList("modifiers");
+      if (mods) {
+        base::Value::List normalized_mods;
+        for (const auto& mod : *mods) {
+          if (!mod.is_string())
+            continue;
+          auto norm_mod = NormalizeKey(mod.GetString());
+          if (!norm_mod) {
+            std::move(callback).Run(
+                400, "application/json",
+                base::StringPrintf(
+                    R"({"error":"action %zu: keyboard_press invalid modifier '%s'"})",
+                    i, mod.GetString().c_str()));
+            return;
+          }
+          normalized_mods.Append(*norm_mod);
+        }
+        validated.Set("modifiers", std::move(normalized_mods));
+      }
+
+      // Validate action param if present
+      const std::string* key_action = action.FindString("action");
+      if (key_action && *key_action != "press" &&
+          *key_action != "down" && *key_action != "up") {
+        std::move(callback).Run(
+            400, "application/json",
+            base::StringPrintf(
+                R"({"error":"action %zu: keyboard_press action must be press/down/up"})",
+                i));
+        return;
+      }
+    } else {
+      std::move(callback).Run(
+          400, "application/json",
+          base::StringPrintf(
+              R"({"error":"action %zu: unknown type '%s'. Valid: mouse_click, keyboard_type, keyboard_press, mouse_hover, mouse_drag"})",
+              i, type->c_str()));
+      return;
+    }
+
+    validated_actions.Append(std::move(validated));
+  }
+
+  // Extract screenshot config
+  const base::Value::Dict* screenshot_config = params.FindDict("screenshot");
+  base::Value::Dict sc_copy;
+  if (screenshot_config) {
+    sc_copy = screenshot_config->Clone();
+  }
+
+  // All validation passed — start batch execution within a single action context
+  ExecuteBatchActions(tab_id, std::move(validated_actions), 0,
+                      std::move(sc_copy), params.Clone(), std::move(callback));
+}
+
+void AbpController::ExecuteBatchActions(
+    const std::string& tab_id,
+    base::Value::List actions,
+    int current_index,
+    base::Value::Dict screenshot_config,
+    base::Value::Dict original_params,
+    ResponseCallback callback) {
+
+  // Build combined params for action context
+  base::Value::Dict batch_params;
+  batch_params.Set("actions", actions.Clone());
+  if (!screenshot_config.empty()) {
+    batch_params.Set("screenshot", screenshot_config.Clone());
+  }
+
+  // Use AbpActionContext for the entire batch
+  AbpActionContext::Run(
+      this, tab_id, "batch", batch_params,
+      // Action callback — this runs after execution is resumed
+      base::BindOnce(
+          [](base::Value::List actions, int start_index,
+             std::string tab_id, AbpInputDispatcher* dispatcher,
+             AbpActionContext* ctx) {
+            scoped_refptr<AbpActionContext> ctx_ref(ctx);
+            // Dispatch all actions with 20ms delays between them
+            DispatchBatchAction(std::move(actions), start_index,
+                                std::move(tab_id), dispatcher, ctx_ref);
+          },
+          std::move(actions), current_index, tab_id,
+          input_dispatcher_.get()),
+      std::move(callback));
 }
 
 void AbpController::ActivateTab(const std::string& tab_id,

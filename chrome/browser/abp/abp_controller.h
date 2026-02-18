@@ -443,6 +443,19 @@ class AbpController {
             const base::Value::Dict& params,
             ResponseCallback callback);
 
+  // Batch input actions (1-3 actions in a single action context)
+  void HandleBatchRequest(const std::string& tab_id,
+                          const base::Value::Dict& params,
+                          ResponseCallback callback);
+
+  // Execute validated batch actions within a single AbpActionContext
+  void ExecuteBatchActions(const std::string& tab_id,
+                           base::Value::List actions,
+                           int current_index,
+                           base::Value::Dict screenshot_config,
+                           base::Value::Dict original_params,
+                           ResponseCallback callback);
+
   // File chooser endpoint
   void HandleFileChooser(const std::string& chooser_id,
                          const base::Value::Dict& params,
