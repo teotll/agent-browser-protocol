@@ -143,9 +143,42 @@ base::Value::List GetToolDefinitions() {
     // tab_id
     properties.Set("tab_id", str_prop.Clone());
 
-    // screenshot object (open schema)
+    // screenshot config
     base::Value::Dict ss_prop;
     ss_prop.Set("type", "object");
+    base::Value::Dict ss_props;
+
+    base::Value::Dict markup_prop;
+    markup_prop.Set("type", "array");
+    base::Value::Dict markup_item;
+    markup_item.Set("type", "string");
+    base::Value::List markup_enum;
+    markup_enum.Append("clickable");
+    markup_enum.Append("typeable");
+    markup_enum.Append("scrollable");
+    markup_enum.Append("grid");
+    markup_enum.Append("selected");
+    markup_item.Set("enum", std::move(markup_enum));
+    markup_prop.Set("items", std::move(markup_item));
+    ss_props.Set("markup", std::move(markup_prop));
+
+    base::Value::Dict disable_prop;
+    disable_prop.Set("type", "array");
+    base::Value::Dict disable_item;
+    disable_item.Set("type", "string");
+    disable_prop.Set("items", std::move(disable_item));
+    ss_props.Set("disable_markup", std::move(disable_prop));
+
+    base::Value::Dict format_prop;
+    format_prop.Set("type", "string");
+    base::Value::List format_enum;
+    format_enum.Append("png");
+    format_enum.Append("webp");
+    format_enum.Append("jpeg");
+    format_prop.Set("enum", std::move(format_enum));
+    ss_props.Set("format", std::move(format_prop));
+
+    ss_prop.Set("properties", std::move(ss_props));
     properties.Set("screenshot", std::move(ss_prop));
 
     schema.Set("properties", std::move(properties));
