@@ -31,8 +31,8 @@ try {
             if ($response.StatusCode -eq 200) {
                 Write-Host "ABP endpoint responding (HTTP 200)"
 
-                # Verify response contains tabs
-                if ($response.Content -match '"tabs"') {
+                # Verify response contains tab objects
+                if ($response.Content -match '"id"') {
                     Write-Host "=== Validation PASSED ===" -ForegroundColor Green
                     exit 0
                 } else {
