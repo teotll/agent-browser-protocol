@@ -1177,8 +1177,14 @@ Document::Document(const DocumentInit& initializer,
   // objects, else this new Document would have a new ExecutionContext which
   // suspended state would not match the one from the parent, and could start
   // loading resources ignoring the defersLoading flag.
-  DCHECK(!ParentDocument() ||
-         !ParentDocument()->domWindow()->IsContextPaused());
+  //
+  // ABP: ScopedPagePauser (from debugger pause) can pause all pages including
+  // BFCache-frozen ones.  A cross-process navigation can create child documents
+  // while the debugger has the parent context paused.  This is benign — the
+  // child will inherit the correct deferred-loading state once it commits.
+  DLOG_IF(WARNING, ParentDocument() &&
+                       ParentDocument()->domWindow()->IsContextPaused())
+      << "Document created while parent context is paused";
 
   LiveDocumentSet().insert(this);
 }

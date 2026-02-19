@@ -796,10 +796,6 @@ class AbpController {
                             base::OnceClosure then,
                             bool success,
                             const std::string& result);
-  void OnDebuggerResumed(const std::string& tab_id,
-                         base::OnceClosure then,
-                         bool success,
-                         const std::string& result);
   void OnVirtualTimeResumed(const std::string& tab_id,
                             base::OnceClosure then,
                             bool success,

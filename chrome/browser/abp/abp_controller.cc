@@ -3531,107 +3531,44 @@ void AbpController::ResumeExecution(const std::string& tab_id,
     return;
   }
 
-  // Step 1: Resume debugger
-  base::Value::Dict params;
-  LOG(INFO) << "ABP PROFILE [resume] Debugger.resume SEND tab=" << tab_id;
-  auto resume_send_time = base::TimeTicks::Now();
+  // Single atomic CDP command: Debugger.resume with disableOnResume=true.
+  //
+  // This resumes JS execution AND disables the debugger in a single command
+  // handler, before the nested RunLoop exits.  By the time JS continues,
+  // the V8 debug delegate has been removed, so page `debugger;` statements
+  // (e.g. anti-debugging on Amazon/eBay) cannot re-enter a nested RunLoop.
+  //
+  // Without disableOnResume, resume and disable are separate IPC messages.
+  // After resume exits the nested RunLoop, JS runs synchronously and can
+  // hit `debugger;` before the disable message is processed — causing a
+  // DCHECK crash in RenderFrameImpl::Unload when Frame::Unload arrives
+  // inside the new nested RunLoop.
+  //
+  // SendDeterministicPause() will re-enable the Debugger domain before the
+  // next ABP-initiated pause.
+  base::Value::Dict resume_params;
+  resume_params.Set("disableOnResume", true);
+  LOG(INFO) << "ABP PROFILE [resume] Debugger.resume(disableOnResume) SEND tab=" << tab_id;
+  auto send_time = base::TimeTicks::Now();
+
   client->SendCommand(
-      "Debugger.resume", params,
+      "Debugger.resume", resume_params,
       base::BindOnce(
           [](base::WeakPtr<AbpController> ctrl, std::string tid,
-             base::OnceClosure then, base::TimeTicks send_time,
+             base::OnceClosure cb, base::TimeTicks t0,
              bool success, const std::string& result) {
-            LOG(INFO) << "ABP PROFILE [resume] Debugger.resume DONE"
-                      << " elapsed=" << (base::TimeTicks::Now() - send_time).InMilliseconds() << "ms"
-                      << " success=" << success << " tab=" << tid;
-            if (ctrl) {
-              ctrl->OnDebuggerResumed(tid, std::move(then), success, result);
+            LOG(INFO) << "ABP PROFILE [resume] Debugger.resume(disableOnResume) DONE"
+                      << " elapsed="
+                      << (base::TimeTicks::Now() - t0).InMilliseconds()
+                      << "ms tab=" << tid;
+            if (!ctrl) return;
+            if (!success) {
+              LOG(WARNING) << "ABP: Debugger.resume(disableOnResume) failed tab="
+                           << tid << " - " << result;
             }
+            ctrl->ForceRedrawThenResumeVirtualTime(tid, std::move(cb));
           },
-          weak_factory_.GetWeakPtr(), tab_id, std::move(then), resume_send_time));
-}
-
-void AbpController::OnDebuggerResumed(const std::string& tab_id,
-                                      base::OnceClosure then,
-                                      bool success,
-                                      const std::string& result) {
-  // Log CDP ground truth
-  if (success) {
-    VLOG(1) << "ABP: Debugger.resume succeeded for tab " << tab_id;
-  } else {
-    VLOG(1) << "ABP: Debugger.resume failed for tab " << tab_id
-            << " - " << result << " (may not have been paused)";
-  }
-
-  content::WebContents* wc = FindWebContents(tab_id);
-  if (!wc) {
-    std::move(then).Run();
-    return;
-  }
-
-  AbpCdpClient* client = GetOrCreateCdpClient(wc);
-  if (!client) {
-    std::move(then).Run();
-    return;
-  }
-
-  // If Debugger.resume failed, the debugger was never actually in the
-  // paused state despite a pending Debugger.pause.  That pending pause
-  // request lingers and will activate the next time JS runs, causing a
-  // deadlock.  Fix: disable + re-enable the debugger to clear all state.
-  if (!success) {
-    VLOG(1) << "ABP: Debugger.resume failed, resetting debugger state for tab " << tab_id;
-    base::Value::Dict empty;
-    VLOG(1) << "ABP: Sending Debugger.disable (reset) for tab " << tab_id;
-    client->SendCommand(
-        "Debugger.disable", empty,
-        base::BindOnce(
-            [](base::WeakPtr<AbpController> ctrl, std::string tid,
-               base::OnceClosure cb, bool success, const std::string& result) {
-              if (!ctrl) return;
-              if (success) {
-                VLOG(1) << "ABP: Debugger.disable (reset) succeeded for tab " << tid;
-              } else {
-                LOG(WARNING) << "ABP: Debugger.disable (reset) failed for tab " << tid
-                             << " - " << result;
-              }
-              content::WebContents* wc = ctrl->FindWebContents(tid);
-              if (!wc) { std::move(cb).Run(); return; }
-              AbpCdpClient* c = ctrl->GetOrCreateCdpClient(wc);
-              if (!c) { std::move(cb).Run(); return; }
-              // Re-enable debugger (fresh state, no pending pause)
-              base::Value::Dict e;
-              VLOG(1) << "ABP: Sending Debugger.enable (reset) for tab " << tid;
-              c->SendCommand(
-                  "Debugger.enable", e,
-                  base::BindOnce(
-                      [](base::WeakPtr<AbpController> ctrl2, std::string tid2,
-                         base::OnceClosure cb2, bool success, const std::string& result) {
-                        if (!ctrl2) return;
-                        if (success) {
-                          VLOG(1) << "ABP: Debugger.enable (reset) succeeded for tab " << tid2;
-                        } else {
-                          LOG(WARNING) << "ABP: Debugger.enable (reset) failed for tab " << tid2
-                                       << " - " << result;
-                        }
-                        auto it = ctrl2->tab_states_.find(tid2);
-                        if (it != ctrl2->tab_states_.end()) {
-                          // Debugger re-enabled; phase stays kResuming
-                        }
-                        // Two-phase resume: ForceRedraw while fences still up,
-                        // then switch to realtime.
-                        ctrl2->ForceRedrawThenResumeVirtualTime(
-                            tid2, std::move(cb2));
-                      },
-                      ctrl, tid, std::move(cb)));
-            },
-            weak_factory_.GetWeakPtr(), tab_id, std::move(then)));
-    return;
-  }
-
-  // Step 2: Two-phase resume — ForceRedraw while fences are still up (fast),
-  // then switch to realtime virtual time policy.
-  ForceRedrawThenResumeVirtualTime(tab_id, std::move(then));
+          weak_factory_.GetWeakPtr(), tab_id, std::move(then), send_time));
 }
 
 void AbpController::OnVirtualTimeResumed(const std::string& tab_id,

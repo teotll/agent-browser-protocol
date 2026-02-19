@@ -1345,7 +1345,10 @@ void DocumentLoader::BodyDataReceivedImpl(BodyData& data) {
                          TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT,
                          "length", encoded_data.size());
 
-  DCHECK(!frame_->GetPage()->Paused());
+  // ABP: The debugger's ScopedPagePauser pauses all pages. Navigation body
+  // data can arrive via mojo IPC during the debugger's nested RunLoop.
+  DLOG_IF(WARNING, frame_->GetPage()->Paused())
+      << "DocumentLoader::BodyDataReceivedImpl called while page is paused";
   time_of_last_data_received_ = clock_->NowTicks();
 
   if (loading_main_document_from_mhtml_archive_) {

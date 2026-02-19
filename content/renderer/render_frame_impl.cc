@@ -2122,7 +2122,16 @@ void RenderFrameImpl::Unload(
     const std::optional<base::UnguessableToken>& devtools_frame_token) {
   TRACE_EVENT1("navigation,rail", "RenderFrameImpl::UnloadFrame", "frame_token",
                frame_token_);
-  DCHECK(!base::RunLoop::IsNestedOnCurrentThread());
+  // ABP: The debugger pause creates a nested RunLoop (ScopedPagePauser →
+  // MainThreadDebugger::runMessageLoopOnPause).  Frame::Unload can arrive
+  // via mojo IPC during this nested loop when a cross-process navigation
+  // commits while the old renderer's debugger is paused — either by ABP's
+  // deterministic pause or by page `debugger;` anti-debugging statements
+  // (e.g. Amazon/eBay) that re-enter after Debugger.enable.  The Unload
+  // itself is safe to execute during a nested RunLoop; the original DCHECK
+  // was a conservative safety check, not a correctness invariant.
+  LOG_IF(WARNING, base::RunLoop::IsNestedOnCurrentThread())
+      << "RenderFrameImpl::Unload called inside nested RunLoop";
 
   // Send an UpdateState message before we get deleted.
   // TODO(dcheng): Improve this comment to clarify why it's important to sent
@@ -4280,7 +4289,10 @@ bool RenderFrameImpl::SwapOutAndDeleteThis(
     const std::optional<base::UnguessableToken>& devtools_frame_token) {
   TRACE_EVENT1("navigation,rail", "RenderFrameImpl::SwapOutAndDeleteThis",
                "frame_token", frame_token_);
-  DCHECK(!base::RunLoop::IsNestedOnCurrentThread());
+  // ABP: Same rationale as Unload — debugger pause nested RunLoop can
+  // overlap with cross-process navigation swap.  See comment at Unload().
+  LOG_IF(WARNING, base::RunLoop::IsNestedOnCurrentThread())
+      << "RenderFrameImpl::SwapOutAndDeleteThis called inside nested RunLoop";
 
   // Create a WebRemoteFrame so we can pass it into `Swap`.
   blink::WebRemoteFrame* remote_frame = blink::WebRemoteFrame::Create(

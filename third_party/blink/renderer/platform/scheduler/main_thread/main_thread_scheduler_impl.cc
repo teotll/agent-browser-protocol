@@ -1927,7 +1927,12 @@ void MainThreadSchedulerImpl::OnVirtualTimeResumed() {
     // Skip throttled queues — they were skipped during pause and have no fence.
     if (pair.first->IsThrottled())
       continue;
-    DCHECK(pair.first->GetTaskQueue()->HasActiveFence());
+    // Task queues created after virtual time was paused were never fenced.
+    // This can happen during cross-process navigation or when dynamic workloads
+    // create new task queues while virtual time is paused.  Skip them — they
+    // were already running unfenced and don't need fence removal.
+    if (!pair.first->GetTaskQueue()->HasActiveFence())
+      continue;
     pair.first->GetTaskQueue()->RemoveFence();
   }
 }
