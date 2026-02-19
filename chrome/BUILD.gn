@@ -86,8 +86,8 @@ if (is_win) {
     # initialexe/ is used so that the we can reorder imports and write back to
     # the final destination at $root_out_dir/.
     inputs = [
-      "$root_out_dir/${_chrome_output_name}.exe",
-      "$root_out_dir/${_chrome_output_name}.exe.pdb",
+      "$root_out_dir/initialexe/abp.exe",
+      "$root_out_dir/initialexe/abp.exe.pdb",
     ]
     outputs = [
       "$root_out_dir/abp.exe",
