@@ -5,17 +5,28 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHROMIUM_SRC="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Validate environment
+# Read ABP_VERSION from package.json if not set
 if [[ -z "${ABP_VERSION:-}" ]]; then
-    echo "ERROR: ABP_VERSION environment variable is required"
-    echo "Usage: ABP_VERSION=1.0.0 CHROME_VERSION=130.0.6723.0 $0"
-    exit 1
+    _pkg_json="$SCRIPT_DIR/../abp-npm/package.json"
+    if [[ -f "$_pkg_json" ]]; then
+        ABP_VERSION="$(python3 -c "import json; print(json.load(open('$_pkg_json'))['version'])")"
+        export ABP_VERSION
+    else
+        echo "ERROR: ABP_VERSION not set and $_pkg_json not found"
+        exit 1
+    fi
 fi
 
+# Read CHROME_VERSION from chrome/VERSION if not set
 if [[ -z "${CHROME_VERSION:-}" ]]; then
-    echo "ERROR: CHROME_VERSION environment variable is required"
-    echo "Usage: ABP_VERSION=1.0.0 CHROME_VERSION=130.0.6723.0 $0"
-    exit 1
+    _version_file="$CHROMIUM_SRC/chrome/VERSION"
+    if [[ -f "$_version_file" ]]; then
+        CHROME_VERSION="$(awk -F= '/^MAJOR/{maj=$2} /^MINOR/{min=$2} /^BUILD/{bld=$2} /^PATCH/{pat=$2} END{print maj"."min"."bld"."pat}' "$_version_file")"
+        export CHROME_VERSION
+    else
+        echo "ERROR: CHROME_VERSION not set and chrome/VERSION not found"
+        exit 1
+    fi
 fi
 
 # Validate we're in chromium source

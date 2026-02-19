@@ -4,17 +4,32 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ChromiumSrc = (Resolve-Path "$ScriptDir\..\..").Path
 
-# Validate environment
+# Read ABP_VERSION from package.json if not set
 if (-not $env:ABP_VERSION) {
-    Write-Error "ERROR: ABP_VERSION environment variable is required"
-    Write-Host "Usage: `$env:ABP_VERSION='1.0.0'; `$env:CHROME_VERSION='130.0.6723.0'; .\build-win.ps1"
-    exit 1
+    $PkgJson = "$ScriptDir\..\abp-npm\package.json"
+    if (Test-Path $PkgJson) {
+        $pkg = Get-Content $PkgJson | ConvertFrom-Json
+        $env:ABP_VERSION = $pkg.version
+    } else {
+        Write-Error "ERROR: ABP_VERSION not set and $PkgJson not found"
+        exit 1
+    }
 }
 
+# Read CHROME_VERSION from chrome\VERSION if not set
 if (-not $env:CHROME_VERSION) {
-    Write-Error "ERROR: CHROME_VERSION environment variable is required"
-    Write-Host "Usage: `$env:ABP_VERSION='1.0.0'; `$env:CHROME_VERSION='130.0.6723.0'; .\build-win.ps1"
-    exit 1
+    $VersionFile = "$ChromiumSrc\chrome\VERSION"
+    if (Test-Path $VersionFile) {
+        $v = @{}
+        Get-Content $VersionFile | ForEach-Object {
+            $parts = $_ -split '='
+            $v[$parts[0]] = $parts[1]
+        }
+        $env:CHROME_VERSION = "$($v['MAJOR']).$($v['MINOR']).$($v['BUILD']).$($v['PATCH'])"
+    } else {
+        Write-Error "ERROR: CHROME_VERSION not set and chrome\VERSION not found"
+        exit 1
+    }
 }
 
 # Validate we're in chromium source
