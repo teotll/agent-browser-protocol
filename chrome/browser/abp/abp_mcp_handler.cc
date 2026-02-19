@@ -26,123 +26,191 @@ constexpr int kInvalidParams = -32602;
 base::Value::List GetToolDefinitions() {
   base::Value::List tools;
 
-  // 1. browser_action — batched input actions (custom schema, ToolBuilder
-  //    lacks array support)
+  // 1. browser_action — batched input actions (custom schema with oneOf
+  //    discriminated variants per action type; ToolBuilder lacks array/oneOf)
   {
     base::Value::Dict tool;
     tool.Set("name", "browser_action");
     tool.Set("description",
-        "Execute one or more browser actions (max 3). Each action has a "
-        "'type' and type-specific params. Actions run sequentially with "
-        "a 20ms pause between each. Screenshot is taken once after all "
-        "actions complete.\n\n"
-        "Batch these common workflows:\n"
-        "- mouse_click -> keyboard_type -> keyboard_press(ENTER) — click "
-        "field, type text, submit\n"
-        "- mouse_click -> keyboard_type — click field, type text\n"
-        "keyboard_press handles key combos: key:'A', modifiers:['CONTROL'] "
-        "for Ctrl+A.\n"
-        "Use a single action for standalone clicks, keypresses, etc.\n"
-        "Use browser_scroll for scrolling (not part of this tool).\n\n"
-        "Action params by type:\n"
-        "- mouse_click: x, y, button?, click_count?, modifiers?\n"
-        "- keyboard_type: text\n"
-        "- keyboard_press: key (ENTER, TAB, ESCAPE, A-Z, F1-F12, ARROWUP, "
-        "etc.), modifiers? ([SHIFT, CONTROL, ALT, META]), action? "
-        "(press|down|up). Common abbreviations accepted: CTRL->CONTROL, "
-        "CMD->META, ESC->ESCAPE, DEL->DELETE.\n"
-        "- mouse_hover: x, y\n"
-        "- mouse_drag: start_x, start_y, end_x, end_y, steps?\n\n"
-        "For mouse actions: determine x,y from the red coordinate grid "
-        "overlay on your most recent screenshot.");
+        "Execute 1-3 browser input actions in a single turn. You get one "
+        "screenshot back after all actions complete. The page is paused "
+        "between your tool calls — JS and animations only run during "
+        "execution.\n\n"
+        "Batch actions that form a single user intent:\n"
+        "- click field + type text + press ENTER  (3 actions, 1 turn)\n"
+        "- click field + type text                (2 actions, 1 turn)\n"
+        "- standalone click or keypress           (1 action, 1 turn)\n\n"
+        "Key names are ALL-CAPS: ENTER, TAB, ESCAPE, ARROWUP, etc.\n"
+        "Abbreviations: CTRL, CMD, ESC, DEL, BS, CR, UP, DOWN, LEFT, RIGHT.\n"
+        "Modifiers: SHIFT, CONTROL, ALT, META.\n\n"
+        "Example — click a search box, type a query, press Enter:\n"
+        "{\"actions\":[\n"
+        "  {\"type\":\"mouse_click\",\"x\":350,\"y\":200},\n"
+        "  {\"type\":\"keyboard_type\",\"text\":\"weather today\"},\n"
+        "  {\"type\":\"keyboard_press\",\"key\":\"ENTER\"}\n"
+        "]}");
 
-    base::Value::Dict schema;
-    schema.Set("type", "object");
-
-    base::Value::Dict properties;
-
-    // actions array
-    base::Value::Dict actions_prop;
-    actions_prop.Set("type", "array");
-
-    base::Value::Dict item_schema;
-    item_schema.Set("type", "object");
-    base::Value::Dict item_props;
-
-    // type enum
-    base::Value::Dict type_prop;
-    type_prop.Set("type", "string");
-    base::Value::List type_enum;
-    type_enum.Append("mouse_click");
-    type_enum.Append("keyboard_type");
-    type_enum.Append("keyboard_press");
-    type_enum.Append("mouse_hover");
-    type_enum.Append("mouse_drag");
-    type_prop.Set("enum", std::move(type_enum));
-    item_props.Set("type", std::move(type_prop));
-
-    // All possible params as optional
+    // -- Shared sub-schemas used across variants --
     base::Value::Dict num_prop;
     num_prop.Set("type", "number");
-    item_props.Set("x", num_prop.Clone());
-    item_props.Set("y", num_prop.Clone());
-    item_props.Set("start_x", num_prop.Clone());
-    item_props.Set("start_y", num_prop.Clone());
-    item_props.Set("end_x", num_prop.Clone());
-    item_props.Set("end_y", num_prop.Clone());
-    item_props.Set("click_count", num_prop.Clone());
-    item_props.Set("steps", num_prop.Clone());
 
     base::Value::Dict str_prop;
     str_prop.Set("type", "string");
-    item_props.Set("text", str_prop.Clone());
-    item_props.Set("key", str_prop.Clone());
 
-    // button enum
-    base::Value::Dict button_prop;
-    button_prop.Set("type", "string");
-    base::Value::List button_enum;
-    button_enum.Append("left");
-    button_enum.Append("right");
-    button_enum.Append("middle");
-    button_prop.Set("enum", std::move(button_enum));
-    item_props.Set("button", std::move(button_prop));
+    // Modifiers array — reused by mouse_click and keyboard_press
+    auto make_modifiers = []() {
+      base::Value::Dict mods;
+      mods.Set("type", "array");
+      base::Value::Dict item;
+      item.Set("type", "string");
+      base::Value::List vals;
+      vals.Append("SHIFT");
+      vals.Append("CONTROL");
+      vals.Append("ALT");
+      vals.Append("META");
+      item.Set("enum", std::move(vals));
+      mods.Set("items", std::move(item));
+      return mods;
+    };
 
-    // action enum (for keyboard_press)
-    base::Value::Dict action_prop;
-    action_prop.Set("type", "string");
-    base::Value::List action_enum;
-    action_enum.Append("press");
-    action_enum.Append("down");
-    action_enum.Append("up");
-    action_prop.Set("enum", std::move(action_enum));
-    item_props.Set("action", std::move(action_prop));
+    // Helper: build a const-type property {"type":"string","const":"value"}
+    auto make_const_type = [](const char* value) {
+      base::Value::Dict d;
+      d.Set("type", "string");
+      d.Set("const", value);
+      return d;
+    };
 
-    // modifiers array
-    base::Value::Dict mods_prop;
-    mods_prop.Set("type", "array");
-    base::Value::Dict mod_item;
-    mod_item.Set("type", "string");
-    base::Value::List mod_enum;
-    mod_enum.Append("SHIFT");
-    mod_enum.Append("CONTROL");
-    mod_enum.Append("ALT");
-    mod_enum.Append("META");
-    mod_item.Set("enum", std::move(mod_enum));
-    mods_prop.Set("items", std::move(mod_item));
-    item_props.Set("modifiers", std::move(mods_prop));
+    // -- oneOf variants --
+    base::Value::List one_of;
 
-    item_schema.Set("properties", std::move(item_props));
-    base::Value::List required_type;
-    required_type.Append("type");
-    item_schema.Set("required", std::move(required_type));
+    // mouse_click: x, y required; button?, click_count?, modifiers? optional
+    {
+      base::Value::Dict variant;
+      variant.Set("type", "object");
+      base::Value::Dict props;
+      props.Set("type", make_const_type("mouse_click"));
+      props.Set("x", num_prop.Clone());
+      props.Set("y", num_prop.Clone());
 
-    actions_prop.Set("items", std::move(item_schema));
+      base::Value::Dict button;
+      button.Set("type", "string");
+      base::Value::List btn_vals;
+      btn_vals.Append("left");
+      btn_vals.Append("right");
+      btn_vals.Append("middle");
+      button.Set("enum", std::move(btn_vals));
+      props.Set("button", std::move(button));
+
+      props.Set("click_count", num_prop.Clone());
+      props.Set("modifiers", make_modifiers());
+
+      variant.Set("properties", std::move(props));
+      base::Value::List req;
+      req.Append("type");
+      req.Append("x");
+      req.Append("y");
+      variant.Set("required", std::move(req));
+      variant.Set("additionalProperties", false);
+      one_of.Append(std::move(variant));
+    }
+
+    // keyboard_type: text required
+    {
+      base::Value::Dict variant;
+      variant.Set("type", "object");
+      base::Value::Dict props;
+      props.Set("type", make_const_type("keyboard_type"));
+      props.Set("text", str_prop.Clone());
+      variant.Set("properties", std::move(props));
+      base::Value::List req;
+      req.Append("type");
+      req.Append("text");
+      variant.Set("required", std::move(req));
+      variant.Set("additionalProperties", false);
+      one_of.Append(std::move(variant));
+    }
+
+    // keyboard_press: key required; modifiers?, action? optional
+    {
+      base::Value::Dict variant;
+      variant.Set("type", "object");
+      base::Value::Dict props;
+      props.Set("type", make_const_type("keyboard_press"));
+      props.Set("key", str_prop.Clone());
+      props.Set("modifiers", make_modifiers());
+
+      base::Value::Dict action_prop;
+      action_prop.Set("type", "string");
+      base::Value::List action_vals;
+      action_vals.Append("press");
+      action_vals.Append("down");
+      action_vals.Append("up");
+      action_prop.Set("enum", std::move(action_vals));
+      props.Set("action", std::move(action_prop));
+
+      variant.Set("properties", std::move(props));
+      base::Value::List req;
+      req.Append("type");
+      req.Append("key");
+      variant.Set("required", std::move(req));
+      variant.Set("additionalProperties", false);
+      one_of.Append(std::move(variant));
+    }
+
+    // mouse_hover: x, y required
+    {
+      base::Value::Dict variant;
+      variant.Set("type", "object");
+      base::Value::Dict props;
+      props.Set("type", make_const_type("mouse_hover"));
+      props.Set("x", num_prop.Clone());
+      props.Set("y", num_prop.Clone());
+      variant.Set("properties", std::move(props));
+      base::Value::List req;
+      req.Append("type");
+      req.Append("x");
+      req.Append("y");
+      variant.Set("required", std::move(req));
+      variant.Set("additionalProperties", false);
+      one_of.Append(std::move(variant));
+    }
+
+    // mouse_drag: start_x, start_y, end_x, end_y required; steps? optional
+    {
+      base::Value::Dict variant;
+      variant.Set("type", "object");
+      base::Value::Dict props;
+      props.Set("type", make_const_type("mouse_drag"));
+      props.Set("start_x", num_prop.Clone());
+      props.Set("start_y", num_prop.Clone());
+      props.Set("end_x", num_prop.Clone());
+      props.Set("end_y", num_prop.Clone());
+      props.Set("steps", num_prop.Clone());
+      variant.Set("properties", std::move(props));
+      base::Value::List req;
+      req.Append("type");
+      req.Append("start_x");
+      req.Append("start_y");
+      req.Append("end_x");
+      req.Append("end_y");
+      variant.Set("required", std::move(req));
+      variant.Set("additionalProperties", false);
+      one_of.Append(std::move(variant));
+    }
+
+    // -- actions array with oneOf items --
+    base::Value::Dict actions_prop;
+    actions_prop.Set("type", "array");
+    base::Value::Dict items_schema;
+    items_schema.Set("oneOf", std::move(one_of));
+    actions_prop.Set("items", std::move(items_schema));
     actions_prop.Set("minItems", 1);
     actions_prop.Set("maxItems", 3);
-    properties.Set("actions", std::move(actions_prop));
 
-    // tab_id
+    // -- Top-level properties --
+    base::Value::Dict properties;
+    properties.Set("actions", std::move(actions_prop));
     properties.Set("tab_id", str_prop.Clone());
 
     // screenshot config
@@ -183,6 +251,8 @@ base::Value::List GetToolDefinitions() {
     ss_prop.Set("properties", std::move(ss_props));
     properties.Set("screenshot", std::move(ss_prop));
 
+    base::Value::Dict schema;
+    schema.Set("type", "object");
     schema.Set("properties", std::move(properties));
     base::Value::List required;
     required.Append("actions");
@@ -197,9 +267,7 @@ base::Value::List GetToolDefinitions() {
                    .Description(
                        "Scroll using mouse wheel at element coordinates. "
                        "Simulates moving mouse over element and scrolling. At "
-                       "least one of delta_x or delta_y must be non-zero. "
-                       "IMPORTANT: Determine x,y by reading the red coordinate "
-                       "grid overlay on your most recent screenshot.")
+                       "least one of delta_x or delta_y must be non-zero.")
                    .OptionalString("tab_id", "Target tab ID")
                    .RequiredNumber("x",
                        "X pixel coordinate of element center where mouse wheel "
@@ -269,7 +337,15 @@ base::Value::List GetToolDefinitions() {
   // 6. browser_javascript
   tools.Append(
       ToolBuilder("browser_javascript")
-          .Description("Execute JavaScript in the page context")
+          .Description(
+              "Execute JavaScript in the page context. "
+              "WARNING: Do NOT use this as a primary interaction method. "
+              "Prefer browser_action (click, type, scroll) for all user "
+              "interactions. Only use this tool for: (1) extracting data "
+              "from the page (e.g. reading attributes, counting elements), "
+              "or (2) locating elements when a mouse/keyboard action failed "
+              "to produce the desired result and you need to inspect the DOM "
+              "to understand why.")
           .OptionalString("tab_id", "Target tab ID")
           .RequiredString("expression", "JavaScript expression to evaluate")
           .Build());
@@ -388,7 +464,7 @@ All `tab_id` parameters are optional and default to the active tab.
 
 **Observation:**
 - `browser_screenshot` — markup?, disable_markup?, format?
-- `browser_javascript` — expression (required)
+- `browser_javascript` — expression (required). Data extraction and DOM inspection ONLY — do NOT use for interaction; prefer browser_action.
 - `browser_text` — selector?
 
 **Situational:**
@@ -1195,11 +1271,10 @@ void AbpMcpHandler::OnControllerResponse(base::Value request_id,
     base::Value::Dict& response_dict = parsed->GetDict();
 
     // Extract screenshot image data if present.
-    // Formats:
-    //   Action envelope (new): {"screenshot_before": {...}, "screenshot_after": {"data": "...", "format": "webp"}}
-    //   Only the after screenshot is sent to MCP clients; before screenshot data is stripped.
-    //   Action envelope (legacy): {"screenshot": {"data": "...", "format": "webp", ...}}
-    //   Screenshot endpoint: {"data": "...", "mimeType": "image/webp", ...}
+    // REST responses may contain screenshot_before + screenshot_after (action
+    // envelope) or a single "screenshot" dict (legacy/screenshot endpoint).
+    // For MCP: strip screenshot_before entirely, rename screenshot_after to
+    // "screenshot", and emit the image as a native MCP image content block.
 
     // Helper to extract image data from a screenshot dict and determine mime
     auto extract_image = [](base::Value::Dict* dict, std::string& out_data,
@@ -1220,14 +1295,15 @@ void AbpMcpHandler::OnControllerResponse(base::Value request_id,
     std::string after_data, after_mime;
     std::string single_data, single_mime;
 
-    // Strip before screenshot data from the response (not sent to MCP clients)
-    if (auto* before_dict = response_dict.FindDict("screenshot_before")) {
-      before_dict->Remove("data");
-    }
+    // Strip before screenshot entirely from MCP response (not useful to agents)
+    response_dict.Remove("screenshot_before");
 
-    // Check new after format
+    // Check new after format and rename to "screenshot" for MCP output
     extract_image(response_dict.FindDict("screenshot_after"),
                   after_data, after_mime);
+    if (auto after_val = response_dict.Extract("screenshot_after")) {
+      response_dict.Set("screenshot", std::move(*after_val));
+    }
 
     // Fallback: legacy single "screenshot" dict
     if (after_data.empty()) {
@@ -1255,7 +1331,7 @@ void AbpMcpHandler::OnControllerResponse(base::Value request_id,
     text_content.Set("text", pretty_json);
     content.Append(std::move(text_content));
 
-    // Add after screenshot as image content block
+    // Add screenshot as image content block
     if (!after_data.empty()) {
       base::Value::Dict img;
       img.Set("type", "image");

@@ -328,8 +328,8 @@ void CoordinatorImpl::OnQueuedRequestTimedOut(uint64_t dump_guid) {
 
   // Fail all remaining dumps being waited upon and clear the vector.
   if (request->pending_responses.size() > 0) {
-    DLOG(ERROR) << "Global dump request timed out waiting for "
-                << request->pending_responses.size() << " requests";
+    DVLOG(1) << "Global dump request timed out waiting for "
+              << request->pending_responses.size() << " requests";
   }
   request->outcome = mojom::RequestOutcome::kTimeout;
   request->pending_responses.clear();

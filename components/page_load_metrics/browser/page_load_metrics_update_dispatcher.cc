@@ -85,8 +85,8 @@ internal::PageLoadTimingStatus IsValidPageLoadTiming(
   if (!EventsInOrder(timing.response_start, timing.parse_timing->parse_start)) {
     // We sometimes get a zero response_start with a non-zero parse start. See
     // crbug.com/590212.
-    LOG(ERROR) << "Invalid response_start " << timing.response_start
-               << " for parse_start " << timing.parse_timing->parse_start;
+    DVLOG(1) << "Invalid response_start " << timing.response_start
+              << " for parse_start " << timing.parse_timing->parse_start;
     // When browser-side navigation is enabled, we sometimes encounter this
     // error case. For now, we disable reporting of this error, since most
     // PageLoadMetricsObservers don't care about response_start and we want to
