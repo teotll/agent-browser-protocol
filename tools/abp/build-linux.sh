@@ -25,6 +25,14 @@ if [[ ! -f "$CHROMIUM_SRC/BUILD.gn" ]]; then
     exit 1
 fi
 
+FORCE="${FORCE:-0}"
+
+# Skip if already built (unless FORCE=1)
+if [[ "$FORCE" != "1" && -f "$CHROMIUM_SRC/out/Release/abp" ]]; then
+    echo "=== Skipping build (already exists at out/Release/abp, set FORCE=1 to rebuild) ==="
+    exit 0
+fi
+
 echo "=== Building ABP Chrome for Linux ==="
 echo "ABP Version: $ABP_VERSION"
 echo "Chrome Version: $CHROME_VERSION"
@@ -39,7 +47,7 @@ echo "=== Configuring build with GN ==="
 gn gen out/Release --args="$GN_ARGS"
 
 echo "=== Building ABP ==="
-autoninja -C out/Release abp
+autoninja -C out/Release chrome
 
 echo "=== Build complete ==="
 echo "Output: $CHROMIUM_SRC/out/Release/abp"
