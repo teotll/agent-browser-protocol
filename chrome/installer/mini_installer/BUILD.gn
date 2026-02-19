@@ -145,9 +145,9 @@ action("mini_installer_archive") {
   release_file = "chrome.release"
 
   inputs = [
-    "$root_out_dir/chrome.dll",
+    "$root_out_dir/abp.dll",
     "$root_out_dir/chrome_elf.dll",
-    "$root_out_dir/chrome.exe",
+    "$root_out_dir/abp.exe",
     "$root_out_dir/locales/en-US.pak",
     "$root_out_dir/setup.exe",
     "//chrome/tools/build/win/makecab.py",
