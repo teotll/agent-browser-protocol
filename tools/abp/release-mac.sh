@@ -5,14 +5,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHROMIUM_SRC="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Validate environment
+# Read ABP_VERSION from package.json if not set
 if [[ -z "${ABP_VERSION:-}" ]]; then
-    echo "ERROR: ABP_VERSION environment variable is required"
-    echo "Usage: ABP_VERSION=1.0.0 [BUILD_ARCH=arm64|x64|universal|all] $0"
-    exit 1
+    _pkg_json="$SCRIPT_DIR/../abp-npm/package.json"
+    if [[ -f "$_pkg_json" ]]; then
+        ABP_VERSION="$(python3 -c "import json; print(json.load(open('$_pkg_json'))['version'])")"
+        export ABP_VERSION
+    else
+        echo "ERROR: ABP_VERSION not set and $_pkg_json not found"
+        exit 1
+    fi
 fi
-
-# CHROME_VERSION is optional — build scripts auto-detect from chrome/VERSION
 
 BUILD_ARCH="${BUILD_ARCH:-all}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-Developer ID Application: Han Wang (72YUDGUH4G)}"

@@ -4,10 +4,16 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ChromiumSrc = (Resolve-Path "$ScriptDir\..\..").Path
 
-# Validate environment
+# Read ABP_VERSION from package.json if not set
 if (-not $env:ABP_VERSION) {
-    Write-Error "ERROR: ABP_VERSION environment variable is required"
-    exit 1
+    $PkgJson = "$ScriptDir\..\abp-npm\package.json"
+    if (Test-Path $PkgJson) {
+        $pkg = Get-Content $PkgJson | ConvertFrom-Json
+        $env:ABP_VERSION = $pkg.version
+    } else {
+        Write-Error "ERROR: ABP_VERSION not set and $PkgJson not found"
+        exit 1
+    }
 }
 
 $BuildDir = "$ChromiumSrc\out\Release"
