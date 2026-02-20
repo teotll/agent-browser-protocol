@@ -10,14 +10,9 @@ if (-not $env:ABP_VERSION) {
     exit 1
 }
 
-if (-not $env:CHROME_VERSION) {
-    Write-Error "ERROR: CHROME_VERSION environment variable is required"
-    exit 1
-}
-
 $BuildDir = "$ChromiumSrc\out\Release"
 $DistDir = "$ChromiumSrc\dist"
-$ArchiveName = "abp-$env:ABP_VERSION-chrome-$env:CHROME_VERSION-win-x64.zip"
+$ArchiveName = "abp-$env:ABP_VERSION-win-x64.zip"
 
 # Validate build exists
 if (-not (Test-Path "$BuildDir\chrome.exe")) {
@@ -28,7 +23,6 @@ if (-not (Test-Path "$BuildDir\chrome.exe")) {
 
 Write-Host "=== Packaging ABP Chrome for Windows ===" -ForegroundColor Cyan
 Write-Host "ABP Version: $env:ABP_VERSION"
-Write-Host "Chrome Version: $env:CHROME_VERSION"
 Write-Host "Build: $BuildDir"
 Write-Host "Output: $DistDir\$ArchiveName"
 

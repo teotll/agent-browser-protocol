@@ -11,14 +11,9 @@ if [[ -z "${ABP_VERSION:-}" ]]; then
     exit 1
 fi
 
-if [[ -z "${CHROME_VERSION:-}" ]]; then
-    echo "ERROR: CHROME_VERSION environment variable is required"
-    exit 1
-fi
-
 BUILD_DIR="$CHROMIUM_SRC/out/Release"
 DIST_DIR="$CHROMIUM_SRC/dist"
-ARCHIVE_NAME="abp-${ABP_VERSION}-chrome-${CHROME_VERSION}-linux-x64.tar.gz"
+ARCHIVE_NAME="abp-${ABP_VERSION}-linux-x64.tar.gz"
 
 # Validate build exists
 if [[ ! -f "$BUILD_DIR/abp" ]]; then
@@ -29,7 +24,6 @@ fi
 
 echo "=== Packaging ABP Chrome for Linux ==="
 echo "ABP Version: $ABP_VERSION"
-echo "Chrome Version: $CHROME_VERSION"
 echo "Build: $BUILD_DIR"
 echo "Output: $DIST_DIR/$ARCHIVE_NAME"
 

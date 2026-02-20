@@ -8,21 +8,16 @@ CHROMIUM_SRC="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # Validate environment
 if [[ -z "${ABP_VERSION:-}" ]]; then
     echo "ERROR: ABP_VERSION environment variable is required"
-    echo "Usage: ABP_VERSION=1.0.0 CHROME_VERSION=130.0.6723.0 $0"
+    echo "Usage: ABP_VERSION=1.0.0 $0"
     exit 1
 fi
 
-if [[ -z "${CHROME_VERSION:-}" ]]; then
-    echo "ERROR: CHROME_VERSION environment variable is required"
-    echo "Usage: ABP_VERSION=1.0.0 CHROME_VERSION=130.0.6723.0 $0"
-    exit 1
-fi
+# CHROME_VERSION is optional — build scripts auto-detect from chrome/VERSION
 
 echo "============================================"
 echo "ABP Chrome Release - Linux x64"
 echo "============================================"
 echo "ABP Version: $ABP_VERSION"
-echo "Chrome Version: $CHROME_VERSION"
 echo "============================================"
 
 # Step 1: Build
@@ -57,5 +52,5 @@ fi
 echo ""
 echo "============================================"
 echo "Release complete!"
-echo "Archive: $CHROMIUM_SRC/dist/abp-${ABP_VERSION}-chrome-${CHROME_VERSION}-linux-x64.tar.gz"
+echo "Archive: $CHROMIUM_SRC/dist/abp-${ABP_VERSION}-linux-x64.tar.gz"
 echo "============================================"

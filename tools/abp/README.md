@@ -13,7 +13,7 @@ Scripts for building and packaging ABP Chrome for distribution.
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `ABP_VERSION` | Yes | ABP release version (e.g., `1.0.0`) |
-| `CHROME_VERSION` | Yes | Chrome version (e.g., `130.0.6723.0`) |
+| `CHROME_VERSION` | Build only | Chrome version (auto-detected from `chrome/VERSION`) |
 | `BUILD_ARCH` | macOS only | `arm64`, `universal`, or `all` (default: `all`) |
 | `SKIP_VALIDATION` | No | Set to `1` to skip ABP validation |
 
@@ -22,24 +22,23 @@ Scripts for building and packaging ABP Chrome for distribution.
 ### Linux
 
 ```bash
-ABP_VERSION=1.0.0 CHROME_VERSION=130.0.6723.0 ./tools/abp/release-linux.sh
+ABP_VERSION=1.0.0 ./tools/abp/release-linux.sh
 ```
 
 ### macOS
 
 ```bash
 # Both arm64 and universal
-ABP_VERSION=1.0.0 CHROME_VERSION=130.0.6723.0 ./tools/abp/release-mac.sh
+ABP_VERSION=1.0.0 ./tools/abp/release-mac.sh
 
 # Single architecture
-ABP_VERSION=1.0.0 CHROME_VERSION=130.0.6723.0 BUILD_ARCH=arm64 ./tools/abp/release-mac.sh
+ABP_VERSION=1.0.0 BUILD_ARCH=arm64 ./tools/abp/release-mac.sh
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
 $env:ABP_VERSION="1.0.0"
-$env:CHROME_VERSION="130.0.6723.0"
 .\tools\abp\release-win.ps1
 ```
 
@@ -47,10 +46,10 @@ $env:CHROME_VERSION="130.0.6723.0"
 
 Archives are created in `dist/`:
 
-- `abp-1.0.0-chrome-130.0.6723.0-linux-x64.tar.gz`
-- `abp-1.0.0-chrome-130.0.6723.0-mac-arm64.zip`
-- `abp-1.0.0-chrome-130.0.6723.0-mac-universal.zip`
-- `abp-1.0.0-chrome-130.0.6723.0-win-x64.zip`
+- `abp-1.0.0-linux-x64.tar.gz`
+- `abp-1.0.0-mac-arm64.zip`
+- `abp-1.0.0-mac-universal.zip`
+- `abp-1.0.0-win-x64.zip`
 
 ## Individual Scripts
 

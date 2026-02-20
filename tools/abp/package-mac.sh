@@ -11,18 +11,13 @@ if [[ -z "${ABP_VERSION:-}" ]]; then
     exit 1
 fi
 
-if [[ -z "${CHROME_VERSION:-}" ]]; then
-    echo "ERROR: CHROME_VERSION environment variable is required"
-    exit 1
-fi
-
 BUILD_ARCH="${BUILD_ARCH:-all}"
 DIST_DIR="$CHROMIUM_SRC/dist"
 
 package_arch() {
     local arch=$1
     local build_dir="$CHROMIUM_SRC/out/Release-$arch"
-    local archive_name="abp-${ABP_VERSION}-chrome-${CHROME_VERSION}-mac-${arch}.zip"
+    local archive_name="abp-${ABP_VERSION}-mac-${arch}.zip"
 
     # Validate build exists
     if [[ ! -d "$build_dir/ABP.app" ]]; then
@@ -33,7 +28,6 @@ package_arch() {
 
     echo "=== Packaging ABP Chrome for macOS ($arch) ==="
     echo "ABP Version: $ABP_VERSION"
-    echo "Chrome Version: $CHROME_VERSION"
     echo "Build: $build_dir"
     echo "Output: $DIST_DIR/$archive_name"
 
