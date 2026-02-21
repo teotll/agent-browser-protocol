@@ -467,4 +467,107 @@ IN_PROC_BROWSER_TEST_F(AbpActionLifecycleTest, DISABLED_ActionTimeoutFiresOnStal
       << "Infinite loop should have timed out, not returned 200";
 }
 
+// ---------------------------------------------------------------------------
+// Test 8: Slider horizontal action succeeds.
+// ---------------------------------------------------------------------------
+IN_PROC_BROWSER_TEST_F(AbpActionLifecycleTest, SliderHorizontal) {
+  std::string tab_id = CreateTabAndNavigate("/slider_test.html");
+  ASSERT_FALSE(tab_id.empty());
+
+  base::Value::Dict body;
+  body.Set("orientation", "horizontal");
+  body.Set("y", 75);
+  body.Set("x_start", 50);
+  body.Set("x_end", 450);
+  body.Set("current_x", 250);
+  body.Set("min", 0.0);
+  body.Set("max", 100.0);
+  body.Set("target_value", 75.0);
+  auto result = SendAction(tab_id, "slider", std::move(body));
+  EXPECT_EQ(result.status, 200);
+}
+
+// ---------------------------------------------------------------------------
+// Test 9: Slider vertical action succeeds.
+// ---------------------------------------------------------------------------
+IN_PROC_BROWSER_TEST_F(AbpActionLifecycleTest, SliderVertical) {
+  std::string tab_id = CreateTabAndNavigate("/slider_test.html");
+  ASSERT_FALSE(tab_id.empty());
+
+  base::Value::Dict body;
+  body.Set("orientation", "vertical");
+  body.Set("x", 75);
+  body.Set("y_start", 150);
+  body.Set("y_end", 550);
+  body.Set("current_y", 350);
+  body.Set("min", 0.0);
+  body.Set("max", 100.0);
+  body.Set("target_value", 25.0);
+  auto result = SendAction(tab_id, "slider", std::move(body));
+  EXPECT_EQ(result.status, 200);
+}
+
+// ---------------------------------------------------------------------------
+// Test 10: Slider validation errors return 400.
+// ---------------------------------------------------------------------------
+IN_PROC_BROWSER_TEST_F(AbpActionLifecycleTest, SliderValidationErrors) {
+  std::string tab_id = CreateTabAndNavigate("/slider_test.html");
+  ASSERT_FALSE(tab_id.empty());
+
+  // Missing orientation
+  {
+    base::Value::Dict body;
+    body.Set("y", 75);
+    body.Set("x_start", 50);
+    body.Set("x_end", 450);
+    body.Set("current_x", 250);
+    body.Set("min", 0.0);
+    body.Set("max", 100.0);
+    body.Set("target_value", 50.0);
+    auto result = SendAction(tab_id, "slider", std::move(body));
+    EXPECT_EQ(result.status, 400);
+  }
+
+  // min >= max
+  {
+    base::Value::Dict body;
+    body.Set("orientation", "horizontal");
+    body.Set("y", 75);
+    body.Set("x_start", 50);
+    body.Set("x_end", 450);
+    body.Set("current_x", 250);
+    body.Set("min", 100.0);
+    body.Set("max", 0.0);
+    body.Set("target_value", 50.0);
+    auto result = SendAction(tab_id, "slider", std::move(body));
+    EXPECT_EQ(result.status, 400);
+  }
+
+  // target_value out of range
+  {
+    base::Value::Dict body;
+    body.Set("orientation", "horizontal");
+    body.Set("y", 75);
+    body.Set("x_start", 50);
+    body.Set("x_end", 450);
+    body.Set("current_x", 250);
+    body.Set("min", 0.0);
+    body.Set("max", 100.0);
+    body.Set("target_value", 150.0);
+    auto result = SendAction(tab_id, "slider", std::move(body));
+    EXPECT_EQ(result.status, 400);
+  }
+
+  // Missing horizontal fields
+  {
+    base::Value::Dict body;
+    body.Set("orientation", "horizontal");
+    body.Set("min", 0.0);
+    body.Set("max", 100.0);
+    body.Set("target_value", 50.0);
+    auto result = SendAction(tab_id, "slider", std::move(body));
+    EXPECT_EQ(result.status, 400);
+  }
+}
+
 }  // namespace abp
