@@ -1,7 +1,7 @@
 {
   "name": "agent-browser-protocol",
   "version": "0.1.1",
-  "description": "Agent Browser Protocol - AI agent browser control at the engine level",
+  "description": "Agent Browser Protocol - Deterministic AI agent browser control at the engine level",
   "type": "module",
   "exports": {
     ".": {
@@ -19,7 +19,6 @@
   },
   "files": [
     "dist/",
-    "browsers/",
     ".claude-plugin/",
     ".mcp.json",
     "skills/",
@@ -40,6 +39,10 @@
     "chromium",
     "cdp"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/theredsix/agent-browser-protocol.git"
+  },
   "license": "MIT",
   "engines": {
     "node": ">=18"
