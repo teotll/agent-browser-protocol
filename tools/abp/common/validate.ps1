@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$ChromeBinary,
 
-    [int]$TimeoutSeconds = 15
+    [int]$TimeoutSeconds = 20
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,6 +32,10 @@ Write-Host "  User data dir: $tempUserDataDir"
 # Start with isolated profile to ensure fresh instance with ABP server
 $chromeProcess = Start-Process -FilePath $ChromeBinary -ArgumentList "--user-data-dir=`"$tempUserDataDir`"" -WorkingDirectory $chromeDir -PassThru
 Write-Host "  Process started with PID: $($chromeProcess.Id)"
+
+# Wait for browser to initialize before polling
+Write-Host "  Waiting 5s for browser startup..."
+Start-Sleep -Seconds 5
 
 try {
     # Wait for ABP endpoint to be ready

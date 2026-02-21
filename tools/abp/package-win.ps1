@@ -21,8 +21,8 @@ $DistDir = "$ChromiumSrc\dist"
 $ArchiveName = "abp-$env:ABP_VERSION-win-x64.zip"
 
 # Validate build exists
-if (-not (Test-Path "$BuildDir\chrome.exe")) {
-    Write-Error "ERROR: chrome.exe not found at $BuildDir\chrome.exe"
+if (-not (Test-Path "$BuildDir\abp.exe")) {
+    Write-Error "ERROR: abp.exe not found at $BuildDir\abp.exe"
     Write-Host "Run build-win.ps1 first"
     exit 1
 }
@@ -41,7 +41,7 @@ try {
     Write-Host "=== Copying files ===" -ForegroundColor Cyan
 
     # Core binary
-    Copy-Item "$BuildDir\chrome.exe" "$StagingApp\"
+    Copy-Item "$BuildDir\abp.exe" "$StagingApp\"
 
     # DLLs
     Get-ChildItem "$BuildDir\*.dll" | ForEach-Object {
