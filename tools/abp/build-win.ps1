@@ -54,7 +54,7 @@ Write-Host "=== Configuring build with GN ===" -ForegroundColor Cyan
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "=== Building ABP ===" -ForegroundColor Cyan
-& cmd /c "autoninja -C out/Release abp"
+& cmd /c "autoninja -C out/Release chrome"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "=== Build complete ===" -ForegroundColor Green
