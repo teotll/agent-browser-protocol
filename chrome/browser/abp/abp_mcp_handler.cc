@@ -199,6 +199,48 @@ base::Value::List GetToolDefinitions() {
       one_of.Append(std::move(variant));
     }
 
+    // mouse_slider: slider macro with orientation-discriminated params
+    {
+      base::Value::Dict variant;
+      variant.Set("type", "object");
+      base::Value::Dict props;
+      props.Set("type", make_const_type("mouse_slider"));
+
+      base::Value::Dict orient_prop;
+      orient_prop.Set("type", "string");
+      base::Value::List orient_enum;
+      orient_enum.Append("horizontal");
+      orient_enum.Append("vertical");
+      orient_prop.Set("enum", std::move(orient_enum));
+      orient_prop.Set("description",
+          "Slider orientation. Use 'horizontal' with y, x_start, x_end, "
+          "current_x. Use 'vertical' with x, y_start, y_end, current_y.");
+      props.Set("orientation", std::move(orient_prop));
+
+      props.Set("y", num_prop.Clone());
+      props.Set("x_start", num_prop.Clone());
+      props.Set("x_end", num_prop.Clone());
+      props.Set("current_x", num_prop.Clone());
+      props.Set("x", num_prop.Clone());
+      props.Set("y_start", num_prop.Clone());
+      props.Set("y_end", num_prop.Clone());
+      props.Set("current_y", num_prop.Clone());
+      props.Set("min", num_prop.Clone());
+      props.Set("max", num_prop.Clone());
+      props.Set("target_value", num_prop.Clone());
+
+      variant.Set("properties", std::move(props));
+      base::Value::List req;
+      req.Append("type");
+      req.Append("orientation");
+      req.Append("min");
+      req.Append("max");
+      req.Append("target_value");
+      variant.Set("required", std::move(req));
+      variant.Set("additionalProperties", false);
+      one_of.Append(std::move(variant));
+    }
+
     // -- actions array with oneOf items --
     base::Value::Dict actions_prop;
     actions_prop.Set("type", "array");
