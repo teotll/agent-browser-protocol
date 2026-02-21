@@ -4,6 +4,7 @@
 
 #include "chrome/browser/abp/abp_input_dispatcher.h"
 
+#include <algorithm>
 #include <cctype>
 
 #include "base/strings/string_number_conversions.h"
@@ -986,6 +987,117 @@ void AbpInputDispatcher::Drag(const std::string& tab_id,
       std::move(callback));
 }
 
+void AbpInputDispatcher::Slider(const std::string& tab_id,
+                                const base::Value::Dict& params,
+                                ResponseCallback callback) {
+  const std::string* orientation = params.FindString("orientation");
+  if (!orientation ||
+      (*orientation != "horizontal" && *orientation != "vertical")) {
+    controller_->SendError(
+        400, "orientation must be 'horizontal' or 'vertical'",
+        std::move(callback));
+    return;
+  }
+
+  auto min_val = params.FindDouble("min");
+  auto max_val = params.FindDouble("max");
+  auto target = params.FindDouble("target_value");
+  if (!min_val || !max_val || !target) {
+    controller_->SendError(
+        400, "Missing required parameter: min, max, target_value",
+        std::move(callback));
+    return;
+  }
+  if (*min_val >= *max_val) {
+    controller_->SendError(400, "min must be less than max",
+                           std::move(callback));
+    return;
+  }
+  if (*target < *min_val || *target > *max_val) {
+    controller_->SendError(400, "target_value must be between min and max",
+                           std::move(callback));
+    return;
+  }
+
+  double ratio = (*target - *min_val) / (*max_val - *min_val);
+  double start_x, start_y, end_x, end_y;
+
+  if (*orientation == "horizontal") {
+    auto y = params.FindDouble("y");
+    auto x_start = params.FindDouble("x_start");
+    auto x_end = params.FindDouble("x_end");
+    auto current_x = params.FindDouble("current_x");
+    if (!y || !x_start || !x_end || !current_x) {
+      controller_->SendError(
+          400,
+          "horizontal orientation requires y, x_start, x_end, current_x",
+          std::move(callback));
+      return;
+    }
+    if (*x_start == *x_end) {
+      controller_->SendError(400, "x_start and x_end must be different",
+                             std::move(callback));
+      return;
+    }
+    double lo = std::min(*x_start, *x_end);
+    double hi = std::max(*x_start, *x_end);
+    if (*current_x < lo || *current_x > hi) {
+      controller_->SendError(
+          400, "current_x must be within track bounds (x_start to x_end)",
+          std::move(callback));
+      return;
+    }
+    double target_x = *x_start + ratio * (*x_end - *x_start);
+    target_x = std::clamp(target_x, lo, hi);
+    start_x = *current_x;
+    start_y = *y;
+    end_x = target_x;
+    end_y = *y;
+  } else {
+    auto x = params.FindDouble("x");
+    auto y_start = params.FindDouble("y_start");
+    auto y_end = params.FindDouble("y_end");
+    auto current_y = params.FindDouble("current_y");
+    if (!x || !y_start || !y_end || !current_y) {
+      controller_->SendError(
+          400,
+          "vertical orientation requires x, y_start, y_end, current_y",
+          std::move(callback));
+      return;
+    }
+    if (*y_start == *y_end) {
+      controller_->SendError(400, "y_start and y_end must be different",
+                             std::move(callback));
+      return;
+    }
+    double lo = std::min(*y_start, *y_end);
+    double hi = std::max(*y_start, *y_end);
+    if (*current_y < lo || *current_y > hi) {
+      controller_->SendError(
+          400, "current_y must be within track bounds (y_start to y_end)",
+          std::move(callback));
+      return;
+    }
+    double target_y = *y_start + ratio * (*y_end - *y_start);
+    target_y = std::clamp(target_y, lo, hi);
+    start_x = *x;
+    start_y = *current_y;
+    end_x = *x;
+    end_y = target_y;
+  }
+
+  // Build drag params and delegate to Drag()
+  base::Value::Dict drag_params;
+  drag_params.Set("start_x", start_x);
+  drag_params.Set("start_y", start_y);
+  drag_params.Set("end_x", end_x);
+  drag_params.Set("end_y", end_y);
+  drag_params.Set("steps", 10);
+
+  // Use Drag() which handles AbpActionContext lifecycle
+  Drag(tab_id, drag_params, std::move(callback));
+}
+
 void AbpInputDispatcher::DragNextStep(
     scoped_refptr<AbpActionContext> ctx,
     double start_x,
@@ -1594,6 +1706,69 @@ void AbpInputDispatcher::DragNextStepRaw(
             },
             std::move(callback)));
   }
+}
+
+void AbpInputDispatcher::SliderRaw(const std::string& tab_id,
+                                   const base::Value::Dict& params,
+                                   RawCallback callback) {
+  const std::string* orientation = params.FindString("orientation");
+  if (!orientation || (*orientation != "horizontal" && *orientation != "vertical")) {
+    std::move(callback).Run();
+    return;
+  }
+
+  auto min_val = params.FindDouble("min");
+  auto max_val = params.FindDouble("max");
+  auto target = params.FindDouble("target_value");
+  if (!min_val || !max_val || !target) {
+    std::move(callback).Run();
+    return;
+  }
+  if (*min_val >= *max_val) {
+    std::move(callback).Run();
+    return;
+  }
+
+  double ratio = (*target - *min_val) / (*max_val - *min_val);
+
+  base::Value::Dict drag_params;
+  drag_params.Set("steps", 10);
+
+  if (*orientation == "horizontal") {
+    auto y = params.FindDouble("y");
+    auto x_start = params.FindDouble("x_start");
+    auto x_end = params.FindDouble("x_end");
+    auto current_x = params.FindDouble("current_x");
+    if (!y || !x_start || !x_end || !current_x) {
+      std::move(callback).Run();
+      return;
+    }
+    double target_x = *x_start + ratio * (*x_end - *x_start);
+    target_x = std::clamp(target_x, std::min(*x_start, *x_end),
+                          std::max(*x_start, *x_end));
+    drag_params.Set("start_x", *current_x);
+    drag_params.Set("start_y", *y);
+    drag_params.Set("end_x", target_x);
+    drag_params.Set("end_y", *y);
+  } else {
+    auto x = params.FindDouble("x");
+    auto y_start = params.FindDouble("y_start");
+    auto y_end = params.FindDouble("y_end");
+    auto current_y = params.FindDouble("current_y");
+    if (!x || !y_start || !y_end || !current_y) {
+      std::move(callback).Run();
+      return;
+    }
+    double target_y = *y_start + ratio * (*y_end - *y_start);
+    target_y = std::clamp(target_y, std::min(*y_start, *y_end),
+                          std::max(*y_start, *y_end));
+    drag_params.Set("start_x", *x);
+    drag_params.Set("start_y", *current_y);
+    drag_params.Set("end_x", *x);
+    drag_params.Set("end_y", target_y);
+  }
+
+  DragRaw(tab_id, drag_params, std::move(callback));
 }
 
 }  // namespace abp

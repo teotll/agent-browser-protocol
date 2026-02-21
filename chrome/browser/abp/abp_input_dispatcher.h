@@ -83,6 +83,11 @@ class AbpInputDispatcher {
             const base::Value::Dict& params,
             ResponseCallback callback);
 
+  // Slider: calculate target position from logical value and drag to it
+  void Slider(const std::string& tab_id,
+              const base::Value::Dict& params,
+              ResponseCallback callback);
+
   // ========================================================================
   // Raw dispatch methods — dispatch input without creating an AbpActionContext.
   // Used by batch execution where a single action context wraps multiple
@@ -111,6 +116,9 @@ class AbpInputDispatcher {
   void DragRaw(const std::string& tab_id,
                const base::Value::Dict& params,
                RawCallback callback);
+  void SliderRaw(const std::string& tab_id,
+                 const base::Value::Dict& params,
+                 RawCallback callback);
 
  private:
   // Forward a native keyboard event to the renderer (bypasses CDP entirely).
