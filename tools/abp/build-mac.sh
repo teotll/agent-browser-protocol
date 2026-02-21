@@ -37,17 +37,10 @@ if [[ ! -f "$CHROMIUM_SRC/BUILD.gn" ]]; then
 fi
 
 BUILD_ARCH="${BUILD_ARCH:-all}"
-FORCE="${FORCE:-0}"
 
 build_arch() {
     local arch=$1
     local out_dir="out/Release-$arch"
-
-    # Skip if already built (unless --force)
-    if [[ "$FORCE" != "1" && -d "$CHROMIUM_SRC/$out_dir/ABP.app" ]]; then
-        echo "=== Skipping $arch build (already exists at $out_dir/ABP.app, set FORCE=1 to rebuild) ==="
-        return 0
-    fi
 
     echo "=== Building ABP Chrome for macOS ($arch) ==="
     echo "ABP Version: $ABP_VERSION"
