@@ -50,7 +50,7 @@ try {
 
         try {
             Write-Host "  [$elapsed] Attempting HTTP request..."
-            $response = Invoke-WebRequest -Uri "http://localhost:8222/api/v1/tabs" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+            $response = Invoke-WebRequest -Uri "http://localhost:8222/api/v1/tabs" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
             Write-Host "  [$elapsed] Got response: StatusCode=$($response.StatusCode)"
             if ($response.StatusCode -eq 200) {
                 Write-Host "ABP endpoint responding (HTTP 200)"
