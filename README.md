@@ -54,7 +54,7 @@ Less than 200ms overhead per action—including screenshots. The bottleneck is t
 
 ## ABP in Action
 
-<video src="demo/seattle_la_train.mp4" controls width="100%"></video>
+<video src="demo/seattle_la_train.mp4](https://github.com/user-attachments/assets/739d13ac-193a-4910-b347-7493f6da15a4" controls width="100%"></video>
 
 Notice the freezing of the spinners while the LLM is thinking. JavaScript and virtual time are paused between actions—the page waits for the agent, not the other way around.
 
@@ -86,7 +86,7 @@ Extensions can't fix this (sandboxed). CDP can't fix this (designed for DevTools
 
 ### 1. Download
 
-Download a pre-built binary from the [GitHub Releases](https://github.com/anthropics/anthropic-browser-protocol/releases) page.
+Download a pre-built binary from the [GitHub Releases](https://github.com/theredsix/agent-browser-protocol/releases) page.
 
 ### 2. Start ABP
 
