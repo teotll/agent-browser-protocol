@@ -87,6 +87,9 @@ class AbpMcpHandler {
   void CallBrowserShutdown(const base::Value::Dict& args,
                            base::Value request_id,
                            ResponseWithHeadersCallback callback);
+  void CallBrowserSlider(const base::Value::Dict& args,
+                         base::Value request_id,
+                         ResponseWithHeadersCallback callback);
 
   // Resolve tab_id from args, falling back to active tab
   std::string ResolveTabId(const base::Value::Dict& args);

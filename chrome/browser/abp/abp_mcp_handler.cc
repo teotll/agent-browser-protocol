@@ -199,48 +199,6 @@ base::Value::List GetToolDefinitions() {
       one_of.Append(std::move(variant));
     }
 
-    // mouse_slider: slider macro with orientation-discriminated params
-    {
-      base::Value::Dict variant;
-      variant.Set("type", "object");
-      base::Value::Dict props;
-      props.Set("type", make_const_type("mouse_slider"));
-
-      base::Value::Dict orient_prop;
-      orient_prop.Set("type", "string");
-      base::Value::List orient_enum;
-      orient_enum.Append("horizontal");
-      orient_enum.Append("vertical");
-      orient_prop.Set("enum", std::move(orient_enum));
-      orient_prop.Set("description",
-          "Slider orientation. Use 'horizontal' with y, x_start, x_end, "
-          "current_x. Use 'vertical' with x, y_start, y_end, current_y.");
-      props.Set("orientation", std::move(orient_prop));
-
-      props.Set("y", num_prop.Clone());
-      props.Set("x_start", num_prop.Clone());
-      props.Set("x_end", num_prop.Clone());
-      props.Set("current_x", num_prop.Clone());
-      props.Set("x", num_prop.Clone());
-      props.Set("y_start", num_prop.Clone());
-      props.Set("y_end", num_prop.Clone());
-      props.Set("current_y", num_prop.Clone());
-      props.Set("min", num_prop.Clone());
-      props.Set("max", num_prop.Clone());
-      props.Set("target_value", num_prop.Clone());
-
-      variant.Set("properties", std::move(props));
-      base::Value::List req;
-      req.Append("type");
-      req.Append("orientation");
-      req.Append("min");
-      req.Append("max");
-      req.Append("target_value");
-      variant.Set("required", std::move(req));
-      variant.Set("additionalProperties", false);
-      one_of.Append(std::move(variant));
-    }
-
     // -- actions array with oneOf items --
     base::Value::Dict actions_prop;
     actions_prop.Set("type", "array");
@@ -450,6 +408,46 @@ base::Value::List GetToolDefinitions() {
                        "Timeout before force quit in ms")
                    .Build());
 
+  // 13. browser_slider — standalone slider macro
+  tools.Append(
+      ToolBuilder("browser_slider")
+          .Description(
+              "Move a slider to a target value. Calculates the drag "
+              "from current thumb position to target position using "
+              "linear interpolation over the track geometry and value "
+              "range. Provide orientation ('horizontal' or 'vertical'), "
+              "track bounds, current thumb position, min/max values, "
+              "and target_value.")
+          .OptionalString("tab_id", "Target tab ID")
+          .RequiredString("orientation",
+              "Slider orientation: 'horizontal' (use y, x_start, x_end, "
+              "current_x) or 'vertical' (use x, y_start, y_end, current_y)")
+          .OptionalNumber("y",
+              "Y coordinate of horizontal slider track (required for "
+              "horizontal)")
+          .OptionalNumber("x_start",
+              "Left edge of horizontal track in pixels (required for "
+              "horizontal)")
+          .OptionalNumber("x_end",
+              "Right edge of horizontal track in pixels (required for "
+              "horizontal)")
+          .OptionalNumber("current_x",
+              "Current thumb X position in pixels (required for horizontal)")
+          .OptionalNumber("x",
+              "X coordinate of vertical slider track (required for vertical)")
+          .OptionalNumber("y_start",
+              "Top edge of vertical track in pixels (required for vertical)")
+          .OptionalNumber("y_end",
+              "Bottom edge of vertical track in pixels (required for "
+              "vertical)")
+          .OptionalNumber("current_y",
+              "Current thumb Y position in pixels (required for vertical)")
+          .RequiredNumber("min", "Minimum logical value of the slider")
+          .RequiredNumber("max", "Maximum logical value of the slider")
+          .RequiredNumber("target_value",
+              "Desired logical value to set the slider to")
+          .Build());
+
   return tools;
 }
 
@@ -492,13 +490,14 @@ Sometimes 500ms isn't enough for the page to finish loading (AJAX, animations, r
 
 Pass `markup: ["clickable", "typeable", "grid"]` to `browser_screenshot` to see labeled overlays on interactive elements. Each label shows the element's coordinates for targeting clicks and typing.
 
-## Tool Reference (12 tools)
+## Tool Reference (13 tools)
 
 All `tab_id` parameters are optional and default to the active tab.
 
 **Input:**
 - `browser_action` — 1-3 actions: mouse_click (x, y), keyboard_type (text), keyboard_press (key, modifiers?), mouse_hover (x, y), mouse_drag (start_x, start_y, end_x, end_y). Keys are ALL-CAPS (ENTER, TAB, ESCAPE, CONTROL, META, etc.). Abbreviations accepted: CTRL, CMD, ESC, DEL.
 - `browser_scroll` — x, y (where wheel fires), delta_x?, delta_y? (positive=down/right)
+- `browser_slider` — orientation (horizontal/vertical), track bounds, current position, min, max, target_value. Calculates and executes drag automatically.
 
 **Navigation:**
 - `browser_navigate` — url? OR action? (back, forward, reload)
@@ -750,6 +749,8 @@ void AbpMcpHandler::HandleToolsCall(const base::Value::Dict& params,
     CallBrowserGetStatus(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_shutdown") {
     CallBrowserShutdown(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_slider") {
+    CallBrowserSlider(*args, std::move(request_id), std::move(callback));
   } else {
     SendJsonRpcError(std::move(request_id), kMethodNotFound,
                      "Unknown tool: " + *name, std::move(callback));
@@ -1291,6 +1292,31 @@ void AbpMcpHandler::CallBrowserShutdown(const base::Value::Dict& args,
 
   controller_->HandleRequest(
       "POST", "/api/v1/browser/shutdown", body,
+      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                     weak_factory_.GetWeakPtr(), std::move(request_id),
+                     std::move(callback)));
+}
+
+// --- 13. browser_slider: standalone slider macro ---
+void AbpMcpHandler::CallBrowserSlider(const base::Value::Dict& args,
+                                      base::Value request_id,
+                                      ResponseWithHeadersCallback callback) {
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
+                     std::move(callback));
+    return;
+  }
+
+  base::Value::Dict body_dict = args.Clone();
+  body_dict.Remove("tab_id");
+
+  std::string body;
+  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
+
+  controller_->HandleRequest(
+      "POST", "/api/v1/tabs/" + tab_id + "/slider", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));

@@ -116,9 +116,6 @@ class AbpInputDispatcher {
   void DragRaw(const std::string& tab_id,
                const base::Value::Dict& params,
                RawCallback callback);
-  void SliderRaw(const std::string& tab_id,
-                 const base::Value::Dict& params,
-                 RawCallback callback);
 
  private:
   // Forward a native keyboard event to the renderer (bypasses CDP entirely).

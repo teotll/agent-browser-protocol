@@ -2790,8 +2790,6 @@ void DispatchBatchAction(base::Value::List actions,
     dispatcher->MoveRaw(tab_id, params, std::move(dispatch_next));
   } else if (*type == "mouse_drag") {
     dispatcher->DragRaw(tab_id, params, std::move(dispatch_next));
-  } else if (*type == "mouse_slider") {
-    dispatcher->SliderRaw(tab_id, params, std::move(dispatch_next));
   }
 }
 
@@ -2892,35 +2890,6 @@ void AbpController::HandleBatchRequest(
                 i, viewport.width(), viewport.height()));
         return;
       }
-    } else if (*type == "mouse_slider") {
-      const std::string* orient = action.FindString("orientation");
-      if (!orient || (*orient != "horizontal" && *orient != "vertical")) {
-        std::move(callback).Run(
-            400, "application/json",
-            base::StringPrintf(
-                R"({"error":"action %zu: mouse_slider orientation must be 'horizontal' or 'vertical'"})",
-                i));
-        return;
-      }
-      auto min_v = action.FindDouble("min");
-      auto max_v = action.FindDouble("max");
-      auto tgt = action.FindDouble("target_value");
-      if (!min_v || !max_v || !tgt) {
-        std::move(callback).Run(
-            400, "application/json",
-            base::StringPrintf(
-                R"({"error":"action %zu: mouse_slider requires min, max, target_value"})",
-                i));
-        return;
-      }
-      if (*min_v >= *max_v) {
-        std::move(callback).Run(
-            400, "application/json",
-            base::StringPrintf(
-                R"({"error":"action %zu: mouse_slider min must be less than max"})",
-                i));
-        return;
-      }
     } else if (*type == "keyboard_type") {
       if (!action.FindString("text")) {
         std::move(callback).Run(
@@ -2986,7 +2955,7 @@ void AbpController::HandleBatchRequest(
       std::move(callback).Run(
           400, "application/json",
           base::StringPrintf(
-              R"({"error":"action %zu: unknown type '%s'. Valid: mouse_click, keyboard_type, keyboard_press, mouse_hover, mouse_drag, mouse_slider"})",
+              R"({"error":"action %zu: unknown type '%s'. Valid: mouse_click, keyboard_type, keyboard_press, mouse_hover, mouse_drag"})",
               i, type->c_str()));
       return;
     }
