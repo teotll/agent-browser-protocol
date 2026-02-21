@@ -1,7 +1,6 @@
 # Agent Browser Protocol
 
-<img width="384" height="256" alt="ChatGPT Image Jan 25, 2026, 03_59_19 PM" src="https://github.com/user-attachments/assets/6cf0b584-b708-4c75-a146-dd49750e92f0" /> 
-
+<img width="384" height="256" alt="ChatGPT Image Jan 25, 2026, 03_59_19 PM" src="https://github.com/user-attachments/assets/6cf0b584-b708-4c75-a146-dd49750e92f0" />
 
 **Browsers are async. Agents are synchronous. ABP turns continuous browsing into discrete, atomic steps—so LLMs can reason about the web without racing against it.**
 
@@ -73,50 +72,35 @@ Extensions can't fix this (sandboxed). CDP can't fix this (designed for DevTools
 
 ## Quick Start
 
-### Pre-built Binaries (macOS)
+### 1. Download
 
-Download a signed and notarized build from the [`dist/`](dist/) folder:
+Download a pre-built binary from the [GitHub Releases](https://github.com/anthropics/anthropic-browser-protocol/releases) page.
 
-- **`abp-0.1.0-chrome-146.0.7635.0-mac-arm64.zip`** — Apple Silicon (M1/M2/M3/M4)
-- **`abp-0.1.0-chrome-146.0.7635.0-mac-universal.zip`** — Universal (Apple Silicon + Intel)
-
-Unzip and run:
-```bash
-unzip abp-0.1.0-chrome-146.0.7635.0-mac-arm64.zip
-./Chromium.app/Contents/MacOS/Chromium --enable-abp
-```
-
-### Run ABP Chromium
+### 2. Start ABP
 
 ```bash
-./chrome --enable-abp
+# macOS
+./ABP.app/Contents/MacOS/ABP --enable-abp
+
+# Linux
+./abp --enable-abp
 ```
 
-The REST API starts on `localhost:8222`. That's it.
+The API starts on `localhost:8222`.
 
-### Your First API Call
+### 3. Connect Claude Code
 
 ```bash
-# List open tabs
-curl http://localhost:8222/api/v1/tabs
-
-# Create a new tab and navigate
-curl -X POST http://localhost:8222/api/v1/tabs \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://news.ycombinator.com"}'
-
-# Click the first link (with element markup in response screenshot)
-curl -X POST http://localhost:8222/api/v1/tabs/{TAB_ID}/click \
-  -H "Content-Type: application/json" \
-  -d '{"x": 450, "y": 320, "screenshot": {"markup": "interactive"}}'
-
-# Type in a search box
-curl -X POST http://localhost:8222/api/v1/tabs/{TAB_ID}/type \
-  -H "Content-Type: application/json" \
-  -d '{"text": "Show HN"}'
+claude mcp add browser --transport streamable-http --url http://localhost:8222/mcp
 ```
 
-Every action returns a screenshot and event log automatically.
+Then ask Claude: *"Go to news.ycombinator.com and find the top post about AI."*
+
+> **Using other MCP clients?** See [docs/MCP.md](docs/MCP.md) for Claude Desktop, Codex, and generic setup.
+>
+> **Prefer REST?** See [docs/REST-API.md](docs/REST-API.md) for curl examples and the full API reference.
+>
+> **Building from source?** See [COMPILE.md](COMPILE.md) for macOS, Linux, and Windows.
 
 ---
 
@@ -160,18 +144,13 @@ Every action returns what the agent needs to make the next decision:
   "result": {"status": "clicked"},
   "screenshot_before": {
     "data": "base64-webp...",
-    "width": 1920,
-    "height": 1080
+    "width": 1920, "height": 1080
   },
   "screenshot_after": {
     "data": "base64-webp...",
-    "width": 1920,
-    "height": 1080
+    "width": 1920, "height": 1080
   },
-  "scroll": {
-    "vertical_percent": 25.5,
-    "page_height": 4700
-  },
+  "scroll": {"vertical_percent": 25.5, "page_height": 4700},
   "events": [
     {"type": "navigation", "data": {"url": "https://..."}}
   ]
@@ -194,29 +173,19 @@ Enabled by default with `--enable-abp`. Disable with `--abp-disable-pause`.
 
 ### 4. Element Markup
 
-Every action endpoint accepts a `screenshot` object to control how the response screenshot is captured. Request bounding boxes drawn around interactive elements:
+Request bounding boxes drawn around interactive elements in any action's response screenshot:
 
 ```bash
-# Markup on a click action—see what's clickable after the click completes
+# Markup on a click action
 curl -X POST http://localhost:8222/api/v1/tabs/{id}/click \
   -d '{"x": 450, "y": 320, "screenshot": {"markup": "interactive"}}'
 
-# Markup on navigation—identify form fields on the new page
+# Markup on navigation
 curl -X POST http://localhost:8222/api/v1/tabs/{id}/navigate \
   -d '{"url": "https://example.com", "screenshot": {"markup": "typeable"}}'
-
-# Standalone screenshot with markup
-curl -X POST http://localhost:8222/api/v1/tabs/{id}/screenshot \
-  -d '{"screenshot": {"markup": "interactive"}}'
 ```
 
-Markup options:
-- `interactive` - All clickable and typeable elements
-- `clickable` - Buttons, links, clickable elements
-- `typeable` - Text inputs, textareas, contenteditable
-- `inputs` - All form inputs
-
-Screenshot options are available on all action endpoints: `/click`, `/type`, `/navigate`, `/scroll`, `/keyboard/*`, and `/screenshot`. The response includes element metadata with center coordinates for clicking.
+Markup options: `interactive` (all clickable + typeable), `clickable`, `typeable`, `inputs`.
 
 ### 5. Virtual Cursor
 
@@ -229,13 +198,7 @@ File choosers, dialogs, and downloads are reported in the event stream:
 ```json
 {
   "events": [
-    {
-      "type": "dialog",
-      "data": {
-        "dialog_type": "confirm",
-        "message": "Delete this item?"
-      }
-    }
+    {"type": "dialog", "data": {"dialog_type": "confirm", "message": "Delete this item?"}}
   ]
 }
 ```
@@ -246,153 +209,29 @@ Handle them with dedicated endpoints:
 curl -X POST http://localhost:8222/api/v1/tabs/{id}/dialog/accept
 ```
 
----
+### 7. Session Recording for Agent Training
 
-## API Reference
+Every action is recorded to a SQLite database with before/after screenshots, parameters, results, timing, and success/failure status. Successful agent sessions become fine-tuning datasets for vision-language models.
 
-Base URL: `http://localhost:8222/api/v1`
+```
+Action #1: navigate("https://example.com")
+  ├── screenshot_before.webp
+  ├── params: {"url": "https://example.com"}
+  └── screenshot_after.webp
 
-### Browser and Tabs
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/browser/status` | Check if ABP is ready |
-| GET | `/tabs` | List all tabs |
-| GET | `/tabs/{id}` | Get tab details |
-| POST | `/tabs` | Create new tab |
-| DELETE | `/tabs/{id}` | Close tab |
-| POST | `/tabs/{id}/activate` | Switch to tab |
-
-### Navigation
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/tabs/{id}/navigate` | Go to URL |
-| POST | `/tabs/{id}/back` | Navigate back |
-| POST | `/tabs/{id}/forward` | Navigate forward |
-| POST | `/tabs/{id}/reload` | Reload page |
-| POST | `/tabs/{id}/stop` | Stop loading |
-
-### Input
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/tabs/{id}/click` | Click at coordinates |
-| POST | `/tabs/{id}/type` | Type text |
-| POST | `/tabs/{id}/keyboard/press` | Press key (with modifiers) |
-| POST | `/tabs/{id}/keyboard/down` | Key down |
-| POST | `/tabs/{id}/keyboard/up` | Key up |
-| POST | `/tabs/{id}/move` | Move mouse |
-| POST | `/tabs/{id}/scroll` | Scroll (wheel) |
-
-### Page Content
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/tabs/{id}/screenshot` | Get screenshot (binary WebP) |
-| POST | `/tabs/{id}/screenshot` | Get screenshot (action envelope) |
-| POST | `/tabs/{id}/execute` | Execute JavaScript |
-| POST | `/tabs/{id}/text` | Get page text |
-
-### Events and Dialogs
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/tabs/{id}/dialog` | Get pending dialog |
-| POST | `/tabs/{id}/dialog/accept` | Accept dialog |
-| POST | `/tabs/{id}/dialog/dismiss` | Dismiss dialog |
-| POST | `/file-chooser/{id}` | Provide files |
-
-### Execution Control
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/tabs/{id}/execution` | Get execution state |
-| POST | `/tabs/{id}/execution` | Pause/resume JavaScript |
-
-### Wait
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/tabs/{id}/wait` | Wait for duration (ms) |
-
-### Downloads
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/downloads` | List downloads |
-| GET | `/downloads/{id}` | Get download status |
-| POST | `/downloads/{id}/cancel` | Cancel download |
-
-### History
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/history/sessions` | List sessions |
-| GET | `/history/sessions/current` | Get current session |
-| GET | `/history/sessions/{id}` | Get session by ID |
-| GET | `/history/sessions/{id}/export` | Export session |
-| GET | `/history/actions` | List actions |
-| GET | `/history/actions/{id}` | Get action by ID |
-| GET | `/history/actions/{id}/screenshot` | Get action screenshot |
-| DELETE | `/history/actions` | Delete actions |
-| GET | `/history/events` | List events |
-| GET | `/history/events/{id}` | Get event by ID |
-| DELETE | `/history/events` | Delete events |
-| DELETE | `/history` | Delete all history |
-
-### Browser
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/browser/shutdown` | Graceful shutdown |
-
-See [plans/API.md](plans/API.md) for complete specification.
-
----
-
-## MCP Server
-
-The MCP server is embedded directly in Chrome—no separate process needed. It implements the MCP Streamable HTTP transport (protocol version 2025-03-26) at the `/mcp` endpoint.
-
-Configure in Claude Desktop (`claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "browser": {
-      "transport": "streamable-http",
-      "url": "http://localhost:8222/mcp"
-    }
-  }
-}
+Action #2: click(450, 320)
+  ├── screenshot_before.webp
+  ├── params: {"x": 450, "y": 320}
+  └── screenshot_after.webp
 ```
 
-Then ask Claude: "Go to news.ycombinator.com and find the top post about AI."
+Control session storage with `--abp-session-dir`:
 
-**Available tools (31 total):**
+```bash
+./abp --enable-abp --abp-session-dir=./datasets/session-001
+```
 
-*Tab Management:* `browser_list_tabs`, `browser_new_tab`, `browser_close_tab`, `browser_get_tab_info`, `browser_activate_tab`, `browser_stop_loading`
-
-*Navigation:* `browser_navigate`, `browser_go_back`, `browser_go_forward`, `browser_reload`
-
-*Mouse:* `browser_click`, `browser_mouse_move`, `browser_scroll`
-
-*Keyboard:* `browser_type`, `browser_keyboard_press`, `browser_keyboard_down`, `browser_keyboard_up`
-
-*Screenshots:* `browser_screenshot`
-
-*JavaScript & Content:* `browser_execute_javascript`, `browser_get_text`
-
-*Dialogs:* `browser_get_dialog`, `browser_accept_dialog`, `browser_dismiss_dialog`
-
-*Downloads:* `browser_list_downloads`, `browser_get_download`, `browser_cancel_download`
-
-*Files:* `browser_provide_files`
-
-*Execution Control:* `browser_get_execution_state`, `browser_set_execution_state`
-
-*Browser:* `browser_get_status`, `browser_shutdown`
+See [TRAINING.md](TRAINING.md) for the SQLite schema, `abp-debug` UI, and training pipeline examples.
 
 ---
 
@@ -407,39 +246,8 @@ Then ask Claude: "Go to news.ycombinator.com and find the top post about AI."
 | Action screenshots | Automatic | Manual | Manual | Manual |
 | Event detection | Built-in | Manual subscription | Manual | Manual |
 | Element markup | Built-in | No | No | No |
+| Session recording | Built-in | No | No | No |
 | Engine integration | Native C++ | Protocol wrapper | Protocol wrapper | Protocol wrapper |
-
----
-
-## Building from Source
-
-### Prerequisites
-
-1. Clone depot_tools:
-   ```bash
-   git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git ~/depot_tools
-   export PATH="$HOME/depot_tools:$PATH"
-   ```
-
-2. Install build dependencies (Ubuntu/Debian):
-   ```bash
-   sudo ./build/install-build-deps.sh --no-prompt
-   ```
-
-### Build
-
-```bash
-# Sync dependencies
-gclient sync --no-history
-
-# Configure
-gn gen out/Default --args='is_debug=true is_component_build=true symbol_level=1'
-
-# Build
-autoninja -C out/Default chrome
-```
-
-First build takes 4-6 hours. Incremental builds take seconds to minutes.
 
 ---
 
@@ -449,8 +257,12 @@ First build takes 4-6 hours. Incremental builds take seconds to minutes.
 |------|-------------|
 | `--enable-abp` | Enable ABP HTTP server |
 | `--abp-port=8222` | API port (default: 8222) |
-| `--abp-session-dir=PATH` | Session data directory |
+| `--abp-session-dir=PATH` | Session data directory (default: /tmp/abp-UUID) |
+| `--abp-config=PATH` | Config file path |
+| `--abp-window-size=W,H` | Window size (default: 1280,887) |
+| `--abp-zoom=FACTOR` | Zoom factor (default: 1.0) |
 | `--abp-disable-pause` | Disable automatic JS pause between actions |
+| `--allow-system-inputs` | Allow system input (ABP blocks by default) |
 
 ---
 
@@ -501,7 +313,7 @@ ABP is under active development. Current implementation:
 - History tracking with SQLite (sessions, actions, events)
 - Virtual cursor rendering (compositor layer)
 - Browser management (status, shutdown)
-- MCP server with 31 tools at `/mcp`
+- MCP server with 12 tools at `/mcp`
 
 **Not yet implemented:**
 - Action success/failure tracking
@@ -513,38 +325,13 @@ ABP is under active development. Current implementation:
 
 ## Testing
 
-ABP includes a comprehensive integration test suite validating core functionality.
-
-### Run Tests
-
-```bash
-# Start Chrome with ABP
-./out/Default/chrome --enable-abp
-
-# Start test page server (separate terminal)
-cd chrome/browser/abp/test_pages && python3 -m http.server 8081
-
-# Run integration tests (10 test cases)
-./run_tests.sh
-
-# Run MCP server tests (8 test cases)
-./tools/abp-mcp-test.sh
-```
-
-### Test Coverage
-
-| Category | Tests |
-|----------|-------|
-| Navigation | URL navigation, back/forward |
-| Input | Click, type, keyboard press |
-| Screenshots | Capture with element markup |
-| JavaScript | Execution and result retrieval |
-| Execution Control | Virtual time freeze (3 tests) |
-| MCP Server | Protocol compliance (8 tests) |
+ABP includes integration tests validating core functionality including navigation, input, screenshots, JavaScript execution, execution control, and MCP protocol compliance.
 
 See [TESTING.md](TESTING.md) for the complete test matrix, test page documentation, and guide for adding new tests.
 
----
+## REST API
+
+ABP also exposes a full REST API for direct HTTP integration. See [docs/REST-API.md](docs/REST-API.md) for the quick start and complete endpoint reference.
 
 ## Maintainers
 * Han Wang ([@theredsix](https://github.com/theredsix))
@@ -553,13 +340,9 @@ See [TESTING.md](TESTING.md) for the complete test matrix, test page documentati
 
 ABP is a substantial fork of Chromium. Contributions welcome, please reach out to a maintainer about contributing.
 
----
-
 ## License
 
 Chromium is licensed under the BSD 3-Clause License. ABP modifications follow the same license.
-
----
 
 ## Acknowledgments
 
