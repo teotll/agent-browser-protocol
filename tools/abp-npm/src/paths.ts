@@ -14,9 +14,9 @@ function getPackageRoot(): string {
 
 const PACKAGE_ROOT = getPackageRoot();
 
-export const ABP_VERSION = "0.1.0";
+export const ABP_VERSION = "0.1.1";
 export const CHROME_VERSION = "146.0.7635.0";
-export const GITHUB_REPO = "anthropics/anthropic-browser";
+export const GITHUB_REPO = "theredsix/agent-browser-protocol";
 
 export interface PlatformInfo {
   platform: string;
@@ -57,7 +57,7 @@ export function getPlatformInfo(): PlatformInfo {
 }
 
 export function getArchiveName(info: PlatformInfo): string {
-  return `abp-${ABP_VERSION}-chrome-${CHROME_VERSION}-${info.platform}-${info.arch}${info.archiveExt}`;
+  return `abp-${ABP_VERSION}-${info.platform}-${info.arch}${info.archiveExt}`;
 }
 
 export function getDownloadUrl(info: PlatformInfo): string {
