@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html><body>
+  <div style="margin:50px;">
+    <label>Horizontal: <span id="h-val">50</span></label><br>
+    <input type="range" id="h-slider" min="0" max="100" value="50"
+           style="width:400px;" oninput="document.getElementById('h-val').textContent=this.value">
+  </div>
+  <div style="margin:50px;">
+    <label>Vertical: <span id="v-val">50</span></label><br>
+    <input type="range" id="v-slider" min="0" max="100" value="50"
+           orient="vertical" style="height:400px;writing-mode:bt-lr;-webkit-appearance:slider-vertical;"
+           oninput="document.getElementById('v-val').textContent=this.value">
+  </div>
+</body></html>
