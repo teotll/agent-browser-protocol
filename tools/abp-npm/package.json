@@ -22,10 +22,13 @@
     "browsers/",
     ".claude-plugin/",
     ".mcp.json",
+    "skills/",
     "src/debug-ui.html"
   ],
   "scripts": {
     "build": "tsup",
+    "generate-skill": "node scripts/generate-skill.mjs",
+    "prebuild": "node scripts/generate-skill.mjs",
     "postinstall": "node dist/install.js",
     "typecheck": "tsc --noEmit"
   },
