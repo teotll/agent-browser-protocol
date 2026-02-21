@@ -1943,6 +1943,8 @@ void AbpController::HandleRequest(const std::string& method,
         Scroll(tab_id, params, std::move(callback));
       } else if (action == "drag") {
         Drag(tab_id, params, std::move(callback));
+      } else if (action == "slider") {
+        Slider(tab_id, params, std::move(callback));
       } else if (action == "activate") {
         ActivateTab(tab_id, std::move(callback));
       } else if (action == "stop") {
@@ -2689,6 +2691,12 @@ void AbpController::Drag(const std::string& tab_id,
   input_dispatcher_->Drag(tab_id, params, std::move(callback));
 }
 
+void AbpController::Slider(const std::string& tab_id,
+                           const base::Value::Dict& params,
+                           ResponseCallback callback) {
+  input_dispatcher_->Slider(tab_id, params, std::move(callback));
+}
+
 void AbpController::KeyPress(const std::string& tab_id,
                              const base::Value::Dict& params,
                              ResponseCallback callback) {
@@ -2782,6 +2790,8 @@ void DispatchBatchAction(base::Value::List actions,
     dispatcher->MoveRaw(tab_id, params, std::move(dispatch_next));
   } else if (*type == "mouse_drag") {
     dispatcher->DragRaw(tab_id, params, std::move(dispatch_next));
+  } else if (*type == "mouse_slider") {
+    dispatcher->SliderRaw(tab_id, params, std::move(dispatch_next));
   }
 }
 
@@ -2882,6 +2892,35 @@ void AbpController::HandleBatchRequest(
                 i, viewport.width(), viewport.height()));
         return;
       }
+    } else if (*type == "mouse_slider") {
+      const std::string* orient = action.FindString("orientation");
+      if (!orient || (*orient != "horizontal" && *orient != "vertical")) {
+        std::move(callback).Run(
+            400, "application/json",
+            base::StringPrintf(
+                R"({"error":"action %zu: mouse_slider orientation must be 'horizontal' or 'vertical'"})",
+                i));
+        return;
+      }
+      auto min_v = action.FindDouble("min");
+      auto max_v = action.FindDouble("max");
+      auto tgt = action.FindDouble("target_value");
+      if (!min_v || !max_v || !tgt) {
+        std::move(callback).Run(
+            400, "application/json",
+            base::StringPrintf(
+                R"({"error":"action %zu: mouse_slider requires min, max, target_value"})",
+                i));
+        return;
+      }
+      if (*min_v >= *max_v) {
+        std::move(callback).Run(
+            400, "application/json",
+            base::StringPrintf(
+                R"({"error":"action %zu: mouse_slider min must be less than max"})",
+                i));
+        return;
+      }
     } else if (*type == "keyboard_type") {
       if (!action.FindString("text")) {
         std::move(callback).Run(
@@ -2947,7 +2986,7 @@ void AbpController::HandleBatchRequest(
       std::move(callback).Run(
           400, "application/json",
           base::StringPrintf(
-              R"({"error":"action %zu: unknown type '%s'. Valid: mouse_click, keyboard_type, keyboard_press, mouse_hover, mouse_drag"})",
+              R"({"error":"action %zu: unknown type '%s'. Valid: mouse_click, keyboard_type, keyboard_press, mouse_hover, mouse_drag, mouse_slider"})",
               i, type->c_str()));
       return;
     }

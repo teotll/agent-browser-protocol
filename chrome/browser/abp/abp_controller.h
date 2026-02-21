@@ -424,6 +424,9 @@ class AbpController {
   void Drag(const std::string& tab_id,
             const base::Value::Dict& params,
             ResponseCallback callback);
+  void Slider(const std::string& tab_id,
+              const base::Value::Dict& params,
+              ResponseCallback callback);
   void KeyPress(const std::string& tab_id,
                 const base::Value::Dict& params,
                 ResponseCallback callback);
