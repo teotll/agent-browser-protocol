@@ -89,19 +89,27 @@ Extensions can't fix this (sandboxed). CDP can't fix this (designed for DevTools
 One command — installs the binary and auto-launches it when Claude Code needs it:
 
 ```bash
-claude plugin install agent-browser-protocol@npm
+claude plugin marketplace add theredsix/abp-npm
 ```
 
-### Option B: npm + MCP
+### Option B: npm + MCP (stdio)
 
 ```bash
-npm install agent-browser-protocol
-npx agent-browser-protocol
+npm install -g agent-browser-protocol
+claude mcp add browser -- npx -y agent-browser-protocol --mcp
+```
+
+### Option C: npm + MCP (streamable HTTP)
+
+```bash
+npx agent-browser-protocol                 # launches ABP on port 8222
 claude mcp add browser --transport streamable-http --url http://localhost:8222/mcp
 ```
 
 Then ask Claude: *"Go to news.ycombinator.com and find the top post about AI."*
 
+> **npm package details?** See [theredsix/abp-npm](https://github.com/theredsix/abp-npm) for the TypeScript SDK, plugin config, and debug server.
+>
 > **Using other MCP clients?** See [docs/MCP.md](docs/MCP.md) for Claude Desktop, Codex, and generic setup.
 >
 > **Prefer REST?** See [docs/REST-API.md](docs/REST-API.md) for curl examples and the full API reference.
