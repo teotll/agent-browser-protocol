@@ -269,6 +269,10 @@ See [TRAINING.md](TRAINING.md) for the SQLite schema, `abp-debug` UI, and traini
 | Session recording | Built-in | DevTools Recorder | Codegen + Trace | Selenium IDE |
 | Engine integration | Native C++ | Protocol wrapper | Protocol + browser patches | Protocol wrapper |
 | Runtime.enable required | No | Yes | Yes | N/A |
+| Input dispatch | Native (RenderWidgetHost) | CDP synthetic (Input.dispatch*) | CDP/Juggler synthetic | WebDriver → CDP synthetic |
+| Scroll method | Native wheel events | CDP Input.dispatchMouseEvent | CDP or JS scrollIntoView | JS or Actions API |
+| Compositor hit-testing | Yes (full input pipeline) | No (bypasses compositor) | No | No |
+| Blocks real user input | Yes (default) | No | No | No |
 
 ---
 
