@@ -84,28 +84,20 @@ Extensions can't fix this (sandboxed). CDP can't fix this (designed for DevTools
 
 ## Quick Start
 
-### 1. Install
+### Option A: Claude Code plugin
 
-```bash
-npm install agent-browser-protocol
-```
-
-### 2. Launch
-
-```bash
-npx agent-browser-protocol
-```
-
-### 3. Connect Claude Code
-
-```bash
-claude mcp add browser --transport streamable-http --url http://localhost:8222/mcp
-```
-
-Or install the Claude Code plugin for auto-launch:
+One command — installs the binary and auto-launches it when Claude Code needs it:
 
 ```bash
 claude plugin install agent-browser-protocol@npm
+```
+
+### Option B: npm + MCP
+
+```bash
+npm install agent-browser-protocol
+npx agent-browser-protocol
+claude mcp add browser --transport streamable-http --url http://localhost:8222/mcp
 ```
 
 Then ask Claude: *"Go to news.ycombinator.com and find the top post about AI."*
