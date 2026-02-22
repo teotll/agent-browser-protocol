@@ -18,145 +18,6 @@ if [[ -z "${ABP_VERSION:-}" ]]; then
 fi
 
 BUILD_ARCH="${BUILD_ARCH:-all}"
-SIGNING_IDENTITY="${SIGNING_IDENTITY:-Developer ID Application: Han Wang (72YUDGUH4G)}"
-ENTITLEMENTS="$CHROMIUM_SRC/chrome/app/app-entitlements.plist"
-
-# Notarization credentials (required unless SKIP_NOTARIZATION=1)
-# NOTARIZE_KEY       - Path to App Store Connect API key (.p8 file)
-# NOTARIZE_KEY_ID    - API key ID
-# NOTARIZE_ISSUER    - API key issuer ID (from App Store Connect > Users and Access > Integrations > Team Key)
-if [[ "${SKIP_NOTARIZATION:-}" != "1" && "${SKIP_SIGNING:-}" != "1" ]]; then
-    missing=()
-    [[ -z "${NOTARIZE_KEY:-}" ]] && missing+=("NOTARIZE_KEY")
-    [[ -z "${NOTARIZE_KEY_ID:-}" ]] && missing+=("NOTARIZE_KEY_ID")
-    [[ -z "${NOTARIZE_ISSUER:-}" ]] && missing+=("NOTARIZE_ISSUER")
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        echo "ERROR: Missing notarization environment variables: ${missing[*]}"
-        echo ""
-        echo "Required:"
-        echo "  NOTARIZE_KEY      - Path to App Store Connect API key (.p8 file)"
-        echo "  NOTARIZE_KEY_ID   - API key ID"
-        echo "  NOTARIZE_ISSUER   - API key issuer ID"
-        echo ""
-        echo "Generate at: App Store Connect > Users and Access > Integrations > Team Keys"
-        echo "Set SKIP_NOTARIZATION=1 to skip notarization."
-        exit 1
-    fi
-    # Expand ~ in path
-    NOTARIZE_KEY="${NOTARIZE_KEY/#\~/$HOME}"
-    if [[ ! -f "$NOTARIZE_KEY" ]]; then
-        echo "ERROR: API key file not found: $NOTARIZE_KEY"
-        exit 1
-    fi
-fi
-
-sign_app() {
-    local build_dir=$1
-    local app="$build_dir/ABP.app"
-
-    echo ">>> Signing $app..."
-    echo "    Identity: $SIGNING_IDENTITY"
-
-    if [[ ! -d "$app" ]]; then
-        echo "ERROR: ABP.app not found at $app"
-        exit 1
-    fi
-
-    # Sign from inside out: helpers first, then framework, then main app
-
-    # Sign helper apps (Alerts, GPU, Plugin, Renderer, etc.)
-    while IFS= read -r helper; do
-        echo "    Signing helper: $(basename "$helper")"
-        codesign --force --options runtime --timestamp \
-            --entitlements "$ENTITLEMENTS" \
-            --sign "$SIGNING_IDENTITY" "$helper"
-    done < <(find "$app/Contents/Frameworks" -name "*.app" -maxdepth 5)
-
-    # Sign all dylibs and .so files
-    while IFS= read -r lib; do
-        codesign --force --options runtime --timestamp \
-            --sign "$SIGNING_IDENTITY" "$lib"
-    done < <(find "$app" -name "*.dylib" -o -name "*.so")
-
-    # Sign all standalone Mach-O executables inside the framework
-    # (e.g. chrome_crashpad_handler, app_mode_loader, web_app_shortcut_copier)
-    # These must be signed BEFORE the framework bundle itself
-    local framework_dir="$app/Contents/Frameworks/ABP Framework.framework"
-    local framework_name="ABP Framework"
-    while IFS= read -r exe; do
-        local rel="${exe#$framework_dir/}"
-        # Skip files inside .app bundles (already signed above)
-        [[ "$rel" == *".app/"* ]] && continue
-        # Skip dylibs/so (already signed above)
-        [[ "$exe" == *.dylib ]] && continue
-        [[ "$exe" == *.so ]] && continue
-        # Skip the main framework binary (signed with the .framework bundle below)
-        [[ "$(basename "$exe")" == "$framework_name" ]] && continue
-        if file "$exe" | grep -q "Mach-O"; then
-            echo "    Signing executable: $(basename "$exe")"
-            codesign --force --options runtime --timestamp \
-                --sign "$SIGNING_IDENTITY" "$exe"
-        fi
-    done < <(find "$framework_dir" -type f -perm -u+x 2>/dev/null)
-
-    # Sign the framework
-    local framework="$app/Contents/Frameworks/ABP Framework.framework"
-    if [[ -d "$framework" ]]; then
-        echo "    Signing framework: ABP Framework.framework"
-        codesign --force --options runtime --timestamp \
-            --entitlements "$ENTITLEMENTS" \
-            --sign "$SIGNING_IDENTITY" "$framework"
-    fi
-
-    # Sign the main app bundle
-    echo "    Signing main app: ABP.app"
-    codesign --force --options runtime --timestamp \
-        --entitlements "$ENTITLEMENTS" \
-        --sign "$SIGNING_IDENTITY" "$app"
-
-    # Verify signature
-    echo "    Verifying signature..."
-    codesign --verify --deep --strict "$app"
-    echo "    Signature valid."
-}
-
-notarize_app() {
-    local build_dir=$1
-    local arch=$2
-    local app="$build_dir/ABP.app"
-    local notarize_zip="$build_dir/ABP-notarize.zip"
-
-    echo ">>> Notarizing $app..."
-
-    if [[ ! -d "$app" ]]; then
-        echo "ERROR: ABP.app not found at $app"
-        exit 1
-    fi
-
-    # Create a zip for notarization submission (separate from distribution zip)
-    echo "    Creating submission archive..."
-    ditto -c -k --keepParent "$app" "$notarize_zip"
-
-    # Submit for notarization
-    echo "    Submitting to Apple notary service..."
-    xcrun notarytool submit "$notarize_zip" \
-        --key "$NOTARIZE_KEY" \
-        --key-id "$NOTARIZE_KEY_ID" \
-        --issuer "$NOTARIZE_ISSUER" \
-        --wait
-
-    # Clean up submission zip
-    rm -f "$notarize_zip"
-
-    # Staple the notarization ticket to the app
-    echo "    Stapling notarization ticket..."
-    xcrun stapler staple "$app"
-
-    # Verify staple
-    echo "    Verifying notarization..."
-    xcrun stapler validate "$app"
-    echo "    Notarization complete."
-}
 
 release_arch() {
     local arch=$1
@@ -186,22 +47,13 @@ release_arch() {
         fi
     fi
 
-    # Sign
+    # Sign + Notarize
     if [[ "${SKIP_SIGNING:-}" == "1" ]]; then
         echo ""
         echo ">>> Signing SKIPPED (SKIP_SIGNING=1)"
     else
         echo ""
-        sign_app "$build_dir"
-    fi
-
-    # Notarize (requires signing)
-    if [[ "${SKIP_NOTARIZATION:-}" == "1" || "${SKIP_SIGNING:-}" == "1" ]]; then
-        echo ""
-        echo ">>> Notarization SKIPPED"
-    else
-        echo ""
-        notarize_app "$build_dir" "$arch"
+        "$SCRIPT_DIR/sign-mac.sh" "$build_dir"
     fi
 
     # Package (after notarization so the stapled ticket is included in the zip)
@@ -254,22 +106,13 @@ case "$BUILD_ARCH" in
                 fi
             fi
 
-            # Sign
+            # Sign + Notarize
             if [[ "${SKIP_SIGNING:-}" == "1" ]]; then
                 echo ""
                 echo ">>> Signing SKIPPED (SKIP_SIGNING=1)"
             else
                 echo ""
-                sign_app "$local_build_dir"
-            fi
-
-            # Notarize
-            if [[ "${SKIP_NOTARIZATION:-}" == "1" || "${SKIP_SIGNING:-}" == "1" ]]; then
-                echo ""
-                echo ">>> Notarization SKIPPED"
-            else
-                echo ""
-                notarize_app "$local_build_dir" "$arch"
+                "$SCRIPT_DIR/sign-mac.sh" "$local_build_dir"
             fi
 
             # Package (after notarization so stapled ticket is included)
