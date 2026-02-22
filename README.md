@@ -48,7 +48,7 @@ A Chromium fork with a MCP + REST API built directly into the browser engine. On
 No WebSocket. No CDP session management. No Puppeteer abstraction layers.
 Just `curl http://localhost:8222/api/v1/tabs` and you're in.
 
-Less than 200ms overhead per action—including screenshots. The bottleneck is the LLM, not the browser.
+Less than 100ms overhead per action—including screenshots. The bottleneck is the LLM, not the browser.
 
 ---
 
