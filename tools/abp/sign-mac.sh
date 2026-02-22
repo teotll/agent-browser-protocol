@@ -29,6 +29,8 @@ fi
 
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-Developer ID Application: Han Wang (72YUDGUH4G)}"
 ENTITLEMENTS="$CHROMIUM_SRC/chrome/app/app-entitlements.plist"
+ENTITLEMENTS_RENDERER="$CHROMIUM_SRC/chrome/app/helper-renderer-entitlements.plist"
+ENTITLEMENTS_GPU="$CHROMIUM_SRC/chrome/app/helper-gpu-entitlements.plist"
 
 # Validate notarization credentials upfront
 if [[ "${SKIP_NOTARIZATION:-}" != "1" ]]; then
@@ -71,11 +73,19 @@ echo ">>> Signing $APP..."
 
 # Sign from inside out: helpers first, then framework, then main app
 
-# Sign helper apps (Alerts, GPU, Plugin, Renderer, etc.)
+# Sign helper apps with per-helper entitlements
+# Renderer and GPU helpers need com.apple.security.cs.allow-jit for V8 JIT
 while IFS= read -r helper; do
-    echo "    Signing helper: $(basename "$helper")"
+    helper_name="$(basename "$helper")"
+    echo "    Signing helper: $helper_name"
+    helper_ent="$ENTITLEMENTS"
+    if [[ "$helper_name" == *"Renderer"* ]]; then
+        helper_ent="$ENTITLEMENTS_RENDERER"
+    elif [[ "$helper_name" == *"GPU"* ]]; then
+        helper_ent="$ENTITLEMENTS_GPU"
+    fi
     codesign --force --options runtime --timestamp \
-        --entitlements "$ENTITLEMENTS" \
+        --entitlements "$helper_ent" \
         --sign "$SIGNING_IDENTITY" "$helper"
 done < <(find "$APP/Contents/Frameworks" -name "*.app" -maxdepth 5)
 

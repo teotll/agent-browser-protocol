@@ -41,13 +41,14 @@ Sometimes 500ms isn't enough for the page to finish loading (AJAX, animations, r
 
 Pass `markup: ["clickable", "typeable", "grid"]` to `browser_screenshot` to see labeled overlays on interactive elements. Each label shows the element's coordinates for targeting clicks and typing.
 
-## Tool Reference (12 tools)
+## Tool Reference (13 tools)
 
 All `tab_id` parameters are optional and default to the active tab.
 
 **Input:**
 - `browser_action` — 1-3 actions: mouse_click (x, y), keyboard_type (text), keyboard_press (key, modifiers?), mouse_hover (x, y), mouse_drag (start_x, start_y, end_x, end_y). Keys are ALL-CAPS (ENTER, TAB, ESCAPE, CONTROL, META, etc.). Abbreviations accepted: CTRL, CMD, ESC, DEL.
 - `browser_scroll` — x, y (where wheel fires), delta_x?, delta_y? (positive=down/right)
+- `browser_slider` — orientation (horizontal/vertical), track bounds, current position, min, max, target_value. Calculates and executes drag automatically.
 
 **Navigation:**
 - `browser_navigate` — url? OR action? (back, forward, reload)

@@ -1,15 +1,29 @@
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 function getPackageRoot(): string {
-  // Works in both ESM and CJS bundles
+  // Walk up from the running file to find the directory containing package.json.
+  // This works regardless of bundle depth (dist/install.js vs dist/bin/abp.js).
+  let dir: string;
   try {
-    const dir = path.dirname(fileURLToPath(import.meta.url));
-    return path.resolve(dir, "..");
+    dir = path.dirname(fileURLToPath(import.meta.url));
   } catch {
     // CJS fallback: __dirname is injected by bundler
-    return path.resolve(__dirname, "..");
+    dir = __dirname;
   }
+
+  let current = dir;
+  for (let i = 0; i < 5; i++) {
+    if (fs.existsSync(path.join(current, "package.json"))) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  // Fallback: assume one level up (original behavior)
+  return path.resolve(dir, "..");
 }
 
 const PACKAGE_ROOT = getPackageRoot();

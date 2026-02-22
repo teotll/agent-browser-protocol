@@ -351,3 +351,4 @@ third_party/rust/target/
 # Trace files created when using --trace-startup.
 **/chrometrace.log
 sessions/
+/tools/abp-package-test/

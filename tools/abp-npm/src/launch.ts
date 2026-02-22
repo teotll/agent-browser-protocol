@@ -58,6 +58,7 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
     `--abp-port=${port}`,
     "--no-first-run",
     "--no-default-browser-check",
+    "--use-mock-keychain",
   ];
 
   if (windowSize) {
