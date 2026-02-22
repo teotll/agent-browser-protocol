@@ -5163,12 +5163,214 @@ void AbpController::HandleFileChooser(const std::string& chooser_id,
   const base::Value::List* files = params.FindList("files");
   const std::string* save_path = params.FindString("path");
 
-  if (!files && !save_path) {
-    SendError(400, "Must provide 'files' array or 'path' for save dialog",
+  // Check for content_files (base64-encoded file data)
+  const base::Value::List* content_files = params.FindList("content_files");
+
+  if (!files && !save_path && !content_files) {
+    SendError(400,
+              "Must provide 'files' array, 'content_files' array, "
+              "or 'path' for save dialog",
               std::move(callback));
     return;
   }
 
+  // Parse max_size (default 10MB)
+  int64_t max_size = 10 * 1024 * 1024;
+  if (auto ms = params.FindDouble("max_size")) {
+    max_size = static_cast<int64_t>(*ms);
+  }
+
+  // If content_files present, decode and write to temp files first
+  if (content_files && !content_files->empty()) {
+    // Validate and decode all content_files upfront
+    // Using pair<filename, data> to avoid local struct template deduction issues
+    std::vector<std::pair<std::string, std::vector<uint8_t>>> pending;
+
+    for (size_t i = 0; i < content_files->size(); i++) {
+      if (!(*content_files)[i].is_dict()) {
+        SendError(400, "content_files[" + base::NumberToString(i) +
+                           "]: must be an object",
+                  std::move(callback));
+        return;
+      }
+      const base::Value::Dict& cf = (*content_files)[i].GetDict();
+
+      const std::string* fn = cf.FindString("filename");
+      if (!fn || fn->empty()) {
+        SendError(400, "content_files[" + base::NumberToString(i) +
+                           "]: missing 'filename'",
+                  std::move(callback));
+        return;
+      }
+
+      const std::string* data_b64 = cf.FindString("data");
+      if (!data_b64 || data_b64->empty()) {
+        SendError(400, "content_files[" + base::NumberToString(i) +
+                           "]: missing 'data'",
+                  std::move(callback));
+        return;
+      }
+
+      std::optional<std::vector<uint8_t>> decoded =
+          base::Base64Decode(*data_b64);
+      if (!decoded) {
+        SendError(400, "content_files[" + base::NumberToString(i) +
+                           "]: invalid base64 data",
+                  std::move(callback));
+        return;
+      }
+
+      if (static_cast<int64_t>(decoded->size()) > max_size) {
+        SendError(413,
+                  "content_files[" + base::NumberToString(i) +
+                      "]: file too large (" +
+                      base::NumberToString(decoded->size()) +
+                      " bytes, max " + base::NumberToString(max_size) + ")",
+                  std::move(callback));
+        return;
+      }
+
+      pending.emplace_back(*fn, std::move(*decoded));
+    }
+
+    // Collect existing file paths
+    std::vector<std::string> existing_paths;
+    if (files) {
+      for (const auto& file : *files) {
+        if (file.is_string()) {
+          existing_paths.push_back(file.GetString());
+        }
+      }
+    }
+
+    // Write temp files on thread pool, then continue on UI thread
+    base::FilePath uploads_dir = session_dir_.AppendASCII("uploads");
+    std::string tab_id_copy = *tab_id;
+
+    auto task_runner = base::ThreadPool::CreateTaskRunner(
+        {base::MayBlock(), base::TaskPriority::USER_VISIBLE});
+    task_runner->PostTaskAndReplyWithResult(
+        FROM_HERE,
+        base::BindOnce(
+            [](base::FilePath uploads_dir,
+               std::vector<std::pair<std::string, std::vector<uint8_t>>>
+                   pending) -> std::optional<std::vector<std::string>> {
+              // Create uploads dir
+              if (!base::CreateDirectory(uploads_dir))
+                return std::nullopt;
+
+              std::vector<std::string> paths;
+              for (const auto& pf : pending) {
+                // Use unique prefix to avoid collisions
+                std::string unique_name =
+                    base::NumberToString(
+                        base::Time::Now().InMillisecondsSinceUnixEpoch()) +
+                    "_" + pf.first;
+                base::FilePath dest = uploads_dir.AppendASCII(unique_name);
+                if (!base::WriteFile(dest, pf.second))
+                  return std::nullopt;
+                paths.push_back(dest.AsUTF8Unsafe());
+              }
+              return paths;
+            },
+            uploads_dir, std::move(pending)),
+        base::BindOnce(
+            [](base::WeakPtr<AbpController> self, std::string chooser_id,
+               std::string tab_id_str, std::vector<std::string> existing_paths,
+               ResponseCallback cb,
+               std::optional<std::vector<std::string>> temp_paths) {
+              if (!self) {
+                std::move(cb).Run(500, "application/json",
+                                 R"({"error":"Controller destroyed"})");
+                return;
+              }
+
+              if (!temp_paths) {
+                self->SendError(500, "Failed to write temp files",
+                                std::move(cb));
+                return;
+              }
+
+              // Merge paths: existing + temp
+              std::vector<std::string> all_paths = std::move(existing_paths);
+              std::vector<std::string> temps = std::move(*temp_paths);
+              all_paths.insert(all_paths.end(), temps.begin(), temps.end());
+
+              // Build CDP params
+              content::WebContents* wc =
+                  self->FindWebContents(tab_id_str);
+              if (!wc) {
+                self->SendError(404, "Tab not found", std::move(cb));
+                return;
+              }
+              AbpCdpClient* client = self->GetOrCreateCdpClient(wc);
+              if (!client) {
+                self->SendError(500, "Failed to get CDP client",
+                                std::move(cb));
+                return;
+              }
+
+              base::Value::Dict cdp_params;
+              cdp_params.Set("action", "accept");
+              base::Value::List file_list;
+              for (const auto& p : all_paths) {
+                file_list.Append(p);
+              }
+              cdp_params.Set("files", std::move(file_list));
+
+              // Send CDP command, clean up temp files after
+              client->SendCommand(
+                  "Page.handleFileChooser", std::move(cdp_params),
+                  base::BindOnce(
+                      [](base::WeakPtr<AbpController> weak_this,
+                         std::string cid, std::vector<std::string> temp_files,
+                         ResponseCallback callback, bool success,
+                         const std::string& result) {
+                        if (weak_this)
+                          weak_this->pending_file_choosers_.erase(cid);
+
+                        // Clean up temp files on thread pool
+                        base::ThreadPool::PostTask(
+                            FROM_HERE,
+                            {base::MayBlock(),
+                             base::TaskPriority::BEST_EFFORT},
+                            base::BindOnce(
+                                [](std::vector<std::string> paths) {
+                                  for (const auto& p : paths) {
+                                    base::DeleteFile(base::FilePath(p));
+                                  }
+                                },
+                                std::move(temp_files)));
+
+                        if (!weak_this) {
+                          std::move(callback).Run(
+                              500, "application/json",
+                              R"({"error":"Controller destroyed"})");
+                          return;
+                        }
+
+                        if (!success) {
+                          weak_this->SendError(
+                              500, "Failed to handle file chooser",
+                              std::move(callback));
+                          return;
+                        }
+
+                        base::Value::Dict response;
+                        response.Set("success", true);
+                        weak_this->SendJson(
+                            200, base::Value(std::move(response)),
+                            std::move(callback));
+                      },
+                      self, chooser_id, std::move(temps),
+                      std::move(cb)));
+            },
+            weak_factory_.GetWeakPtr(), chooser_id, std::move(tab_id_copy),
+            std::move(existing_paths), std::move(callback)));
+    return;
+  }
+
+  // Original path-based flow (unchanged from here)
   base::Value::Dict cdp_params;
   cdp_params.Set("action", "accept");
 
