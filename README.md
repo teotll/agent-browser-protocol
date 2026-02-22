@@ -84,21 +84,17 @@ Extensions can't fix this (sandboxed). CDP can't fix this (designed for DevTools
 
 ## Quick Start
 
-### 1. Download
-
-Download a pre-built binary from the [GitHub Releases](https://github.com/theredsix/agent-browser-protocol/releases) page.
-
-### 2. Start ABP
+### 1. Install
 
 ```bash
-# macOS
-./ABP.app/Contents/MacOS/ABP --enable-abp
-
-# Linux
-./abp --enable-abp
+npm install agent-browser-protocol
 ```
 
-The API starts on `localhost:8222`.
+### 2. Launch
+
+```bash
+npx agent-browser-protocol
+```
 
 ### 3. Connect Claude Code
 
@@ -106,11 +102,19 @@ The API starts on `localhost:8222`.
 claude mcp add browser --transport streamable-http --url http://localhost:8222/mcp
 ```
 
+Or install the Claude Code plugin for auto-launch:
+
+```bash
+claude plugin install agent-browser-protocol@npm
+```
+
 Then ask Claude: *"Go to news.ycombinator.com and find the top post about AI."*
 
 > **Using other MCP clients?** See [docs/MCP.md](docs/MCP.md) for Claude Desktop, Codex, and generic setup.
 >
 > **Prefer REST?** See [docs/REST-API.md](docs/REST-API.md) for curl examples and the full API reference.
+>
+> **Manual binary download?** See [MANUAL_INSTALL.md](MANUAL_INSTALL.md) for direct download and launch instructions.
 >
 > **Building from source?** See [COMPILE.md](COMPILE.md) for macOS, Linux, and Windows.
 
@@ -181,7 +185,7 @@ curl -X POST http://localhost:8222/api/v1/tabs/{id}/execution \
   -d '{"paused": true}'
 ```
 
-Enabled by default with `--enable-abp`. Disable with `--abp-disable-pause`.
+Enabled by default. Disable with `--abp-disable-pause`.
 
 ### 4. Element Markup
 
@@ -240,7 +244,7 @@ Action #2: click(450, 320)
 Control session storage with `--abp-session-dir`:
 
 ```bash
-./abp --enable-abp --abp-session-dir=./datasets/session-001
+./abp --abp-session-dir=./datasets/session-001
 ```
 
 See [TRAINING.md](TRAINING.md) for the SQLite schema, `abp-debug` UI, and training pipeline examples.
@@ -267,7 +271,6 @@ See [TRAINING.md](TRAINING.md) for the SQLite schema, `abp-debug` UI, and traini
 
 | Flag | Description |
 |------|-------------|
-| `--enable-abp` | Enable ABP HTTP server |
 | `--abp-port=8222` | API port (default: 8222) |
 | `--abp-session-dir=PATH` | Session data directory (default: /tmp/abp-UUID) |
 | `--abp-config=PATH` | Config file path |

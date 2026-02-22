@@ -10,12 +10,12 @@ The Agent Browser Protocol (ABP) exposes a REST API on `localhost:8222` for AI a
 
 **macOS:**
 ```bash
-./ABP.app/Contents/MacOS/ABP --enable-abp
+./ABP.app/Contents/MacOS/ABP
 ```
 
 **Linux:**
 ```bash
-./abp --enable-abp
+./abp
 ```
 
 ### 2. Verify the browser is ready
