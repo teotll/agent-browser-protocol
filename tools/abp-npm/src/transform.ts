@@ -24,6 +24,10 @@ export async function transformMcpResponse(
       transformed.result.content.push(await scaleImage(item));
     } else if (item.type === "text" && typeof item.text === "string") {
       transformed.result.content.push(truncateText(item));
+    } else if (item.type === "resource" && item.resource) {
+      // EmbeddedResource (BlobResourceContents) — pass through unchanged.
+      // Size is already bounded by max_size on the server side.
+      transformed.result.content.push(item);
     } else {
       transformed.result.content.push(item);
     }
