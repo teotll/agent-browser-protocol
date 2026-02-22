@@ -86,10 +86,12 @@ Extensions can't fix this (sandboxed). CDP can't fix this (designed for DevTools
 
 ### Option A: Claude Code plugin
 
-One command — installs the binary and auto-launches it when Claude Code needs it:
+Three commands — adds the marketplace, installs the plugin, and downloads the browser binary:
 
 ```bash
 claude plugin marketplace add theredsix/abp-npm
+claude plugin install agent-browser-protocol
+npx -y agent-browser-protocol --setup   # downloads browser binary (~130MB)
 ```
 
 ### Option B: npm + MCP (stdio)
