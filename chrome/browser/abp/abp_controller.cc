@@ -2110,6 +2110,32 @@ void AbpController::HandleRequest(const std::string& method,
       }
       return;
     }
+    if (segments.size() == 5 && segments[4] == "content") {
+      // GET /api/v1/downloads/{id}/content
+      const std::string& download_id = segments[3];
+      if (method == "GET") {
+        // Parse max_size from query string (default 10MB)
+        int64_t max_size = 10 * 1024 * 1024;
+        size_t query_pos = path.find('?');
+        if (query_pos != std::string::npos) {
+          std::string query = path.substr(query_pos + 1);
+          size_t ms_pos = query.find("max_size=");
+          if (ms_pos != std::string::npos) {
+            std::string ms_str = query.substr(ms_pos + 9);
+            size_t end = ms_str.find('&');
+            if (end != std::string::npos)
+              ms_str = ms_str.substr(0, end);
+            int64_t parsed;
+            if (base::StringToInt64(ms_str, &parsed) && parsed > 0)
+              max_size = parsed;
+          }
+        }
+        HandleDownloadContent(download_id, max_size, std::move(callback));
+      } else {
+        SendError(405, "Method not allowed", std::move(callback));
+      }
+      return;
+    }
   }
 
   SendError(404, "Not found", std::move(callback));
@@ -5492,6 +5518,10 @@ void AbpController::SetEventObserver(AbpEventObserver* observer) {
   event_observer_ = observer;
 }
 
+void AbpController::SetSessionDir(const base::FilePath& session_dir) {
+  session_dir_ = session_dir;
+}
+
 void AbpController::ListDownloads(const std::string& query,
                                   ResponseCallback callback) {
   if (!download_observer_) {
@@ -5598,6 +5628,92 @@ void AbpController::CancelDownload(const std::string& download_id,
     SendError(400, "Failed to cancel download (may be already completed)",
               std::move(callback));
   }
+}
+
+void AbpController::HandleDownloadContent(const std::string& download_id,
+                                          int64_t max_size,
+                                          ResponseCallback callback) {
+  if (!download_observer_) {
+    SendError(503, "Download observer not available", std::move(callback));
+    return;
+  }
+
+  auto download = download_observer_->GetDownload(download_id);
+  if (!download) {
+    SendError(404, "Download not found", std::move(callback));
+    return;
+  }
+
+  if (download->state != "completed") {
+    SendError(400, "Download not completed (state: " + download->state + ")",
+              std::move(callback));
+    return;
+  }
+
+  if (download->path.empty()) {
+    SendError(404, "Download file path not available", std::move(callback));
+    return;
+  }
+
+  base::FilePath file_path(download->path);
+  std::string mime = download->mime_type;
+  std::string filename = download->filename;
+  std::string dl_id = download->id;
+
+  // Read file on thread pool (file I/O must not block UI thread)
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+      base::BindOnce(
+          [](base::FilePath path, int64_t max_size)
+              -> std::optional<std::vector<uint8_t>> {
+            std::optional<int64_t> file_size = base::GetFileSize(path);
+            if (!file_size.has_value())
+              return std::nullopt;
+            if (*file_size > max_size)
+              return std::nullopt;
+            std::optional<std::vector<uint8_t>> data =
+                base::ReadFileToBytes(path);
+            return data;
+          },
+          file_path, max_size),
+      base::BindOnce(
+          [](base::WeakPtr<AbpController> self, ResponseCallback cb,
+             std::string mime, std::string filename, std::string dl_id,
+             base::FilePath file_path, int64_t max_size,
+             std::optional<std::vector<uint8_t>> data) {
+            if (!self) {
+              std::move(cb).Run(500, "application/json",
+                                R"({"error":"Controller destroyed"})");
+              return;
+            }
+
+            if (!data.has_value()) {
+              // Check if it was a size issue
+              std::optional<int64_t> file_size =
+                  base::GetFileSize(file_path);
+              if (file_size.has_value() && *file_size > max_size) {
+                self->SendError(
+                    413,
+                    "File too large (" +
+                        base::NumberToString(*file_size) +
+                        " bytes, max " +
+                        base::NumberToString(max_size) + ")",
+                    std::move(cb));
+              } else {
+                self->SendError(404, "Failed to read download file",
+                                std::move(cb));
+              }
+              return;
+            }
+
+            // Return raw binary with Content-Type
+            std::string content_type =
+                mime.empty() ? "application/octet-stream" : mime;
+            std::string body(data->begin(), data->end());
+            std::move(cb).Run(200, content_type, std::move(body));
+          },
+          weak_factory_.GetWeakPtr(), std::move(callback), std::move(mime),
+          std::move(filename), std::move(dl_id), file_path, max_size));
 }
 
 }  // namespace abp

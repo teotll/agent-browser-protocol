@@ -242,6 +242,9 @@ class AbpController {
   // event clients before closing tabs)
   void SetEventObserver(AbpEventObserver* observer);
 
+  // Set session directory (called by AbpHttpServer, used for temp file storage)
+  void SetSessionDir(const base::FilePath& session_dir);
+
   // Route incoming HTTP request to appropriate handler
   void HandleRequest(const std::string& method,
                      const std::string& path,
@@ -481,6 +484,9 @@ class AbpController {
                          ResponseCallback callback);
   void CancelDownload(const std::string& download_id,
                       ResponseCallback callback);
+  void HandleDownloadContent(const std::string& download_id,
+                             int64_t max_size,
+                             ResponseCallback callback);
 
   // CDP callbacks
   void OnExecuteScriptResult(ResponseCallback callback,
@@ -892,6 +898,9 @@ class AbpController {
 
   // Event observer (not owned - owned by AbpHttpServer)
   raw_ptr<AbpEventObserver> event_observer_ = nullptr;
+
+  // Session directory for temp file storage
+  base::FilePath session_dir_;
 
   // Event collector for capturing events during actions (owned)
   std::unique_ptr<AbpEventCollector> event_collector_;
