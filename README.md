@@ -261,13 +261,14 @@ See [TRAINING.md](TRAINING.md) for the SQLite schema, `abp-debug` UI, and traini
 |---------|-----|---------------|------------|----------|
 | REST API | Yes | No (WebSocket) | No (RPC) | Yes |
 | JS execution pause | Engine-level | Debugger | No | No |
-| Virtual time | Yes | No | No | No |
+| Virtual time | Yes | Partial (CDP only) | Partial (Clock API) | No |
 | Virtual cursor | Compositor | No | No | No |
 | Action screenshots | Automatic | Manual | Manual | Manual |
 | Event detection | Built-in | Manual subscription | Manual | Manual |
 | Element markup | Built-in | No | No | No |
-| Session recording | Built-in | No | No | No |
-| Engine integration | Native C++ | Protocol wrapper | Protocol wrapper | Protocol wrapper |
+| Session recording | Built-in | DevTools Recorder | Codegen + Trace | Selenium IDE |
+| Engine integration | Native C++ | Protocol wrapper | Protocol + browser patches | Protocol wrapper |
+| Runtime.enable required | No | Yes | Yes | N/A |
 
 ---
 
