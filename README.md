@@ -169,8 +169,8 @@ Every action returns what the agent needs to make the next decision:
   "scroll": {"vertical_percent": 25.5, "page_height": 4700},
   "events": [
     {"type": "navigation", "data": {"url": "https://..."}},
-    {"type": "dialog", "data": {"dialog_type": "confirm", "message": "Delete this item?"}},
-    {"type": "file_chooser", "data": {"chooser_id": "fc-1", "accept": ".pdf,.docx"}}
+    {"type": "dialog", "data": {"tab_id": "...", "dialog_type": "confirm", "message": "Delete this item?"}},
+    {"type": "file_chooser", "data": {"id": "fc_1", "tab_id": "...", "chooser_type": "open", "multiple": false, "accepts": [".pdf", ".docx"], "pending": true}}
   ]
 }
 ```
