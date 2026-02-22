@@ -6,7 +6,7 @@
 
 **Browsers are async. Agents are synchronous. ABP turns continuous browsing into discrete, atomic steps—so LLMs can reason about the web without racing against it.**
 
-A Chromium fork with a REST + MCP API built directly into the browser engine. One request = one completed step (settled state + screenshot + event log).
+A Chromium fork with a MCP + REST API built directly into the browser engine. One request = one completed step (settled state + screenshot + event log).
 
 ```
     AI Agent                                 ABP Chromium
