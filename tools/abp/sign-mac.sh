@@ -1,4 +1,8 @@
 #!/bin/bash
+# Copyright 2026 Han Wang. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
 # Sign and notarize ABP Chrome for macOS
 # Usage: ./sign-mac.sh <build_dir>
 #   e.g. ./sign-mac.sh out/Release-arm64

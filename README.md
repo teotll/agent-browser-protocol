@@ -358,7 +358,9 @@ ABP is a substantial fork of Chromium. Contributions welcome, please reach out t
 
 ## License
 
-Chromium is licensed under the BSD 3-Clause License. ABP modifications follow the same license.
+Copyright 2026 Han Wang. All rights reserved.
+
+Chromium is licensed under the BSD 3-Clause License. ABP modifications are Copyright 2026 Han Wang and follow the same license.
 
 ## Acknowledgments
 

@@ -43,6 +43,7 @@
     "type": "git",
     "url": "https://github.com/theredsix/agent-browser-protocol.git"
   },
+  "author": "Han Wang <han.wang.2718@gmail.com>",
   "license": "MIT",
   "engines": {
     "node": ">=18"

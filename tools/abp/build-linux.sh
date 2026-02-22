@@ -1,4 +1,8 @@
 #!/bin/bash
+# Copyright 2026 Han Wang. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
 # Build Chrome with ABP for Linux
 set -euo pipefail
 
