@@ -4,6 +4,7 @@
 
 #include "chrome/browser/abp/abp_mcp_handler.h"
 
+#include "base/base64.h"
 #include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
@@ -375,29 +376,42 @@ base::Value::List GetToolDefinitions() {
               "Text to enter for prompt dialogs (used with accept)")
           .Build());
 
-  // 9. browser_downloads — list/status/cancel
+  // 9. browser_downloads — list/status/cancel/content
   tools.Append(
       ToolBuilder("browser_downloads")
           .Description(
-              "Manage downloads. Default: list all downloads.")
+              "Manage downloads. Default: list all downloads. "
+              "Use action 'content' to retrieve a downloaded file's "
+              "binary content as a base64 blob.")
           .OptionalStringEnum("action", "Download action",
-                              {"list", "status", "cancel"})
+                              {"list", "status", "cancel", "content"})
           .OptionalString("download_id",
-              "Download ID (required for status/cancel)")
+              "Download ID (required for status/cancel/content)")
           .OptionalStringEnum("state", "Filter by download state (for list)",
               {"in_progress", "completed", "cancelled", "failed"})
           .OptionalNumber("limit",
               "Maximum number of downloads to return (for list)")
+          .OptionalNumber("max_size",
+              "Maximum file size in bytes to return (for content, "
+              "default 10MB)")
           .Build());
 
   // 10. browser_files
   tools.Append(ToolBuilder("browser_files")
                    .Description(
-                       "Provide files to a pending file chooser dialog")
+                       "Provide files to a pending file chooser dialog. "
+                       "Use 'files' for local paths or 'content_files' for "
+                       "base64-encoded file data (useful for remote clients). "
+                       "content_files format: [{\"filename\": \"name.pdf\", "
+                       "\"data\": \"<base64>\", \"mime_type\": \"...\"}]. "
+                       "Both can be used together.")
                    .RequiredString("chooser_id", "File chooser ID from event")
-                   .OptionalStringArray("files", "File paths to provide")
+                   .OptionalStringArray("files", "Local file paths to provide")
                    .OptionalString("path", "Save path for save dialogs")
                    .OptionalBoolean("cancel", "Cancel the file chooser")
+                   .OptionalNumber("max_size",
+                       "Maximum file size in bytes for content_files "
+                       "(default 10MB)")
                    .Build());
 
   // 11. browser_get_status
@@ -514,8 +528,8 @@ All `tab_id` parameters are optional and default to the active tab.
 
 **Situational:**
 - `browser_dialog` — action? (check, accept, dismiss; default: check), prompt_text?
-- `browser_downloads` — action? (list, status, cancel; default: list), download_id?, state?, limit?
-- `browser_files` — chooser_id (required), files?, path?, cancel?
+- `browser_downloads` — action? (list, status, cancel, content; default: list), download_id?, state?, limit?, max_size?. Use action:"content" with download_id to retrieve file bytes as base64 BlobResourceContents.
+- `browser_files` — chooser_id (required), files?, content_files?, path?, cancel?, max_size?. Use content_files for base64 uploads: [{filename, data, mime_type}].
 
 **Browser:**
 - `browser_get_status` — no params
@@ -1245,10 +1259,61 @@ void AbpMcpHandler::CallBrowserDownloads(const base::Value::Dict& args,
         base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                        weak_factory_.GetWeakPtr(), std::move(request_id),
                        std::move(callback)));
+  } else if (act == "content") {
+    const std::string* download_id = args.FindString("download_id");
+    if (!download_id) {
+      SendJsonRpcError(std::move(request_id), kInvalidParams,
+                       "Missing download_id for content action",
+                       std::move(callback));
+      return;
+    }
+
+    // Build query string for max_size
+    std::string content_path =
+        "/api/v1/downloads/" + *download_id + "/content";
+    if (auto max_size = args.FindDouble("max_size")) {
+      content_path += "?max_size=" +
+                      base::NumberToString(static_cast<int64_t>(*max_size));
+    }
+
+    std::string dl_id = *download_id;
+
+    // Fetch metadata first to get filename, then fetch content
+    controller_->HandleRequest(
+        "GET", "/api/v1/downloads/" + dl_id, "",
+        base::BindOnce(
+            [](base::WeakPtr<AbpMcpHandler> self, base::Value request_id,
+               ResponseWithHeadersCallback callback, std::string dl_id,
+               std::string content_path, int status,
+               const std::string& content_type, std::string body) {
+              if (!self)
+                return;
+
+              // Extract filename from metadata response
+              std::string filename;
+              auto parsed =
+                  base::JSONReader::Read(body, base::JSON_PARSE_RFC);
+              if (parsed && parsed->is_dict()) {
+                const std::string* fn =
+                    parsed->GetDict().FindString("filename");
+                if (fn)
+                  filename = *fn;
+              }
+
+              // Now fetch the actual content
+              self->controller_->HandleRequest(
+                  "GET", content_path, "",
+                  base::BindOnce(&AbpMcpHandler::OnBinaryControllerResponse,
+                                 self, std::move(request_id),
+                                 std::move(dl_id), std::move(filename),
+                                 std::move(callback)));
+            },
+            weak_factory_.GetWeakPtr(), std::move(request_id),
+            std::move(callback), dl_id, content_path));
   } else {
     SendJsonRpcError(std::move(request_id), kInvalidParams,
                      "Invalid action: " + act +
-                         " (expected list, status, or cancel)",
+                         " (expected list, status, cancel, or content)",
                      std::move(callback));
   }
 }
@@ -1433,6 +1498,63 @@ void AbpMcpHandler::OnControllerResponse(base::Value request_id,
   if (status >= 400) {
     result.Set("isError", true);
   }
+
+  SendJsonRpcResult(std::move(request_id), base::Value(std::move(result)),
+                    std::move(callback));
+}
+
+void AbpMcpHandler::OnBinaryControllerResponse(
+    base::Value request_id,
+    std::string download_id,
+    std::string filename,
+    ResponseWithHeadersCallback callback,
+    int status,
+    const std::string& content_type,
+    std::string body) {
+  if (status >= 400) {
+    // Error response — likely JSON, forward through normal path
+    OnControllerResponse(std::move(request_id), std::move(callback), status,
+                         content_type, std::move(body));
+    return;
+  }
+
+  // Base64-encode the binary content
+  std::string base64_data = base::Base64Encode(body);
+
+  // Build metadata text content
+  base::Value::Dict metadata;
+  metadata.Set("id", download_id);
+  metadata.Set("filename", filename);
+  metadata.Set("mime_type", content_type);
+  metadata.Set("size", static_cast<int>(body.size()));
+
+  std::string metadata_json;
+  base::JSONWriter::Write(base::Value(std::move(metadata)), &metadata_json);
+
+  base::Value::List content;
+
+  // Text content with metadata
+  base::Value::Dict text_block;
+  text_block.Set("type", "text");
+  text_block.Set("text", metadata_json);
+  content.Append(std::move(text_block));
+
+  // EmbeddedResource with BlobResourceContents
+  base::Value::Dict resource_contents;
+  resource_contents.Set("uri",
+                        "download://" + download_id + "/" + filename);
+  resource_contents.Set("mimeType",
+                        content_type.empty() ? "application/octet-stream"
+                                             : content_type);
+  resource_contents.Set("blob", std::move(base64_data));
+
+  base::Value::Dict resource_block;
+  resource_block.Set("type", "resource");
+  resource_block.Set("resource", std::move(resource_contents));
+  content.Append(std::move(resource_block));
+
+  base::Value::Dict result;
+  result.Set("content", std::move(content));
 
   SendJsonRpcResult(std::move(request_id), base::Value(std::move(result)),
                     std::move(callback));
