@@ -166,12 +166,14 @@ Every action returns what the agent needs to make the next decision:
     "data": "base64-webp...",
     "width": 1920, "height": 1080
   },
-  "scroll": {"vertical_percent": 25.5, "page_height": 4700},
+  "scroll": {"scrollX": 0, "scrollY": 150, "pageWidth": 1280, "pageHeight": 4000, "viewportWidth": 1280, "viewportHeight": 720},
   "events": [
-    {"type": "navigation", "data": {"url": "https://..."}},
-    {"type": "dialog", "data": {"tab_id": "...", "dialog_type": "confirm", "message": "Delete this item?"}},
-    {"type": "file_chooser", "data": {"id": "fc_1", "tab_id": "...", "chooser_type": "open", "multiple": false, "accepts": [".pdf", ".docx"], "pending": true}}
-  ]
+    {"type": "navigation", "virtual_time_ms": 0, "data": {"tab_id": "...", "url": "https://...", "frame_id": "...", "is_main_frame": true}},
+    {"type": "dialog", "virtual_time_ms": 0, "data": {"tab_id": "...", "dialog_type": "confirm", "message": "Delete this item?"}},
+    {"type": "file_chooser", "virtual_time_ms": 0, "data": {"id": "fc_1", "tab_id": "...", "chooser_type": "open", "multiple": false, "accepts": [".pdf", ".docx"], "pending": true}}
+  ],
+  "timing": {"action_started_ms": 1700000000000, "action_completed_ms": 1700000000050, "duration_ms": 50},
+  "cursor": {"x": 450, "y": 320, "cursor_type": "pointer"}
 }
 ```
 
@@ -196,14 +198,14 @@ Request bounding boxes drawn around interactive elements in any action's respons
 ```bash
 # Markup on a click action
 curl -X POST http://localhost:8222/api/v1/tabs/{id}/click \
-  -d '{"x": 450, "y": 320, "screenshot": {"markup": "interactive"}}'
+  -d '{"x": 450, "y": 320, "screenshot": {"markup": ["clickable", "typeable"]}}'
 
 # Markup on navigation
 curl -X POST http://localhost:8222/api/v1/tabs/{id}/navigate \
-  -d '{"url": "https://example.com", "screenshot": {"markup": "typeable"}}'
+  -d '{"url": "https://example.com", "screenshot": {"markup": ["typeable"]}}'
 ```
 
-Markup options: `interactive` (all clickable + typeable), `clickable`, `typeable`, `inputs`.
+Markup options: `clickable`, `typeable`, `scrollable`, `grid`, `selected`.
 
 ### 5. Virtual Cursor
 
@@ -216,7 +218,7 @@ File choosers, dialogs, and downloads are reported in the event stream:
 ```json
 {
   "events": [
-    {"type": "dialog", "data": {"dialog_type": "confirm", "message": "Delete this item?"}}
+    {"type": "dialog", "data": {"tab_id": "...", "dialog_type": "confirm", "message": "Delete this item?"}}
   ]
 }
 ```
@@ -330,7 +332,7 @@ ABP is under active development. Current implementation:
 - History tracking with SQLite (sessions, actions, events)
 - Virtual cursor rendering (compositor layer)
 - Browser management (status, shutdown)
-- MCP server with 12 tools at `/mcp`
+- MCP server with 13 tools at `/mcp`
 
 **Not yet implemented:**
 - Action success/failure tracking
