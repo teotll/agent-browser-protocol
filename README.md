@@ -70,7 +70,7 @@ Extensions can't fix this (sandboxed). CDP can't fix this (designed for DevTools
 
 | What agents need | What existing tools provide |
 |------------------|----------------------------|
-| Pause JavaScript between actions | Debugging pause |
+| Pause JavaScript between actions | Debugging pause only |
 | Pause time between actions | Real-time only |
 | Compositor-layer cursor rendering | No cursor visibility |
 | Simple REST API | WebSocket + session management |
