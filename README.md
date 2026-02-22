@@ -116,7 +116,7 @@ Then ask Claude: *"Go to news.ycombinator.com and find the top post about AI."*
 
 ### 1. Engine-Level Control
 
-ABP embeds an HTTP server directly in the browser process. Requests are routed on the IO thread and dispatched on the UI thread with direct access to `Browser`, `TabStripModel`, and the DevTools agent. Zero inter-process overhead.
+ABP embeds an HTTP server directly in the browser process. Requests are routed on the IO thread and dispatched on the UI thread with direct access to `Browser`, `TabStripModel`, and the DevTools agent.
 
 ```
 +---------------------------------------------------------+
