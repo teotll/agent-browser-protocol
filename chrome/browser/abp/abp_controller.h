@@ -43,6 +43,7 @@ class AbpEventCollector;
 class AbpEventObserver;
 class AbpHistoryController;
 class AbpInputDispatcher;
+class AbpPopupInterceptor;
 
 // Key information for CDP Input.dispatchKeyEvent
 struct KeyInfo {
@@ -254,6 +255,16 @@ class AbpController {
   // Get the tab ID of the active tab in the first browser window
   // Returns empty string if no active tab is available
   std::string GetActiveTabId();
+
+  // Get tab ID for a WebContents (lookup by DevToolsAgentHost ID)
+  std::string GetTabIdForWebContents(content::WebContents* wc);
+
+  // Emit a popup event (called by AbpPopupInterceptor)
+  void EmitPopupEvent(const std::string& event_type,
+                      base::Value::Dict event_data);
+
+  // Get popup interceptor
+  AbpPopupInterceptor* popup_interceptor() { return popup_interceptor_.get(); }
 
   // Center the virtual cursor in the viewport of the specified tab
   // Callback is invoked after cursor is centered (or on error)
@@ -940,6 +951,9 @@ class AbpController {
 
   // Pending file choosers (keyed by chooser ID)
   std::map<std::string, base::Value::Dict> pending_file_choosers_;
+
+  // Popup interceptor for select dropdowns and color pickers (owned)
+  std::unique_ptr<AbpPopupInterceptor> popup_interceptor_;
 
   // Test-only lifecycle observer callback. Null in production.
   LifecycleObserverCallback lifecycle_observer_for_testing_;

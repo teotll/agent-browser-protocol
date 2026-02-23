@@ -38,6 +38,8 @@ source_set("abp") {
     "abp_http_server.h",
     "abp_mcp_handler.cc",
     "abp_mcp_handler.h",
+    "abp_popup_interceptor.cc",
+    "abp_popup_interceptor.h",
     "abp_tool_builder.cc",
     "abp_tool_builder.h",
   ]

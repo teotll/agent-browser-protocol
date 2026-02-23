@@ -15,6 +15,7 @@
 #include "base/no_destructor.h"
 #include "chrome/browser/abp/abp_action_context.h"
 #include "chrome/browser/abp/abp_input_dispatcher.h"
+#include "chrome/browser/abp/abp_popup_interceptor.h"
 #include "base/command_line.h"
 #include "chrome/browser/abp/abp_switches.h"
 #include "base/containers/span.h"
@@ -774,7 +775,8 @@ AbpController::ScreenshotOptions& AbpController::ScreenshotOptions::operator=(
 
 AbpController::AbpController()
     : event_collector_(std::make_unique<AbpEventCollector>(this)),
-      input_dispatcher_(std::make_unique<AbpInputDispatcher>(this)) {
+      input_dispatcher_(std::make_unique<AbpInputDispatcher>(this)),
+      popup_interceptor_(std::make_unique<AbpPopupInterceptor>(this)) {
   instance_for_testing_ = this;
 }
 
@@ -832,6 +834,25 @@ std::string AbpController::GetActiveTabId() {
   }
 
   return std::string();
+}
+
+std::string AbpController::GetTabIdForWebContents(content::WebContents* wc) {
+  if (!wc)
+    return std::string();
+
+  scoped_refptr<content::DevToolsAgentHost> host =
+      content::DevToolsAgentHost::GetOrCreateFor(wc);
+  if (host) {
+    return host->GetId();
+  }
+  return std::string();
+}
+
+void AbpController::EmitPopupEvent(const std::string& event_type,
+                                    base::Value::Dict event_data) {
+  if (event_collector_) {
+    event_collector_->AddEvent(event_type, std::move(event_data));
+  }
 }
 
 void AbpController::CenterCursorInTab(const std::string& tab_id,
@@ -2215,6 +2236,11 @@ void AbpController::CreateTab(const base::Value::Dict& params,
     content::WebContents* wc = nav_params.navigated_or_inserted_contents;
     auto host = content::DevToolsAgentHost::GetOrCreateFor(wc);
 
+    // Register popup interceptor for native popup interception
+    if (popup_interceptor_) {
+      wc->SetPopupInterceptor(popup_interceptor_.get());
+    }
+
     base::Value::Dict tab;
     tab.Set("id", host->GetId());
     tab.Set("url", wc->GetVisibleURL().spec());
@@ -2274,6 +2300,9 @@ void AbpController::CloseTab(const std::string& tab_id,
     // destroyed mid-callback (use-after-free).
     if (event_observer_) {
       event_observer_->DetachTab(tab_id);
+    }
+    if (popup_interceptor_) {
+      popup_interceptor_->CleanupForTab(tab_id);
     }
     CleanupTabState(tab_id);
 
@@ -3130,6 +3159,10 @@ content::WebContents* AbpController::FindWebContents(
       content::WebContents* wc = tab_strip->GetWebContentsAt(i);
       auto host = content::DevToolsAgentHost::GetOrCreateFor(wc);
       if (host->GetId() == tab_id) {
+        // Lazily register popup interceptor (idempotent)
+        if (popup_interceptor_ && !wc->GetPopupInterceptor()) {
+          wc->SetPopupInterceptor(popup_interceptor_.get());
+        }
         return wc;
       }
     }
@@ -4064,6 +4097,11 @@ void AbpController::PauseAllTabs() {
       content::WebContents* wc = tab_strip->GetWebContentsAt(i);
       auto host = content::DevToolsAgentHost::GetOrCreateFor(wc);
       std::string tab_id = host->GetId();
+
+      // Register popup interceptor for native popup interception
+      if (popup_interceptor_ && !wc->GetPopupInterceptor()) {
+        wc->SetPopupInterceptor(popup_interceptor_.get());
+      }
 
       // Skip tabs with an action currently executing — the action's
       // own PauseExecutionIfNeeded() will pause when it completes.
