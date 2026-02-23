@@ -83,6 +83,10 @@ class ToolBuilder {
   ToolBuilder& RequiredStringArray(const std::string& name,
                                    const std::string& description);
 
+  // Array of integers
+  ToolBuilder& OptionalIntegerArray(const std::string& name,
+                                    const std::string& description);
+
   // Array of strings with enum constraint on items
   ToolBuilder& OptionalStringArrayEnum(const std::string& name,
                                        const std::string& description,

@@ -437,19 +437,47 @@ base::Value::List GetToolDefinitions() {
                        "Maximum size per content_file in bytes (default 10MB)")
                    .Build());
 
-  // 11. browser_get_status
+  // 11. browser_select_picker
+  tools.Append(
+      ToolBuilder("browser_select_picker")
+          .Description(
+              "Respond to a pending select popup by choosing option(s). "
+              "Use 'cancel' to dismiss without selecting.")
+          .RequiredString("popup_id",
+                          "The select popup ID from the select_open event")
+          .OptionalIntegerArray("indices",
+                                "Index(es) of option(s) to select")
+          .OptionalBoolean("cancel",
+                           "Dismiss the popup without selecting")
+          .Build());
+
+  // 12. browser_color_picker
+  tools.Append(
+      ToolBuilder("browser_color_picker")
+          .Description(
+              "Respond to a pending color picker by choosing a color. "
+              "Use 'cancel' to dismiss.")
+          .RequiredString("popup_id",
+                          "The color picker ID from the color_picker_open event")
+          .OptionalString("color",
+                          "Hex color value (e.g. '#ff5500')")
+          .OptionalBoolean("cancel",
+                           "Dismiss the picker without selecting")
+          .Build());
+
+  // 13. browser_get_status
   tools.Append(ToolBuilder("browser_get_status")
                    .Description("Get browser status and readiness")
                    .Build());
 
-  // 12. browser_shutdown
+  // 14. browser_shutdown
   tools.Append(ToolBuilder("browser_shutdown")
                    .Description("Gracefully shut down the browser")
                    .OptionalNumber("timeout_ms",
                        "Timeout before force quit in ms")
                    .Build());
 
-  // 13. browser_slider — standalone slider macro
+  // 15. browser_slider — standalone slider macro
   tools.Append(
       ToolBuilder("browser_slider")
           .Description(
@@ -531,7 +559,7 @@ When the screenshot shows incomplete content, **call `browser_screenshot`** to w
 
 Pass `markup: ["clickable", "typeable", "grid"]` to `browser_screenshot` to see labeled overlays on interactive elements. Each label shows the element's coordinates for targeting clicks and typing.
 
-## Tool Reference (13 tools)
+## Tool Reference (15 tools)
 
 All `tab_id` parameters are optional and default to the active tab.
 
@@ -553,6 +581,8 @@ All `tab_id` parameters are optional and default to the active tab.
 - `browser_dialog` — action? (check, accept, dismiss; default: check), prompt_text?
 - `browser_downloads` — action? (list, status, cancel, content; default: list), download_id?, state?, limit?, max_size?. Use action:"content" with download_id to retrieve file bytes as base64 BlobResourceContents.
 - `browser_files` — chooser_id (required), files?, content_files?, path?, cancel?, max_size?. Use content_files for base64 uploads: [{filename, data, mime_type}].
+- `browser_select_picker` — popup_id (required), indices? (array of ints), cancel?. Respond to a pending <select> popup.
+- `browser_color_picker` — popup_id (required), color? (hex string e.g. '#ff5500'), cancel?. Respond to a pending color picker.
 
 **Browser:**
 - `browser_get_status` — no params
@@ -786,6 +816,10 @@ void AbpMcpHandler::HandleToolsCall(const base::Value::Dict& params,
     CallBrowserDownloads(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_files") {
     CallBrowserFiles(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_select_picker") {
+    CallBrowserSelectPicker(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_color_picker") {
+    CallBrowserColorPicker(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_get_status") {
     CallBrowserGetStatus(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_shutdown") {
@@ -1365,7 +1399,57 @@ void AbpMcpHandler::CallBrowserFiles(const base::Value::Dict& args,
                      std::move(callback)));
 }
 
-// --- 11. browser_get_status ---
+// --- 11. browser_select_picker ---
+void AbpMcpHandler::CallBrowserSelectPicker(
+    const base::Value::Dict& args,
+    base::Value request_id,
+    ResponseWithHeadersCallback callback) {
+  const std::string* popup_id = args.FindString("popup_id");
+  if (!popup_id) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "Missing popup_id", std::move(callback));
+    return;
+  }
+
+  base::Value::Dict body_dict = args.Clone();
+  body_dict.Remove("popup_id");
+
+  std::string body;
+  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
+
+  controller_->HandleRequest(
+      "POST", "/api/v1/select/" + *popup_id, body,
+      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                     weak_factory_.GetWeakPtr(), std::move(request_id),
+                     std::move(callback)));
+}
+
+// --- 12. browser_color_picker ---
+void AbpMcpHandler::CallBrowserColorPicker(
+    const base::Value::Dict& args,
+    base::Value request_id,
+    ResponseWithHeadersCallback callback) {
+  const std::string* popup_id = args.FindString("popup_id");
+  if (!popup_id) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "Missing popup_id", std::move(callback));
+    return;
+  }
+
+  base::Value::Dict body_dict = args.Clone();
+  body_dict.Remove("popup_id");
+
+  std::string body;
+  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
+
+  controller_->HandleRequest(
+      "POST", "/api/v1/color-picker/" + *popup_id, body,
+      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                     weak_factory_.GetWeakPtr(), std::move(request_id),
+                     std::move(callback)));
+}
+
+// --- 13. browser_get_status ---
 void AbpMcpHandler::CallBrowserGetStatus(const base::Value::Dict& args,
                                          base::Value request_id,
                                          ResponseWithHeadersCallback callback) {
@@ -1375,7 +1459,7 @@ void AbpMcpHandler::CallBrowserGetStatus(const base::Value::Dict& args,
                      std::move(callback)));
 }
 
-// --- 12. browser_shutdown ---
+// --- 14. browser_shutdown ---
 void AbpMcpHandler::CallBrowserShutdown(const base::Value::Dict& args,
                                         base::Value request_id,
                                         ResponseWithHeadersCallback callback) {
@@ -1389,7 +1473,7 @@ void AbpMcpHandler::CallBrowserShutdown(const base::Value::Dict& args,
                      std::move(callback)));
 }
 
-// --- 13. browser_slider: standalone slider macro ---
+// --- 15. browser_slider: standalone slider macro ---
 void AbpMcpHandler::CallBrowserSlider(const base::Value::Dict& args,
                                       base::Value request_id,
                                       ResponseWithHeadersCallback callback) {

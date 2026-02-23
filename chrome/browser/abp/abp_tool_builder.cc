@@ -84,6 +84,14 @@ ToolBuilder& ToolBuilder::RequiredStringArray(const std::string& name,
   return *this;
 }
 
+ToolBuilder& ToolBuilder::OptionalIntegerArray(const std::string& name,
+                                               const std::string& description) {
+  base::Value::Dict items;
+  items.Set("type", "integer");
+  AddArrayProperty(name, description, std::move(items), /*required=*/false);
+  return *this;
+}
+
 ToolBuilder& ToolBuilder::OptionalStringArrayEnum(
     const std::string& name,
     const std::string& description,
