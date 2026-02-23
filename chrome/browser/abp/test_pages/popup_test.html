@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ABP Popup Interception Test</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    .section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 8px; }
+    h2 { margin-top: 0; }
+    label { display: block; margin: 8px 0; }
+    select, input[type="color"] { margin-left: 10px; }
+    #result { margin-top: 20px; padding: 10px; background: #f0f0f0; font-family: monospace; white-space: pre; }
+  </style>
+</head>
+<body>
+  <h1>ABP Popup Interception Test</h1>
+
+  <div class="section">
+    <h2>1. Select Dropdown (single)</h2>
+    <label>
+      Choose a fruit:
+      <select id="fruit-select" onchange="logChange('fruit', this.value)">
+        <option value="">-- Pick one --</option>
+        <option value="apple">Apple</option>
+        <option value="banana">Banana</option>
+        <option value="cherry">Cherry</option>
+        <option value="dragonfruit">Dragonfruit</option>
+        <option value="elderberry">Elderberry</option>
+      </select>
+    </label>
+    <p>Selected: <span id="fruit-value">none</span></p>
+  </div>
+
+  <div class="section">
+    <h2>2. Select Dropdown (multiple)</h2>
+    <label>
+      Choose toppings:
+      <select id="topping-select" multiple size="5" onchange="logMultiChange('topping', this)">
+        <option value="cheese">Cheese</option>
+        <option value="pepperoni">Pepperoni</option>
+        <option value="mushrooms">Mushrooms</option>
+        <option value="olives">Olives</option>
+        <option value="onions">Onions</option>
+      </select>
+    </label>
+    <p>Selected: <span id="topping-value">none</span></p>
+  </div>
+
+  <div class="section">
+    <h2>3. Color Picker</h2>
+    <label>
+      Pick a color:
+      <input type="color" id="color-picker" value="#ff0000" onchange="logChange('color', this.value)">
+    </label>
+    <p>Selected: <span id="color-value">#ff0000</span></p>
+    <div id="color-preview" style="width:100px;height:50px;background:#ff0000;border:1px solid #000;margin-top:5px;"></div>
+  </div>
+
+  <div id="result">Event log:
+</div>
+
+  <script>
+    function logChange(name, value) {
+      document.getElementById(name + '-value').textContent = value;
+      if (name === 'color') {
+        document.getElementById('color-preview').style.background = value;
+      }
+      log(name + ' changed to: ' + value);
+    }
+
+    function logMultiChange(name, sel) {
+      var selected = Array.from(sel.selectedOptions).map(o => o.value);
+      document.getElementById(name + '-value').textContent = selected.join(', ') || 'none';
+      log(name + ' changed to: [' + selected.join(', ') + ']');
+    }
+
+    function log(msg) {
+      var el = document.getElementById('result');
+      el.textContent += new Date().toISOString().substr(11, 8) + ' ' + msg + '\n';
+    }
+
+    log('Page loaded, ready for testing');
+  </script>
+</body>
+</html>

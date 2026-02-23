@@ -12,6 +12,12 @@
 
 namespace abp {
 
+PendingSelectPopup::PendingSelectPopup() = default;
+PendingSelectPopup::~PendingSelectPopup() = default;
+PendingSelectPopup::PendingSelectPopup(PendingSelectPopup&&) = default;
+PendingSelectPopup& PendingSelectPopup::operator=(PendingSelectPopup&&) =
+    default;
+
 AbpPopupInterceptor::AbpPopupInterceptor(AbpController* controller)
     : controller_(controller) {}
 
@@ -19,10 +25,6 @@ AbpPopupInterceptor::~AbpPopupInterceptor() = default;
 
 std::string AbpPopupInterceptor::GenerateSelectPopupId() {
   return base::StringPrintf("sp_%d", next_select_popup_id_++);
-}
-
-std::string AbpPopupInterceptor::GenerateColorPickerId() {
-  return base::StringPrintf("cp_%d", next_color_picker_id_++);
 }
 
 bool AbpPopupInterceptor::OnSelectPopupRequested(
@@ -95,72 +97,6 @@ bool AbpPopupInterceptor::OnSelectPopupRequested(
   return true;  // Intercepted — suppress native UI
 }
 
-bool AbpPopupInterceptor::OnColorChooserRequested(
-    content::RenderFrameHost* rfh,
-    mojo::PendingReceiver<blink::mojom::ColorChooser> chooser_receiver,
-    mojo::PendingRemote<blink::mojom::ColorChooserClient> client,
-    SkColor color,
-    std::vector<blink::mojom::ColorSuggestionPtr> suggestions) {
-  if (!controller_)
-    return false;
-
-  // For color chooser, rfh may be null (passed through WebContentsImpl).
-  // We need to get the tab_id from the active tab.
-  // TODO: Thread the RenderFrameHost through OpenColorChooser
-  std::string tab_id = controller_->GetActiveTabId();
-  if (tab_id.empty())
-    return false;
-
-  std::string popup_id = GenerateColorPickerId();
-
-  VLOG(1) << "ABP: Color picker intercepted, id=" << popup_id
-          << " tab=" << tab_id;
-
-  // Serialize event data
-  base::Value::Dict event_data;
-  event_data.Set("type", "color_picker_open");
-  event_data.Set("id", popup_id);
-  event_data.Set("tab_id", tab_id);
-
-  // Convert SkColor to hex string
-  event_data.Set("current_color",
-      base::StringPrintf("#%02x%02x%02x",
-          SkColorGetR(color), SkColorGetG(color), SkColorGetB(color)));
-
-  base::Value::List suggestions_list;
-  for (const auto& s : suggestions) {
-    base::Value::Dict sd;
-    sd.Set("color",
-        base::StringPrintf("#%02x%02x%02x",
-            SkColorGetR(s->color), SkColorGetG(s->color),
-            SkColorGetB(s->color)));
-    sd.Set("label", s->label);
-    suggestions_list.Append(std::move(sd));
-  }
-  event_data.Set("suggestions", std::move(suggestions_list));
-
-  // Store pending state
-  PendingColorPicker pending;
-  pending.tab_id = tab_id;
-  pending.client.Bind(std::move(client));
-  pending.chooser_receiver = std::move(chooser_receiver);
-  pending.current_color = color;
-  pending.suggestions = std::move(suggestions);
-
-  pending.client.set_disconnect_handler(base::BindOnce(
-      [](AbpPopupInterceptor* self, std::string id) {
-        VLOG(1) << "ABP: Color picker " << id << " disconnected";
-        self->pending_color_pickers_.erase(id);
-      },
-      base::Unretained(this), popup_id));
-
-  pending_color_pickers_[popup_id] = std::move(pending);
-
-  controller_->EmitPopupEvent("color_picker_open", std::move(event_data));
-
-  return true;
-}
-
 bool AbpPopupInterceptor::RespondToSelectPopup(
     const std::string& popup_id,
     const std::vector<int32_t>& indices) {
@@ -180,27 +116,6 @@ bool AbpPopupInterceptor::CancelSelectPopup(const std::string& popup_id) {
 
   it->second.client->DidCancel();
   pending_select_popups_.erase(it);
-  return true;
-}
-
-bool AbpPopupInterceptor::RespondToColorPicker(const std::string& popup_id,
-                                                SkColor color) {
-  auto it = pending_color_pickers_.find(popup_id);
-  if (it == pending_color_pickers_.end())
-    return false;
-
-  it->second.client->DidChooseColor(color);
-  pending_color_pickers_.erase(it);
-  return true;
-}
-
-bool AbpPopupInterceptor::CancelColorPicker(const std::string& popup_id) {
-  auto it = pending_color_pickers_.find(popup_id);
-  if (it == pending_color_pickers_.end())
-    return false;
-
-  // Dropping the Mojo remote signals cancellation
-  pending_color_pickers_.erase(it);
   return true;
 }
 
@@ -228,50 +143,11 @@ base::Value::Dict AbpPopupInterceptor::GetPendingSelectPopup(
   return result;
 }
 
-base::Value::Dict AbpPopupInterceptor::GetPendingColorPicker(
-    const std::string& popup_id) const {
-  auto it = pending_color_pickers_.find(popup_id);
-  if (it == pending_color_pickers_.end())
-    return base::Value::Dict();
-
-  base::Value::Dict result;
-  result.Set("type", "color_picker_open");
-  result.Set("id", popup_id);
-  result.Set("tab_id", it->second.tab_id);
-  result.Set("current_color",
-      base::StringPrintf("#%02x%02x%02x",
-          SkColorGetR(it->second.current_color),
-          SkColorGetG(it->second.current_color),
-          SkColorGetB(it->second.current_color)));
-  return result;
-}
-
-base::Value::List AbpPopupInterceptor::GetAllPendingPopups() const {
-  base::Value::List result;
-  for (const auto& [id, _] : pending_select_popups_) {
-    result.Append(GetPendingSelectPopup(id));
-  }
-  for (const auto& [id, _] : pending_color_pickers_) {
-    result.Append(GetPendingColorPicker(id));
-  }
-  return result;
-}
-
 void AbpPopupInterceptor::CleanupForTab(const std::string& tab_id) {
-  // Cancel and remove all pending popups for this tab
   for (auto it = pending_select_popups_.begin();
        it != pending_select_popups_.end();) {
     if (it->second.tab_id == tab_id) {
-      // DidCancel not needed — Mojo will disconnect on tab close
       it = pending_select_popups_.erase(it);
-    } else {
-      ++it;
-    }
-  }
-  for (auto it = pending_color_pickers_.begin();
-       it != pending_color_pickers_.end();) {
-    if (it->second.tab_id == tab_id) {
-      it = pending_color_pickers_.erase(it);
     } else {
       ++it;
     }

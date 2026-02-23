@@ -483,14 +483,10 @@ class AbpController {
                          const base::Value::Dict& params,
                          ResponseCallback callback);
 
-  // Select popup and color picker endpoints
+  // Select popup endpoint
   void HandleSelectPopup(const std::string& popup_id,
                          const base::Value::Dict& params,
                          ResponseCallback callback);
-  void HandleColorPicker(const std::string& popup_id,
-                         const base::Value::Dict& params,
-                         ResponseCallback callback);
-  void HandleListPopups(ResponseCallback callback);
 
   // Run file chooser as a full ABP action (resume → set files → wait → pause)
   void RunFileChooserAction(const std::string& tab_id,
@@ -961,7 +957,7 @@ class AbpController {
   // Pending file choosers (keyed by chooser ID)
   std::map<std::string, base::Value::Dict> pending_file_choosers_;
 
-  // Popup interceptor for select dropdowns and color pickers (owned)
+  // Popup interceptor for select dropdowns (owned)
   std::unique_ptr<AbpPopupInterceptor> popup_interceptor_;
 
   // Test-only lifecycle observer callback. Null in production.

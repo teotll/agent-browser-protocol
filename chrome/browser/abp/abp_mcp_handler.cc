@@ -451,21 +451,7 @@ base::Value::List GetToolDefinitions() {
                            "Dismiss the popup without selecting")
           .Build());
 
-  // 12. browser_color_picker
-  tools.Append(
-      ToolBuilder("browser_color_picker")
-          .Description(
-              "Respond to a pending color picker by choosing a color. "
-              "Use 'cancel' to dismiss.")
-          .RequiredString("popup_id",
-                          "The color picker ID from the color_picker_open event")
-          .OptionalString("color",
-                          "Hex color value (e.g. '#ff5500')")
-          .OptionalBoolean("cancel",
-                           "Dismiss the picker without selecting")
-          .Build());
-
-  // 13. browser_get_status
+  // 12. browser_get_status
   tools.Append(ToolBuilder("browser_get_status")
                    .Description("Get browser status and readiness")
                    .Build());
@@ -582,7 +568,6 @@ All `tab_id` parameters are optional and default to the active tab.
 - `browser_downloads` — action? (list, status, cancel, content; default: list), download_id?, state?, limit?, max_size?. Use action:"content" with download_id to retrieve file bytes as base64 BlobResourceContents.
 - `browser_files` — chooser_id (required), files?, content_files?, path?, cancel?, max_size?. Use content_files for base64 uploads: [{filename, data, mime_type}].
 - `browser_select_picker` — popup_id (required), indices? (array of ints), cancel?. Respond to a pending <select> popup.
-- `browser_color_picker` — popup_id (required), color? (hex string e.g. '#ff5500'), cancel?. Respond to a pending color picker.
 
 **Browser:**
 - `browser_get_status` — no params
@@ -818,8 +803,6 @@ void AbpMcpHandler::HandleToolsCall(const base::Value::Dict& params,
     CallBrowserFiles(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_select_picker") {
     CallBrowserSelectPicker(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "browser_color_picker") {
-    CallBrowserColorPicker(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_get_status") {
     CallBrowserGetStatus(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_shutdown") {
@@ -1424,32 +1407,7 @@ void AbpMcpHandler::CallBrowserSelectPicker(
                      std::move(callback)));
 }
 
-// --- 12. browser_color_picker ---
-void AbpMcpHandler::CallBrowserColorPicker(
-    const base::Value::Dict& args,
-    base::Value request_id,
-    ResponseWithHeadersCallback callback) {
-  const std::string* popup_id = args.FindString("popup_id");
-  if (!popup_id) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "Missing popup_id", std::move(callback));
-    return;
-  }
-
-  base::Value::Dict body_dict = args.Clone();
-  body_dict.Remove("popup_id");
-
-  std::string body;
-  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
-
-  controller_->HandleRequest(
-      "POST", "/api/v1/color-picker/" + *popup_id, body,
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-// --- 13. browser_get_status ---
+// --- 12. browser_get_status ---
 void AbpMcpHandler::CallBrowserGetStatus(const base::Value::Dict& args,
                                          base::Value request_id,
                                          ResponseWithHeadersCallback callback) {

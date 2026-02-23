@@ -57,7 +57,6 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "skia/ext/image_operations.h"
-#include "third_party/skia/include/core/SkColor.h"
 #include "ui/snapshot/snapshot.h"
 
 namespace abp {
@@ -2109,27 +2108,6 @@ void AbpController::HandleRequest(const std::string& method,
       } else {
         SendError(405, "Method not allowed", std::move(callback));
       }
-      return;
-    }
-  }
-
-  // Route: /api/v1/color-picker/{id}
-  if (resource == "color-picker") {
-    if (segments.size() == 4) {
-      const std::string& popup_id = segments[3];
-      if (method == "POST") {
-        HandleColorPicker(popup_id, params, std::move(callback));
-      } else {
-        SendError(405, "Method not allowed", std::move(callback));
-      }
-      return;
-    }
-  }
-
-  // Route: /api/v1/popups (list all pending)
-  if (resource == "popups") {
-    if (segments.size() == 3 && method == "GET") {
-      HandleListPopups(std::move(callback));
       return;
     }
   }
@@ -5651,81 +5629,6 @@ void AbpController::HandleSelectPopup(const std::string& popup_id,
   base::Value::Dict result;
   result.Set("success", true);
   result.Set("tab_id", *popup_info.FindString("tab_id"));
-  SendJson(200, base::Value(std::move(result)), std::move(callback));
-}
-
-void AbpController::HandleColorPicker(const std::string& popup_id,
-                                      const base::Value::Dict& params,
-                                      ResponseCallback callback) {
-  if (!popup_interceptor_) {
-    SendError(500, "Popup interceptor not initialized", std::move(callback));
-    return;
-  }
-
-  if (params.FindBool("cancel").value_or(false)) {
-    if (popup_interceptor_->CancelColorPicker(popup_id)) {
-      base::Value::Dict result;
-      result.Set("success", true);
-      result.Set("cancelled", true);
-      SendJson(200, base::Value(std::move(result)), std::move(callback));
-    } else {
-      SendError(404, "Color picker not found: " + popup_id,
-                std::move(callback));
-    }
-    return;
-  }
-
-  const std::string* color_str = params.FindString("color");
-  if (!color_str) {
-    SendError(400, "Missing 'color' parameter", std::move(callback));
-    return;
-  }
-
-  // Parse hex color (#rrggbb)
-  if (color_str->size() != 7 || (*color_str)[0] != '#') {
-    SendError(400, "Invalid color format. Expected '#rrggbb'",
-              std::move(callback));
-    return;
-  }
-
-  uint32_t rgb;
-  if (!base::HexStringToUInt(color_str->substr(1), &rgb) || rgb > 0xFFFFFF) {
-    SendError(400, "Invalid hex color value", std::move(callback));
-    return;
-  }
-
-  SkColor color = SkColorSetRGB((rgb >> 16) & 0xFF,
-                                (rgb >> 8) & 0xFF,
-                                rgb & 0xFF);
-
-  auto picker_info = popup_interceptor_->GetPendingColorPicker(popup_id);
-  if (picker_info.empty()) {
-    SendError(404, "Color picker not found: " + popup_id,
-              std::move(callback));
-    return;
-  }
-
-  if (!popup_interceptor_->RespondToColorPicker(popup_id, color)) {
-    SendError(500, "Failed to respond to color picker", std::move(callback));
-    return;
-  }
-
-  base::Value::Dict result;
-  result.Set("success", true);
-  result.Set("tab_id", *picker_info.FindString("tab_id"));
-  SendJson(200, base::Value(std::move(result)), std::move(callback));
-}
-
-void AbpController::HandleListPopups(ResponseCallback callback) {
-  if (!popup_interceptor_) {
-    base::Value::Dict result;
-    result.Set("popups", base::Value::List());
-    SendJson(200, base::Value(std::move(result)), std::move(callback));
-    return;
-  }
-
-  base::Value::Dict result;
-  result.Set("popups", popup_interceptor_->GetAllPendingPopups());
   SendJson(200, base::Value(std::move(result)), std::move(callback));
 }
 

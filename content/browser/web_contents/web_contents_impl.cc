@@ -8371,15 +8371,6 @@ void WebContentsImpl::OpenColorChooser(
     SkColor color,
     std::vector<blink::mojom::ColorSuggestionPtr> suggestions) {
   OPTIONAL_TRACE_EVENT0("content", "WebContentsImpl::OpenColorChooser");
-  // Check for popup interceptor (e.g., ABP agent browser protocol).
-  if (popup_interceptor_) {
-    if (popup_interceptor_->OnColorChooserRequested(
-            /* rfh */ nullptr,
-            std::move(chooser_receiver), std::move(client),
-            color, std::move(suggestions))) {
-      return;  // Intercepted, skip native UI.
-    }
-  }
   // Create `color_chooser_holder_` before calling OpenColorChooser since
   // OpenColorChooser may callback with results.
   color_chooser_holder_.reset();
