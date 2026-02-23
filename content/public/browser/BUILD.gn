@@ -311,6 +311,7 @@ source_set("browser_sources") {
     "picture_in_picture_window_controller.h",
     "platform_notification_context.h",
     "platform_notification_service.h",
+    "popup_interceptor.h",
     "popup_menu.h",
     "preconnect_manager.h",
     "preconnect_request.cc",

@@ -162,6 +162,7 @@
 #include "content/public/browser/navigation_throttle_registry.h"
 #include "content/public/browser/permission_descriptor_util.h"
 #include "content/public/browser/picture_in_picture_window_controller.h"
+#include "content/public/browser/popup_interceptor.h"
 #include "content/public/browser/preload_pipeline_info.h"
 #include "content/public/browser/preview_cancel_reason.h"
 #include "content/public/browser/render_widget_host_iterator.h"
@@ -1727,6 +1728,14 @@ void WebContentsImpl::SetDelegate(WebContentsDelegate* delegate) {
   if (view_) {
     view_->SetOverscrollControllerEnabled(CanOverscrollContent());
   }
+}
+
+void WebContentsImpl::SetPopupInterceptor(PopupInterceptor* interceptor) {
+  popup_interceptor_ = interceptor;
+}
+
+PopupInterceptor* WebContentsImpl::GetPopupInterceptor() {
+  return popup_interceptor_;
 }
 
 const RenderFrameHostImpl* WebContentsImpl::GetPrimaryMainFrame() const {
@@ -8362,6 +8371,15 @@ void WebContentsImpl::OpenColorChooser(
     SkColor color,
     std::vector<blink::mojom::ColorSuggestionPtr> suggestions) {
   OPTIONAL_TRACE_EVENT0("content", "WebContentsImpl::OpenColorChooser");
+  // Check for popup interceptor (e.g., ABP agent browser protocol).
+  if (popup_interceptor_) {
+    if (popup_interceptor_->OnColorChooserRequested(
+            /* rfh */ nullptr,
+            std::move(chooser_receiver), std::move(client),
+            color, std::move(suggestions))) {
+      return;  // Intercepted, skip native UI.
+    }
+  }
   // Create `color_chooser_holder_` before calling OpenColorChooser since
   // OpenColorChooser may callback with results.
   color_chooser_holder_.reset();

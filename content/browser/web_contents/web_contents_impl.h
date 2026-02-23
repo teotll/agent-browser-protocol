@@ -383,6 +383,8 @@ class CONTENT_EXPORT WebContentsImpl
   // WebContents ------------------------------------------------------
   WebContentsDelegate* GetDelegate() final;
   void SetDelegate(WebContentsDelegate* delegate) override;
+  void SetPopupInterceptor(PopupInterceptor* interceptor) override;
+  PopupInterceptor* GetPopupInterceptor() override;
   NavigationControllerImpl& GetController() override;
   const NavigationControllerImpl& GetController() const override;
   BrowserContext* GetBrowserContext() override;
@@ -2219,6 +2221,9 @@ class CONTENT_EXPORT WebContentsImpl
 
   // Delegate for notifying our owner about stuff. Not owned by us.
   raw_ptr<WebContentsDelegate, DanglingUntriaged> delegate_;
+
+  // Optional interceptor for native popups (select, color). Not owned by us.
+  raw_ptr<PopupInterceptor> popup_interceptor_ = nullptr;
 
   // The corresponding view.
   std::unique_ptr<WebContentsView> view_;

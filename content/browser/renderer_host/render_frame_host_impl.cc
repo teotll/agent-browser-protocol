@@ -202,6 +202,7 @@
 #include "content/public/browser/media_device_id.h"
 #include "content/public/browser/network_service_util.h"
 #include "content/public/browser/permission_descriptor_util.h"
+#include "content/public/browser/popup_interceptor.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/runtime_feature_state/runtime_feature_state_document_data.h"
@@ -212,6 +213,7 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/tracing_support.h"
 #include "content/public/browser/weak_document_ptr.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui_url_loader_factory.h"
 #include "content/public/common/alternative_error_page_override_info.mojom.h"
 #include "content/public/common/bindings_policy.h"
@@ -9314,6 +9316,17 @@ void RenderFrameHostImpl::ShowPopupMenu(
     bool right_aligned,
     bool allow_multiple_selection) {
 #if BUILDFLAG(USE_EXTERNAL_POPUP_MENU)
+  // Check for popup interceptor (e.g., ABP agent browser protocol).
+  if (auto* wc = WebContents::FromRenderFrameHost(this)) {
+    if (auto* interceptor = wc->GetPopupInterceptor()) {
+      if (interceptor->OnSelectPopupRequested(
+              this, std::move(popup_client), bounds, selected_item,
+              std::move(menu_items), allow_multiple_selection)) {
+        return;  // Intercepted, skip native UI.
+      }
+    }
+  }
+
   auto send_did_cancel =
       [](mojo::PendingRemote<blink::mojom::PopupMenuClient> popup_client) {
         // Call DidCancel() so the renderer knows that the popup didn't open.

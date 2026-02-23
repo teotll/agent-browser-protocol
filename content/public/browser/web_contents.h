@@ -123,6 +123,7 @@ class GuestPageHolder;
 class NavigationController;
 class NavigationEntry;
 class Page;
+class PopupInterceptor;
 class PrefetchHandle;
 class PreloadPipelineInfo;
 class PrerenderHandle;
@@ -436,6 +437,11 @@ class WebContents : public PageNavigator, public base::SupportsUserData {
   // Gets/Sets the delegate.
   virtual WebContentsDelegate* GetDelegate() = 0;
   virtual void SetDelegate(WebContentsDelegate* delegate) = 0;
+
+  // Popup interceptor for native popups (select, color).
+  // Lifetime managed by caller; must outlive the WebContents.
+  virtual void SetPopupInterceptor(PopupInterceptor* interceptor) = 0;
+  virtual PopupInterceptor* GetPopupInterceptor() = 0;
 
   // Gets the NavigationController for primary frame tree of this WebContents.
   // See comments on NavigationController for more details.
