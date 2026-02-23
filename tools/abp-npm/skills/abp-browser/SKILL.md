@@ -12,7 +12,7 @@ ABP **pauses JavaScript and virtual time** between your actions. The page is fro
 When you call any action tool (browser_action, browser_scroll, browser_navigate, etc.):
 1. ABP **resumes** JS execution
 2. ABP dispatches your action(s)
-3. ABP **waits ~500ms** for the page to settle (rendering, network, scripts)
+3. ABP **waits for the page to settle** (three-phase: 150ms for JS to fire handlers → tracks triggered network requests until they complete or 1s timeout → 150ms DOM settle)
 4. ABP captures a **screenshot** automatically
 5. ABP **re-pauses** JS execution
 6. You receive the response with the screenshot
@@ -33,15 +33,15 @@ Actions execute sequentially with a 20ms pause between each. One screenshot is t
 
 ## Waiting for Slow Content
 
-Sometimes 500ms isn't enough for the page to finish loading (AJAX, animations, redirects). When the screenshot shows incomplete content:
+ABP automatically tracks network requests triggered by your action and waits for them to complete (up to 1s for clicks, 60s for file uploads). If requests don't finish in time, a `request_tracking_timeout` event appears in the response — the screenshot may not reflect the final page state.
 
-**Call `browser_screenshot` to wait and observe.** It runs the same resume-wait-capture-pause cycle without performing any action, giving the page another chance to settle. Repeat until the content appears.
+When the screenshot shows incomplete content, **call `browser_screenshot`** to wait and observe. It runs the same resume-wait-capture-pause cycle without performing any action, giving the page another chance to settle. Repeat until the content appears.
 
 ## Markup Overlays
 
 Pass `markup: ["clickable", "typeable", "grid"]` to `browser_screenshot` to see labeled overlays on interactive elements. Each label shows the element's coordinates for targeting clicks and typing.
 
-## Tool Reference (13 tools)
+## Tool Reference (15 tools)
 
 All `tab_id` parameters are optional and default to the active tab.
 
@@ -61,8 +61,9 @@ All `tab_id` parameters are optional and default to the active tab.
 
 **Situational:**
 - `browser_dialog` — action? (check, accept, dismiss; default: check), prompt_text?
-- `browser_downloads` — action? (list, status, cancel; default: list), download_id?, state?, limit?
-- `browser_files` — chooser_id (required), files?, path?, cancel?
+- `browser_downloads` — action? (list, status, cancel, content; default: list), download_id?, state?, limit?, max_size?. Use action:"content" with download_id to retrieve file bytes as base64 BlobResourceContents.
+- `browser_files` — chooser_id (required), files?, content_files?, path?, cancel?, max_size?. Use content_files for base64 uploads: [{filename, data, mime_type}].
+- `browser_select_picker` — popup_id (required), indices? (array of ints), cancel?. Respond to a pending <select> popup.
 
 **Browser:**
 - `browser_get_status` — no params

@@ -32,7 +32,7 @@ function getPackageRoot(): string {
 
 const PACKAGE_ROOT = getPackageRoot();
 
-export const ABP_VERSION = "0.1.2";
+export const ABP_VERSION = "0.1.3";
 export const CHROME_VERSION = "146.0.7635.0";
 export const GITHUB_REPO = "theredsix/agent-browser-protocol";
 
