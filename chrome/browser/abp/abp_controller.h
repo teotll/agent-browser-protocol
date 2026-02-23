@@ -483,6 +483,15 @@ class AbpController {
                          const base::Value::Dict& params,
                          ResponseCallback callback);
 
+  // Select popup and color picker endpoints
+  void HandleSelectPopup(const std::string& popup_id,
+                         const base::Value::Dict& params,
+                         ResponseCallback callback);
+  void HandleColorPicker(const std::string& popup_id,
+                         const base::Value::Dict& params,
+                         ResponseCallback callback);
+  void HandleListPopups(ResponseCallback callback);
+
   // Run file chooser as a full ABP action (resume → set files → wait → pause)
   void RunFileChooserAction(const std::string& tab_id,
                             const std::string& chooser_id,
