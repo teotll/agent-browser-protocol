@@ -50,6 +50,7 @@ Options:
   --port <port>          Port to listen on (default: 8222)
   --headless             Run without a visible window
   --session-dir <path>   Directory for session data (database, screenshots)
+  --mcp                  Run as MCP server (JSON-RPC over stdio)
   --help, -h             Show this help message
 
 Environment Variables:
@@ -76,6 +77,11 @@ Examples:
 }
 
 async function main() {
+  if (process.argv.includes("--mcp")) {
+    await import("../mcp-proxy.js");
+    return;
+  }
+
   const { port, headless, sessionDir, chromeArgs } = parseArgs(process.argv);
 
   console.log(`Agent Browser Protocol v${ABP_VERSION} (Chrome ${CHROME_VERSION})`);
