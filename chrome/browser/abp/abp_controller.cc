@@ -188,15 +188,19 @@ void AbpController::ForceRedrawWatcher::Cancel() {
 
 void AbpController::ForceRedrawWatcher::RenderWidgetHostDestroyed(
     content::RenderWidgetHost* widget_host) {
-  rwh_ = nullptr;  // Observer auto-removed by RWHI destruction.
-  if (cancelled_ || !snap_state_ || snap_state_->done) {
+  // Must remove from observer list BEFORE any code path that could destroy
+  // this watcher (e.g. OnForceRedrawRwhiDestroyed replacing
+  // snap_state->watcher). ~RenderWidgetHostObserver DCHECKs !IsInObserverList.
+  widget_host->RemoveObserver(this);
+  rwh_ = nullptr;
+  cancelled_ = true;  // Prevent Cancel() from double-removing.
+  if (!snap_state_ || snap_state_->done) {
     return;
   }
   LOG(INFO) << "ABP: ForceRedrawWatcher - RWHI destroyed during in-flight "
             << "ForceRedraw, triggering retry tab=" << snap_state_->tab_id;
-  // Steal snap_state before Cancel() clears it.
+  // Steal snap_state before destruction clears it.
   auto stolen_state = std::move(snap_state_);
-  cancelled_ = true;
   if (controller_) {
     controller_->OnForceRedrawRwhiDestroyed(std::move(stolen_state));
   }
@@ -4202,9 +4206,12 @@ constexpr base::TimeDelta kWaitTimeout = base::Seconds(10);
 constexpr int kNetworkIdleMaxConnections = 2;  // networkidle2
 }  // namespace
 
-void AbpController::WaitForActionComplete(const std::string& tab_id,
-                                          base::OnceClosure on_complete,
-                                          base::TimeDelta min_wait_time) {
+void AbpController::WaitForActionComplete(
+    const std::string& tab_id,
+    base::OnceClosure on_complete,
+    base::TimeDelta min_wait_time,
+    base::TimeDelta request_tracking_timeout,
+    base::TimeDelta post_tracking_settle_time) {
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
     // Tab not found, call callback immediately
@@ -4220,6 +4227,8 @@ void AbpController::WaitForActionComplete(const std::string& tab_id,
   waiter->last_network_activity = base::TimeTicks::Now();
   waiter->timeout_time = base::TimeTicks::Now() + kWaitTimeout;
   waiter->min_wait_time = min_wait_time;
+  waiter->request_tracking_timeout = request_tracking_timeout;
+  waiter->post_tracking_settle_time = post_tracking_settle_time;
 
   // For pages that are already loaded, set load events and paint as fired.
   // We'll still wait for min time.
@@ -4237,6 +4246,14 @@ void AbpController::WaitForActionComplete(const std::string& tab_id,
                                weak_factory_.GetWeakPtr(), tab_id));
 
   GetOrCreateTabState(tab_id).action_waiter = std::move(waiter);
+
+  // Enable Network domain for request tracking (all actions)
+  AbpCdpClient* client = GetOrCreateCdpClient(wc);
+  if (client) {
+    base::Value::Dict empty_params;
+    client->SendCommand("Network.enable", empty_params,
+                        base::BindOnce([](bool, const std::string&) {}));
+  }
 
   // Min wait timer starts in MaybeStartMinWaitTimer once all base conditions
   // (load + dom_content_loaded + first_paint) are met. Check now in case
@@ -4261,13 +4278,47 @@ void AbpController::OnCdpEventForWait(const std::string& tab_id,
 
   ActionCompleteWaiter* waiter = it->second.action_waiter.get();
 
-  // Track network events
+  // Track network events with per-request ID tracking
   if (method == "Network.requestWillBeSent") {
+    const std::string* request_id = params.FindString("requestId");
+    const std::string* type = params.FindStringByDottedPath("type");
+    if (request_id) {
+      // Skip long-running connection types that would stall tracking
+      bool skip = false;
+      if (type) {
+        skip = (*type == "WebSocket" || *type == "EventSource" ||
+                *type == "Ping" || *type == "Prefetch" ||
+                *type == "CSPViolationReport");
+      }
+      if (!skip) {
+        waiter->active_request_ids.insert(*request_id);
+      }
+    }
     waiter->active_requests++;
     waiter->last_network_activity = base::TimeTicks::Now();
     waiter->network_idle = false;
   } else if (method == "Network.loadingFinished" ||
              method == "Network.loadingFailed") {
+    const std::string* request_id = params.FindString("requestId");
+    if (request_id) {
+      waiter->active_request_ids.erase(*request_id);
+      waiter->tracked_requests.erase(*request_id);
+      // Check if all tracked requests are now resolved
+      if (waiter->tracking_snapshot_taken &&
+          waiter->tracked_requests.empty() &&
+          !waiter->tracked_requests_resolved) {
+        waiter->tracked_requests_resolved = true;
+        // Start Phase 3: post-tracking settle
+        if (!waiter->post_tracking_settle_started) {
+          waiter->post_tracking_settle_started = true;
+          content::GetUIThreadTaskRunner({})->PostDelayedTask(
+              FROM_HERE,
+              base::BindOnce(&AbpController::OnPostTrackingSettle,
+                             weak_factory_.GetWeakPtr(), tab_id),
+              waiter->post_tracking_settle_time);
+        }
+      }
+    }
     if (waiter->active_requests > 0) {
       waiter->active_requests--;
     }
@@ -4351,7 +4402,82 @@ void AbpController::OnMinWaitTimeElapsed(const std::string& tab_id) {
     return;
   }
 
-  it->second.action_waiter->min_time_elapsed = true;
+  ActionCompleteWaiter* waiter = it->second.action_waiter.get();
+  waiter->min_time_elapsed = true;
+
+  // Phase 1 complete — take request tracking snapshot
+  waiter->tracked_requests = waiter->active_request_ids;
+  waiter->tracking_snapshot_taken = true;
+
+  if (waiter->tracked_requests.empty()) {
+    // No requests in flight — resolve immediately, start Phase 3
+    waiter->tracked_requests_resolved = true;
+    waiter->post_tracking_settle_started = true;
+    content::GetUIThreadTaskRunner({})->PostDelayedTask(
+        FROM_HERE,
+        base::BindOnce(&AbpController::OnPostTrackingSettle,
+                       weak_factory_.GetWeakPtr(), tab_id),
+        waiter->post_tracking_settle_time);
+  } else {
+    // Requests in flight — start Phase 2 tracking timeout
+    VLOG(1) << "ABP: tracking " << waiter->tracked_requests.size()
+            << " in-flight requests for tab " << tab_id
+            << " (timeout " << waiter->request_tracking_timeout << ")";
+    content::GetUIThreadTaskRunner({})->PostDelayedTask(
+        FROM_HERE,
+        base::BindOnce(&AbpController::OnRequestTrackingTimeout,
+                       weak_factory_.GetWeakPtr(), tab_id),
+        waiter->request_tracking_timeout);
+  }
+
+  CheckActionCompleteConditions(tab_id);
+}
+
+void AbpController::OnRequestTrackingTimeout(const std::string& tab_id) {
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end() || !it->second.action_waiter) {
+    return;
+  }
+
+  ActionCompleteWaiter* waiter = it->second.action_waiter.get();
+  if (waiter->tracked_requests_resolved) {
+    return;  // Already resolved normally before timeout
+  }
+
+  int unresolved_count = static_cast<int>(waiter->tracked_requests.size());
+  VLOG(1) << "ABP: request tracking timeout for tab " << tab_id
+          << " (" << unresolved_count << " unresolved)";
+  waiter->tracked_requests_resolved = true;
+  waiter->tracking_timed_out = true;
+
+  // Generate event so the agent knows tracking timed out
+  if (event_collector_ && event_collector_->IsCapturing() &&
+      event_collector_->GetCapturingTabId() == tab_id) {
+    base::Value::Dict data;
+    data.Set("unresolved_requests", unresolved_count);
+    event_collector_->AddEvent("request_tracking_timeout", std::move(data));
+  }
+
+  // Start Phase 3: post-tracking settle
+  if (!waiter->post_tracking_settle_started) {
+    waiter->post_tracking_settle_started = true;
+    content::GetUIThreadTaskRunner({})->PostDelayedTask(
+        FROM_HERE,
+        base::BindOnce(&AbpController::OnPostTrackingSettle,
+                       weak_factory_.GetWeakPtr(), tab_id),
+        waiter->post_tracking_settle_time);
+  }
+
+  CheckActionCompleteConditions(tab_id);
+}
+
+void AbpController::OnPostTrackingSettle(const std::string& tab_id) {
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end() || !it->second.action_waiter) {
+    return;
+  }
+
+  it->second.action_waiter->post_tracking_settled = true;
   CheckActionCompleteConditions(tab_id);
 }
 
@@ -4369,6 +4495,8 @@ void AbpController::OnNetworkIdleCheck(const std::string& tab_id) {
         base::TimeTicks::Now() - waiter->last_network_activity;
     if (idle_duration >= kNetworkIdleTime) {
       waiter->network_idle = true;
+      // Network is now idle — if min_wait was deferred, start it now.
+      MaybeStartMinWaitTimer(tab_id);
       CheckActionCompleteConditions(tab_id);
       return;
     }
@@ -4418,6 +4546,7 @@ void AbpController::CheckActionCompleteConditions(const std::string& tab_id) {
             << " load=" << completed_waiter->load_fired
             << " dcl=" << completed_waiter->dom_content_loaded_fired
             << " paint=" << completed_waiter->first_paint_fired
+            << " tracking_timed_out=" << completed_waiter->tracking_timed_out
             << " tab=" << tab_id;
 
   if (completed_waiter->on_complete) {
@@ -5126,36 +5255,19 @@ void AbpController::HandleFileChooser(const std::string& chooser_id,
   // Check if cancel is requested
   auto cancel = params.FindBool("cancel");
   if (cancel && *cancel) {
-    base::Value::Dict cdp_params;
-    cdp_params.Set("action", "cancel");
+    pending_file_choosers_.erase(chooser_id);
+    base::Value::Dict response;
+    response.Set("success", true);
+    response.Set("cancelled", true);
+    SendJson(200, base::Value(std::move(response)), std::move(callback));
+    return;
+  }
 
-    std::string tab_id_copy = *tab_id;
-    client->SendCommand(
-        "Page.handleFileChooser", std::move(cdp_params),
-        base::BindOnce(
-            [](base::WeakPtr<AbpController> weak_this, std::string chooser_id,
-               ResponseCallback cb, bool success, const std::string& result) {
-              if (!weak_this) {
-                std::move(cb).Run(500, "application/json",
-                                 R"({"error":"Controller destroyed"})");
-                return;
-              }
-              // Remove from pending
-              weak_this->pending_file_choosers_.erase(chooser_id);
-
-              if (!success) {
-                weak_this->SendError(500, "Failed to cancel file chooser",
-                                     std::move(cb));
-                return;
-              }
-
-              base::Value::Dict response;
-              response.Set("success", true);
-              response.Set("cancelled", true);
-              weak_this->SendJson(200, base::Value(std::move(response)),
-                                 std::move(cb));
-            },
-            weak_factory_.GetWeakPtr(), chooser_id, std::move(callback)));
+  // Get backendNodeId from stored chooser info (needed for DOM.setFileInputFiles)
+  auto backend_node_id = it->second.FindInt("backendNodeId");
+  if (!backend_node_id) {
+    SendError(500, "File chooser missing backendNodeId (not an <input> element?)",
+              std::move(callback));
     return;
   }
 
@@ -5180,10 +5292,13 @@ void AbpController::HandleFileChooser(const std::string& chooser_id,
     max_size = static_cast<int64_t>(*ms);
   }
 
+  int node_id = *backend_node_id;
+  std::string tab_id_str = *tab_id;
+  std::string chooser_id_copy = chooser_id;
+
   // If content_files present, decode and write to temp files first
   if (content_files && !content_files->empty()) {
     // Validate and decode all content_files upfront
-    // Using pair<filename, data> to avoid local struct template deduction issues
     std::vector<std::pair<std::string, std::vector<uint8_t>>> pending;
 
     for (size_t i = 0; i < content_files->size(); i++) {
@@ -5243,9 +5358,8 @@ void AbpController::HandleFileChooser(const std::string& chooser_id,
       }
     }
 
-    // Write temp files on thread pool, then continue on UI thread
+    // Write temp files on thread pool, then run the action
     base::FilePath uploads_dir = session_dir_.AppendASCII("uploads");
-    std::string tab_id_copy = *tab_id;
 
     auto task_runner = base::ThreadPool::CreateTaskRunner(
         {base::MayBlock(), base::TaskPriority::USER_VISIBLE});
@@ -5255,13 +5369,11 @@ void AbpController::HandleFileChooser(const std::string& chooser_id,
             [](base::FilePath uploads_dir,
                std::vector<std::pair<std::string, std::vector<uint8_t>>>
                    pending) -> std::optional<std::vector<std::string>> {
-              // Create uploads dir
               if (!base::CreateDirectory(uploads_dir))
                 return std::nullopt;
 
               std::vector<std::string> paths;
               for (const auto& pf : pending) {
-                // Use unique prefix to avoid collisions
                 std::string unique_name =
                     base::NumberToString(
                         base::Time::Now().InMillisecondsSinceUnixEpoch()) +
@@ -5276,7 +5388,8 @@ void AbpController::HandleFileChooser(const std::string& chooser_id,
             uploads_dir, std::move(pending)),
         base::BindOnce(
             [](base::WeakPtr<AbpController> self, std::string chooser_id,
-               std::string tab_id_str, std::vector<std::string> existing_paths,
+               std::string tab_id, int node_id,
+               std::vector<std::string> existing_paths,
                ResponseCallback cb,
                std::optional<std::vector<std::string>> temp_paths) {
               if (!self) {
@@ -5293,124 +5406,121 @@ void AbpController::HandleFileChooser(const std::string& chooser_id,
 
               // Merge paths: existing + temp
               std::vector<std::string> all_paths = std::move(existing_paths);
-              std::vector<std::string> temps = std::move(*temp_paths);
-              all_paths.insert(all_paths.end(), temps.begin(), temps.end());
+              all_paths.insert(all_paths.end(),
+                               temp_paths->begin(), temp_paths->end());
 
-              // Build CDP params
-              content::WebContents* wc =
-                  self->FindWebContents(tab_id_str);
-              if (!wc) {
-                self->SendError(404, "Tab not found", std::move(cb));
-                return;
-              }
-              AbpCdpClient* client = self->GetOrCreateCdpClient(wc);
-              if (!client) {
-                self->SendError(500, "Failed to get CDP client",
-                                std::move(cb));
-                return;
-              }
-
-              base::Value::Dict cdp_params;
-              cdp_params.Set("action", "accept");
-              base::Value::List file_list;
-              for (const auto& p : all_paths) {
-                file_list.Append(p);
-              }
-              cdp_params.Set("files", std::move(file_list));
-
-              // Send CDP command, clean up temp files after
-              client->SendCommand(
-                  "Page.handleFileChooser", std::move(cdp_params),
-                  base::BindOnce(
-                      [](base::WeakPtr<AbpController> weak_this,
-                         std::string cid, std::vector<std::string> temp_files,
-                         ResponseCallback callback, bool success,
-                         const std::string& result) {
-                        if (weak_this)
-                          weak_this->pending_file_choosers_.erase(cid);
-
-                        // Clean up temp files on thread pool
-                        base::ThreadPool::PostTask(
-                            FROM_HERE,
-                            {base::MayBlock(),
-                             base::TaskPriority::BEST_EFFORT},
-                            base::BindOnce(
-                                [](std::vector<std::string> paths) {
-                                  for (const auto& p : paths) {
-                                    base::DeleteFile(base::FilePath(p));
-                                  }
-                                },
-                                std::move(temp_files)));
-
-                        if (!weak_this) {
-                          std::move(callback).Run(
-                              500, "application/json",
-                              R"({"error":"Controller destroyed"})");
-                          return;
-                        }
-
-                        if (!success) {
-                          weak_this->SendError(
-                              500, "Failed to handle file chooser",
-                              std::move(callback));
-                          return;
-                        }
-
-                        base::Value::Dict response;
-                        response.Set("success", true);
-                        weak_this->SendJson(
-                            200, base::Value(std::move(response)),
-                            std::move(callback));
-                      },
-                      self, chooser_id, std::move(temps),
-                      std::move(cb)));
+              self->RunFileChooserAction(
+                  tab_id, chooser_id, node_id,
+                  std::move(all_paths), std::move(cb));
             },
-            weak_factory_.GetWeakPtr(), chooser_id, std::move(tab_id_copy),
+            weak_factory_.GetWeakPtr(), chooser_id_copy, tab_id_str, node_id,
             std::move(existing_paths), std::move(callback)));
     return;
   }
 
-  // Original path-based flow (unchanged from here)
-  base::Value::Dict cdp_params;
-  cdp_params.Set("action", "accept");
-
-  base::Value::List file_list;
+  // Path-based flow: collect paths and run the action directly
+  std::vector<std::string> all_paths;
   if (files) {
     for (const auto& file : *files) {
       if (file.is_string()) {
-        file_list.Append(file.GetString());
+        all_paths.push_back(file.GetString());
       }
     }
   } else if (save_path) {
-    file_list.Append(*save_path);
+    all_paths.push_back(*save_path);
   }
-  cdp_params.Set("files", std::move(file_list));
 
-  client->SendCommand(
-      "Page.handleFileChooser", std::move(cdp_params),
+  RunFileChooserAction(tab_id_str, chooser_id_copy, node_id,
+                       std::move(all_paths), std::move(callback));
+}
+
+void AbpController::RunFileChooserAction(
+    const std::string& tab_id,
+    const std::string& chooser_id,
+    int backend_node_id,
+    std::vector<std::string> file_paths,
+    ResponseCallback callback) {
+  // File upload is a full ABP action: resume → set files → dispatch change →
+  // wait for upload network traffic to settle → wait 2s for page JS to
+  // process → pause → screenshot.
+  AbpActionContext::Options opts;
+  opts.min_wait_time = base::Milliseconds(500);
+  opts.request_tracking_timeout = base::Seconds(60);
+
+  // Build a params dict for the action context (used for history/response)
+  base::Value::Dict action_params;
+  action_params.Set("chooser_id", chooser_id);
+  base::Value::List path_list;
+  for (const auto& p : file_paths) {
+    path_list.Append(p);
+  }
+  action_params.Set("files", std::move(path_list));
+
+  AbpActionContext::RunWithOptions(
+      this, tab_id, "file_chooser", action_params, opts,
       base::BindOnce(
-          [](base::WeakPtr<AbpController> weak_this, std::string chooser_id,
-             ResponseCallback cb, bool success, const std::string& result) {
-            if (!weak_this) {
-              std::move(cb).Run(500, "application/json",
-                               R"({"error":"Controller destroyed"})");
-              return;
-            }
-            // Remove from pending
-            weak_this->pending_file_choosers_.erase(chooser_id);
-
-            if (!success) {
-              weak_this->SendError(500, "Failed to handle file chooser",
-                                   std::move(cb));
+          [](std::string chooser_id, int node_id,
+             std::vector<std::string> paths, AbpActionContext* ctx) {
+            scoped_refptr<AbpActionContext> ctx_ref(ctx);
+            if (!ctx->controller()) {
+              ctx_ref->OnActionError("CONTROLLER_DESTROYED",
+                                     "Controller destroyed");
               return;
             }
 
-            base::Value::Dict response;
-            response.Set("success", true);
-            weak_this->SendJson(200, base::Value(std::move(response)),
-                               std::move(cb));
+            std::string tab_id = ctx->tab_id();
+            content::WebContents* wc =
+                ctx->controller()->FindWebContents(tab_id);
+            if (!wc) {
+              ctx_ref->OnActionError("TAB_NOT_FOUND", "Tab not found");
+              return;
+            }
+            AbpCdpClient* client =
+                ctx->controller()->GetOrCreateCdpClient(wc);
+            if (!client) {
+              ctx_ref->OnActionError("CDP_ERROR",
+                                     "Failed to get CDP client");
+              return;
+            }
+
+            // Build CDP params
+            base::Value::Dict cdp_params;
+            base::Value::List file_list;
+            for (const auto& p : paths) {
+              file_list.Append(p);
+            }
+            cdp_params.Set("files", std::move(file_list));
+            cdp_params.Set("backendNodeId", node_id);
+
+            // Set files via CDP. DOM.setFileInputFiles internally calls
+            // SetFilesAndDispatchEvents() which dispatches trusted 'input'
+            // and 'change' events (isTrusted: true) — no synthetic event
+            // dispatch needed.
+            client->SendCommand(
+                "DOM.setFileInputFiles", std::move(cdp_params),
+                base::BindOnce(
+                    [](scoped_refptr<AbpActionContext> ctx,
+                       std::string chooser_id,
+                       bool success, const std::string& result) {
+                      if (ctx->controller())
+                        ctx->controller()->pending_file_choosers_.erase(
+                            chooser_id);
+
+                      if (!success || !ctx->controller()) {
+                        ctx->OnActionError("CDP_ERROR",
+                                           "Failed to set files: " + result);
+                        return;
+                      }
+
+                      base::Value::Dict res;
+                      res.Set("success", true);
+                      ctx->SetResult(std::move(res));
+                      ctx->OnActionDispatched();
+                    },
+                    ctx_ref, chooser_id));
           },
-          weak_factory_.GetWeakPtr(), chooser_id, std::move(callback)));
+          chooser_id, backend_node_id, std::move(file_paths)),
+      std::move(callback));
 }
 
 // Binary screenshot endpoint (GET)
@@ -5862,60 +5972,61 @@ void AbpController::HandleDownloadContent(const std::string& download_id,
   std::string filename = download->filename;
   std::string dl_id = download->id;
 
-  // Read file on thread pool (file I/O must not block UI thread)
+  // Read file on thread pool (file I/O must not block UI thread).
+  // Return pair: {error_code (0=ok, 413=too large, 500=read fail), data}.
+  // All file I/O happens in the task lambda; the reply callback only touches
+  // the result on the UI thread.
   base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
       base::BindOnce(
           [](base::FilePath path, int64_t max_size)
-              -> std::optional<std::vector<uint8_t>> {
+              -> std::pair<int, std::vector<uint8_t>> {
             std::optional<int64_t> file_size = base::GetFileSize(path);
             if (!file_size.has_value())
-              return std::nullopt;
+              return {500, {}};
             if (*file_size > max_size)
-              return std::nullopt;
+              return {413, {}};
             std::optional<std::vector<uint8_t>> data =
                 base::ReadFileToBytes(path);
-            return data;
+            if (!data.has_value())
+              return {500, {}};
+            return {0, std::move(*data)};
           },
           file_path, max_size),
       base::BindOnce(
           [](base::WeakPtr<AbpController> self, ResponseCallback cb,
              std::string mime, std::string filename, std::string dl_id,
-             base::FilePath file_path, int64_t max_size,
-             std::optional<std::vector<uint8_t>> data) {
+             int64_t max_size,
+             std::pair<int, std::vector<uint8_t>> result) {
             if (!self) {
               std::move(cb).Run(500, "application/json",
                                 R"({"error":"Controller destroyed"})");
               return;
             }
 
-            if (!data.has_value()) {
-              // Check if it was a size issue
-              std::optional<int64_t> file_size =
-                  base::GetFileSize(file_path);
-              if (file_size.has_value() && *file_size > max_size) {
-                self->SendError(
-                    413,
-                    "File too large (" +
-                        base::NumberToString(*file_size) +
-                        " bytes, max " +
-                        base::NumberToString(max_size) + ")",
-                    std::move(cb));
-              } else {
-                self->SendError(404, "Failed to read download file",
-                                std::move(cb));
-              }
+            if (result.first == 413) {
+              self->SendError(
+                  413,
+                  "File too large (max " +
+                      base::NumberToString(max_size) + " bytes)",
+                  std::move(cb));
+              return;
+            }
+
+            if (result.first != 0) {
+              self->SendError(500, "Failed to read download file",
+                              std::move(cb));
               return;
             }
 
             // Return raw binary with Content-Type
             std::string content_type =
                 mime.empty() ? "application/octet-stream" : mime;
-            std::string body(data->begin(), data->end());
+            std::string body(result.second.begin(), result.second.end());
             std::move(cb).Run(200, content_type, std::move(body));
           },
           weak_factory_.GetWeakPtr(), std::move(callback), std::move(mime),
-          std::move(filename), std::move(dl_id), file_path, max_size));
+          std::move(filename), std::move(dl_id), max_size));
 }
 
 }  // namespace abp

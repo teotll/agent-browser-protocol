@@ -106,6 +106,7 @@ void AbpHttpServer::Start() {
   // Create controller and connect to history
   controller_ = std::make_unique<AbpController>();
   controller_->SetHistoryController(history_controller_.get());
+  controller_->SetSessionDir(config.session_dir);
 
   // Create event observer for history
   if (history_controller_->IsEnabled()) {

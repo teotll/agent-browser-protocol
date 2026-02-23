@@ -409,9 +409,32 @@ base::Value::List GetToolDefinitions() {
                    .OptionalStringArray("files", "Local file paths to provide")
                    .OptionalString("path", "Save path for save dialogs")
                    .OptionalBoolean("cancel", "Cancel the file chooser")
+                   .OptionalObjectArray("content_files",
+                       "Base64-encoded files to upload (for remote clients)",
+                       []{
+                         base::Value::Dict props;
+                         base::Value::Dict fn;
+                         fn.Set("type", "string");
+                         fn.Set("description", "Filename with extension");
+                         props.Set("filename", std::move(fn));
+                         base::Value::Dict dt;
+                         dt.Set("type", "string");
+                         dt.Set("description", "Base64-encoded file content");
+                         props.Set("data", std::move(dt));
+                         base::Value::Dict mt;
+                         mt.Set("type", "string");
+                         mt.Set("description", "MIME type (optional)");
+                         props.Set("mime_type", std::move(mt));
+                         return props;
+                       }(),
+                       []{
+                         base::Value::List req;
+                         req.Append("filename");
+                         req.Append("data");
+                         return req;
+                       }())
                    .OptionalNumber("max_size",
-                       "Maximum file size in bytes for content_files "
-                       "(default 10MB)")
+                       "Maximum size per content_file in bytes (default 10MB)")
                    .Build());
 
   // 11. browser_get_status
@@ -479,7 +502,7 @@ ABP **pauses JavaScript and virtual time** between your actions. The page is fro
 When you call any action tool (browser_action, browser_scroll, browser_navigate, etc.):
 1. ABP **resumes** JS execution
 2. ABP dispatches your action(s)
-3. ABP **waits ~500ms** for the page to settle (rendering, network, scripts)
+3. ABP **waits for the page to settle** (three-phase: 150ms for JS to fire handlers → tracks triggered network requests until they complete or 1s timeout → 150ms DOM settle)
 4. ABP captures a **screenshot** automatically
 5. ABP **re-pauses** JS execution
 6. You receive the response with the screenshot
@@ -500,9 +523,9 @@ Actions execute sequentially with a 20ms pause between each. One screenshot is t
 
 ## Waiting for Slow Content
 
-Sometimes 500ms isn't enough for the page to finish loading (AJAX, animations, redirects). When the screenshot shows incomplete content:
+ABP automatically tracks network requests triggered by your action and waits for them to complete (up to 1s for clicks, 60s for file uploads). If requests don't finish in time, a `request_tracking_timeout` event appears in the response — the screenshot may not reflect the final page state.
 
-**Call `browser_screenshot` to wait and observe.** It runs the same resume-wait-capture-pause cycle without performing any action, giving the page another chance to settle. Repeat until the content appears.
+When the screenshot shows incomplete content, **call `browser_screenshot`** to wait and observe. It runs the same resume-wait-capture-pause cycle without performing any action, giving the page another chance to settle. Repeat until the content appears.
 
 ## Markup Overlays
 

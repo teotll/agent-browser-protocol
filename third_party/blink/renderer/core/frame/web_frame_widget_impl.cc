@@ -881,6 +881,9 @@ void WebFrameWidgetImpl::SetPosition(float x, float y, bool visible) {
     if (virtual_cursor_overlay_) {
       virtual_cursor_overlay_->UpdatePrePaint();
     }
+    if (!local_root_) {
+      return;
+    }
     LocalFrame* frame = local_root_->GetFrame();
     if (frame && frame->View()) {
       // Mark overlay as needing repaint so the paint phase actually runs.
@@ -901,6 +904,9 @@ void WebFrameWidgetImpl::SetCursorType(ui::mojom::CursorType cursor_type) {
     if (virtual_cursor_overlay_) {
       virtual_cursor_overlay_->UpdatePrePaint();
     }
+    if (!local_root_) {
+      return;
+    }
     LocalFrame* frame = local_root_->GetFrame();
     if (frame && frame->View()) {
       frame->View()->SetVisualViewportOrOverlayNeedsRepaint();
@@ -920,6 +926,9 @@ void WebFrameWidgetImpl::SetVisible(bool visible) {
     if (virtual_cursor_overlay_) {
       virtual_cursor_overlay_->UpdatePrePaint();
     }
+    if (!local_root_) {
+      return;
+    }
     LocalFrame* frame = local_root_->GetFrame();
     if (frame && frame->View()) {
       frame->View()->SetVisualViewportOrOverlayNeedsRepaint();
@@ -936,6 +945,9 @@ void WebFrameWidgetImpl::SetEnabled(bool enabled) {
   }
   virtual_cursor_enabled_ = enabled;
 
+  if (!local_root_) {
+    return;  // Widget is closing, ignore late mojo messages.
+  }
   LocalFrame* frame = local_root_->GetFrame();
   if (!frame) {
     return;

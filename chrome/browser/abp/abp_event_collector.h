@@ -68,12 +68,12 @@ class AbpEventCollector {
   // Generate unique IDs for file choosers
   std::string GenerateFileChooserId();
 
+  // Add an event to the capture buffer (public for controller-generated events)
+  void AddEvent(const std::string& type, base::Value::Dict data);
+
  private:
   // Get virtual time for current tab, or wall clock if not enabled
   int64_t GetVirtualTimeMs();
-
-  // Add an event to the capture buffer
-  void AddEvent(const std::string& type, base::Value::Dict data);
 
   raw_ptr<AbpController> controller_;
   bool capturing_ = false;

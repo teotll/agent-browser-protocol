@@ -142,6 +142,11 @@ void AbpEventCollector::OnCdpEvent(const std::string& tab_id,
       data.Set("accepts", std::move(accepts_copy));
     }
 
+    // Capture backend node ID for DOM.setFileInputFiles
+    if (auto node_id = params.FindInt("backendNodeId")) {
+      data.Set("backendNodeId", *node_id);
+    }
+
     data.Set("pending", true);
 
     // Notify controller about pending file chooser (for Phase 3 endpoint)

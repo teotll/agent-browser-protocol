@@ -115,6 +115,16 @@ class AbpMcpHandler {
                             const std::string& content_type,
                             std::string body);
 
+  // Callback for binary REST responses (download content).
+  // Base64-encodes the binary data and wraps as BlobResourceContents.
+  void OnBinaryControllerResponse(base::Value request_id,
+                                  std::string download_id,
+                                  std::string filename,
+                                  ResponseWithHeadersCallback callback,
+                                  int status,
+                                  const std::string& content_type,
+                                  std::string body);
+
   // Controller reference (not owned)
   raw_ptr<AbpController> controller_;
 

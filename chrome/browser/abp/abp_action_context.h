@@ -73,10 +73,17 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
     // completes. Use for navigation actions where cursor should reset to center.
     bool center_cursor_after = false;
 
-    // Minimum wait time before considering action complete.
-    // Use longer values (e.g., 10s) for navigation to allow page load.
-    // Default 500ms is suitable for quick actions like click/type.
-    base::TimeDelta min_wait_time = base::Milliseconds(500);
+    // Phase 1: JS hook window. Minimum time before snapshot + completion check.
+    // 150ms default lets page JS fire event handlers and start requests.
+    base::TimeDelta min_wait_time = base::Milliseconds(150);
+
+    // Phase 2: How long to wait for snapshotted requests to complete.
+    // 1s default for clicks/type/scroll. 60s for file uploads.
+    base::TimeDelta request_tracking_timeout = base::Seconds(1);
+
+    // Phase 3: Settle time after tracked requests complete.
+    // Lets the page process network responses and update DOM.
+    base::TimeDelta post_tracking_settle_time = base::Milliseconds(150);
   };
 
   // Factory method - creates context and starts the action flow

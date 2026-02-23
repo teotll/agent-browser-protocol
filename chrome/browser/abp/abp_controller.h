@@ -295,12 +295,15 @@ class AbpController {
   // Pause execution on all open tabs (used at startup)
   void PauseAllTabs();
 
-  // Wait for action_complete conditions before calling callback
-  // min_wait_time specifies the minimum time to wait before completing
-  // (default 500ms, use longer for navigation actions)
-  void WaitForActionComplete(const std::string& tab_id,
-                             base::OnceClosure on_complete,
-                             base::TimeDelta min_wait_time = base::Milliseconds(500));
+  // Wait for action_complete conditions before calling callback.
+  // Three-phase wait: min_wait (JS hook window) → request tracking →
+  // post-tracking settle. All durations configurable per action type.
+  void WaitForActionComplete(
+      const std::string& tab_id,
+      base::OnceClosure on_complete,
+      base::TimeDelta min_wait_time = base::Milliseconds(150),
+      base::TimeDelta request_tracking_timeout = base::Seconds(1),
+      base::TimeDelta post_tracking_settle_time = base::Milliseconds(150));
 
   // Wait for a specific condition before calling callback
   // Supports wait types: "text", "url", "network_idle", "time"
@@ -468,6 +471,13 @@ class AbpController {
   void HandleFileChooser(const std::string& chooser_id,
                          const base::Value::Dict& params,
                          ResponseCallback callback);
+
+  // Run file chooser as a full ABP action (resume → set files → wait → pause)
+  void RunFileChooserAction(const std::string& tab_id,
+                            const std::string& chooser_id,
+                            int backend_node_id,
+                            std::vector<std::string> file_paths,
+                            ResponseCallback callback);
 
   // Binary screenshot (GET endpoint - returns raw WebP)
   void BinaryScreenshot(const std::string& tab_id,
@@ -674,6 +684,19 @@ class AbpController {
     // Minimum wait time (configurable per action)
     base::TimeDelta min_wait_time = base::Milliseconds(500);
 
+    // Request ID tracking (for action-triggered network requests)
+    std::set<std::string> active_request_ids;        // all in-flight request IDs (filtered)
+    std::set<std::string> tracked_requests;          // snapshot taken at min_wait boundary
+    bool tracking_snapshot_taken = false;            // snapshot done
+    bool tracked_requests_resolved = false;          // all tracked done or timed out
+    bool tracking_timed_out = false;                 // timeout triggered (for event)
+    base::TimeDelta request_tracking_timeout = base::Seconds(1);
+
+    // Post-tracking settle (Phase 3)
+    bool post_tracking_settle_started = false;
+    bool post_tracking_settled = false;
+    base::TimeDelta post_tracking_settle_time = base::Milliseconds(150);
+
     // Text wait fields
     std::string wait_text;
     bool text_found = false;
@@ -690,7 +713,8 @@ class AbpController {
     bool IsComplete() const {
       if (wait_type == "action_complete") {
         return load_fired && dom_content_loaded_fired &&
-               first_paint_fired && min_time_elapsed;
+               first_paint_fired && min_time_elapsed &&
+               tracked_requests_resolved && post_tracking_settled;
       } else if (wait_type == "network_idle") {
         return network_idle;
       } else if (wait_type == "text") {
@@ -855,8 +879,14 @@ class AbpController {
   // Start the min_wait timer once all base conditions are met
   void MaybeStartMinWaitTimer(const std::string& tab_id);
 
-  // Timer callback for minimum wait time
+  // Timer callback for minimum wait time (takes request tracking snapshot)
   void OnMinWaitTimeElapsed(const std::string& tab_id);
+
+  // Timer callback for request tracking timeout (Phase 2 deadline)
+  void OnRequestTrackingTimeout(const std::string& tab_id);
+
+  // Timer callback for post-tracking settle (Phase 3)
+  void OnPostTrackingSettle(const std::string& tab_id);
 
   // Timer callback for network idle check
   void OnNetworkIdleCheck(const std::string& tab_id);

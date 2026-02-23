@@ -485,7 +485,9 @@ void AbpActionContext::DoWaitUntil() {
       tab_id_,
       base::BindOnce(&AbpActionContext::OnWaitUntilComplete,
                      weak_factory_.GetWeakPtr()),
-      options_.min_wait_time);
+      options_.min_wait_time,
+      options_.request_tracking_timeout,
+      options_.post_tracking_settle_time);
 }
 
 void AbpActionContext::OnWaitUntilComplete() {

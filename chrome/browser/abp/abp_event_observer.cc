@@ -146,6 +146,9 @@ void AbpCdpEventClient::HandleEvent(const std::string& method,
     if (auto multiple = params.FindBool("multipleFilesAllowed")) {
       data.Set("multipleFilesAllowed", *multiple);
     }
+    if (auto node_id = params.FindInt("backendNodeId")) {
+      data.Set("backendNodeId", *node_id);
+    }
   } else if (method == "Page.downloadWillBegin") {
     event_type = "download_started";
     if (const std::string* url = params.FindString("url")) {
