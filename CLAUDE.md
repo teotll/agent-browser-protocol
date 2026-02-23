@@ -295,6 +295,10 @@ See `plans/API.md` for the complete REST API specification. All endpoints:
 | POST | `/api/v1/downloads/{id}/cancel` | Cancel download |
 | **File Chooser** | | |
 | POST | `/api/v1/file-chooser/{id}` | Provide files to dialog |
+| **Popups** | | |
+| GET | `/api/v1/popups` | List pending native popups |
+| POST | `/api/v1/select/{id}` | Respond to select popup |
+| POST | `/api/v1/color-picker/{id}` | Respond to color picker |
 | **History** | | |
 | GET | `/api/v1/history/sessions` | List sessions |
 | GET | `/api/v1/history/sessions/current` | Get current session |

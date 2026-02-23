@@ -16,6 +16,7 @@ This document specifies the complete ABP REST API. The following table shows cur
 | Dialogs | get, accept, dismiss | - |
 | Downloads | list, get, cancel | configure, wait, resume |
 | File Chooser | provide files | configure, get pending |
+| Popups | list pending, select picker, color picker | - |
 | Browser | status, shutdown | get info |
 | Execution Control | get/set state | - |
 | History | sessions, actions, events, export | - |
@@ -432,6 +433,43 @@ File chooser was dismissed without selection.
     "id": "fc_abc123",
     "tab_id": "tab_abc123",
     "chooser_type": "open"
+  }
+}
+```
+
+#### `select_open`
+A native `<select>` dropdown popup was intercepted. Use the `id` to respond via `POST /select/{id}`.
+
+```json
+{
+  "type": "select_open",
+  "virtual_time_ms": 1699999999850,
+  "data": {
+    "id": "sp_abc123",
+    "tab_id": "tab_abc123",
+    "multiple": false,
+    "options": [
+      {"index": 0, "label": "Option A", "selected": true},
+      {"index": 1, "label": "Option B", "selected": false},
+      {"index": 2, "label": "Option C", "selected": false}
+    ],
+    "pending": true
+  }
+}
+```
+
+#### `color_picker_open`
+A native color picker popup was intercepted. Use the `id` to respond via `POST /color-picker/{id}`.
+
+```json
+{
+  "type": "color_picker_open",
+  "virtual_time_ms": 1699999999860,
+  "data": {
+    "id": "cp_abc123",
+    "tab_id": "tab_abc123",
+    "color": "#000000",
+    "pending": true
   }
 }
 ```
@@ -1453,6 +1491,129 @@ Provides files to a pending file chooser dialog.
 ```json
 {
   "error": "File chooser fc_abc123 not found or already closed"
+}
+```
+
+---
+
+## Native Popups (Select, Color Picker)
+
+Native OS popups (`<select>` dropdowns, `<input type="color">` color pickers) are intercepted at the Mojo IPC boundary before the native UI is shown. Agents discover pending popups via:
+
+1. **Events in action responses** — `select_open` and `color_picker_open` events appear in the `events` array when a native popup is intercepted during an action.
+2. **Polling** — `GET /popups` lists all currently pending popups.
+
+### List Pending Popups
+
+```
+GET /popups
+```
+
+Returns all pending native popups that have been intercepted and are awaiting a response.
+
+**Response:**
+```json
+{
+  "popups": [
+    {
+      "id": "sp_abc123",
+      "type": "select",
+      "tab_id": "tab_xyz789",
+      "multiple": false,
+      "options": [
+        {"index": 0, "label": "Option A", "selected": true},
+        {"index": 1, "label": "Option B", "selected": false},
+        {"index": 2, "label": "Option C", "selected": false}
+      ],
+      "pending": true
+    },
+    {
+      "id": "cp_def456",
+      "type": "color_picker",
+      "tab_id": "tab_xyz789",
+      "color": "#000000",
+      "pending": true
+    }
+  ]
+}
+```
+
+### Respond to Select Popup
+
+```
+POST /select/{popup_id}
+```
+
+Responds to a pending `<select>` dropdown popup by selecting options or cancelling.
+
+**Request (select options by index):**
+```json
+{
+  "indices": [1]
+}
+```
+
+For `<select multiple>`, provide multiple indices:
+```json
+{
+  "indices": [0, 2, 3]
+}
+```
+
+**Request (cancel/dismiss):**
+```json
+{
+  "cancel": true
+}
+```
+
+**Response:**
+```json
+{
+  "success": true
+}
+```
+
+**Error (popup not found or expired):**
+```json
+{
+  "error": "Select popup sp_abc123 not found or already closed"
+}
+```
+
+### Respond to Color Picker
+
+```
+POST /color-picker/{popup_id}
+```
+
+Responds to a pending color picker popup by providing a color or cancelling.
+
+**Request (provide color):**
+```json
+{
+  "color": "#ff5500"
+}
+```
+
+**Request (cancel/dismiss):**
+```json
+{
+  "cancel": true
+}
+```
+
+**Response:**
+```json
+{
+  "success": true
+}
+```
+
+**Error (popup not found or expired):**
+```json
+{
+  "error": "Color picker cp_def456 not found or already closed"
 }
 ```
 
