@@ -14,6 +14,8 @@ export interface LaunchOptions {
   headless?: boolean;
   /** Window size as [width, height]. Default: [1280, 800]. */
   windowSize?: [number, number];
+  /** Pipe browser stdout/stderr to the parent process stderr. */
+  verbose?: boolean;
   args?: string[];
 }
 
@@ -53,6 +55,7 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
     executablePath,
     headless = false,
     windowSize,
+    verbose = false,
     args = [],
   } = options;
 
@@ -83,7 +86,9 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
   );
 
   const child = spawn(binaryPath, launchArgs, {
-    stdio: "ignore",
+    stdio: verbose
+      ? ["ignore", process.stderr, process.stderr] as any
+      : "ignore",
     detached: false,
   });
 

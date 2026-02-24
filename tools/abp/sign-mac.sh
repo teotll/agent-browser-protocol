@@ -35,6 +35,7 @@ SIGNING_IDENTITY="${SIGNING_IDENTITY:-Developer ID Application: Han Wang (72YUDG
 ENTITLEMENTS="$CHROMIUM_SRC/chrome/app/app-entitlements.plist"
 ENTITLEMENTS_RENDERER="$CHROMIUM_SRC/chrome/app/helper-renderer-entitlements.plist"
 ENTITLEMENTS_GPU="$CHROMIUM_SRC/chrome/app/helper-gpu-entitlements.plist"
+ENTITLEMENTS_PLUGIN="$CHROMIUM_SRC/chrome/app/helper-plugin-entitlements.plist"
 
 # Validate notarization credentials upfront
 if [[ "${SKIP_NOTARIZATION:-}" != "1" ]]; then
@@ -87,6 +88,8 @@ while IFS= read -r helper; do
         helper_ent="$ENTITLEMENTS_RENDERER"
     elif [[ "$helper_name" == *"GPU"* ]]; then
         helper_ent="$ENTITLEMENTS_GPU"
+    elif [[ "$helper_name" == *"Plugin"* ]]; then
+        helper_ent="$ENTITLEMENTS_PLUGIN"
     fi
     codesign --force --options runtime --timestamp \
         --entitlements "$helper_ent" \

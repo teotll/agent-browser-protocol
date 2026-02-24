@@ -14,8 +14,8 @@
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "agent-browser-protocol": "./dist/bin/abp.js",
-    "abp-debug": "./dist/bin/debug.js"
+    "agent-browser-protocol": "dist/bin/abp.js",
+    "abp-debug": "dist/bin/debug.js"
   },
   "files": [
     "dist/",
@@ -41,7 +41,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/theredsix/agent-browser-protocol.git"
+    "url": "git+https://github.com/theredsix/agent-browser-protocol.git"
   },
   "author": "Han Wang <han.wang.2718@gmail.com>",
   "license": "MIT",

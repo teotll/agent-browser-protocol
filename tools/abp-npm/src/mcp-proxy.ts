@@ -11,6 +11,8 @@ const cliArgs = process.argv.slice(2);
 const PORT = parseInt(process.env.ABP_PORT || "8222", 10);
 const HEADLESS =
   process.env.ABP_HEADLESS === "1" || cliArgs.includes("--headless");
+const VERBOSE =
+  process.env.ABP_VERBOSE === "1" || cliArgs.includes("--verbose") || cliArgs.includes("-v");
 const EXTRA_ARGS = process.env.ABP_ARGS?.split(",").filter(Boolean) || [];
 
 // Claude's recommended resolution for web applications (WXGA)
@@ -50,10 +52,9 @@ async function ensureBrowser(): Promise<void> {
       browser = await launch({
         port: PORT,
         headless: HEADLESS,
-        args: [
-          `--window-size=${WINDOW_WIDTH},${WINDOW_HEIGHT}`,
-          ...EXTRA_ARGS,
-        ],
+        verbose: VERBOSE,
+        windowSize: [WINDOW_WIDTH, WINDOW_HEIGHT],
+        args: EXTRA_ARGS,
       });
       log(`ABP ready on port ${PORT}`);
     } catch (err: any) {

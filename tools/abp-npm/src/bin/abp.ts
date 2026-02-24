@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
 import { launch } from "../launch.js";
-import { ABP_VERSION, CHROME_VERSION } from "../paths.js";
+import { ABP_VERSION } from "../paths.js";
 
 interface ParsedArgs {
   port: number;
   headless: boolean;
+  verbose: boolean;
   sessionDir?: string;
   chromeArgs: string[];
 }
@@ -13,6 +14,7 @@ interface ParsedArgs {
 function parseArgs(argv: string[]): ParsedArgs {
   let port = parseInt(process.env.ABP_PORT || "8222", 10);
   let headless = process.env.ABP_HEADLESS === "1";
+  let verbose = process.env.ABP_VERBOSE === "1";
   let sessionDir: string | undefined;
   const chromeArgs: string[] = [];
   let pastSeparator = false;
@@ -35,13 +37,15 @@ function parseArgs(argv: string[]): ParsedArgs {
       port = parseInt(argv[i].split("=")[1], 10);
     } else if (argv[i] === "--headless") {
       headless = true;
+    } else if (argv[i] === "--verbose" || argv[i] === "-v") {
+      verbose = true;
     } else if (argv[i] === "--session-dir" && i + 1 < argv.length) {
       sessionDir = argv[i + 1];
       i++;
     } else if (argv[i].startsWith("--session-dir=")) {
       sessionDir = argv[i].split("=").slice(1).join("=");
     } else if (argv[i] === "--help" || argv[i] === "-h") {
-      console.log(`agent-browser-protocol v${ABP_VERSION} (Chrome ${CHROME_VERSION})
+      console.log(`agent-browser-protocol v${ABP_VERSION}
 
 Usage:
   agent-browser-protocol [options] [-- chrome-args...]
@@ -49,6 +53,7 @@ Usage:
 Options:
   --port <port>          Port to listen on (default: 8222)
   --headless             Run without a visible window
+  --verbose, -v          Show browser output (pipe to stderr)
   --session-dir <path>   Directory for session data (database, screenshots)
   --mcp                  Run as MCP server (JSON-RPC over stdio)
   --help, -h             Show this help message
@@ -56,6 +61,7 @@ Options:
 Environment Variables:
   ABP_PORT               Port to listen on (overridden by --port)
   ABP_HEADLESS=1         Run headless (overridden by --headless)
+  ABP_VERBOSE=1          Show browser output (overridden by --verbose)
   ABP_BROWSER_PATH       Path to a custom ABP binary
   ABP_SKIP_DOWNLOAD=1    Skip binary download during install
 
@@ -73,7 +79,7 @@ Examples:
     }
   }
 
-  return { port, headless, sessionDir, chromeArgs };
+  return { port, headless, verbose, sessionDir, chromeArgs };
 }
 
 async function main() {
@@ -82,12 +88,12 @@ async function main() {
     return;
   }
 
-  const { port, headless, sessionDir, chromeArgs } = parseArgs(process.argv);
+  const { port, headless, verbose, sessionDir, chromeArgs } = parseArgs(process.argv);
 
-  console.log(`Agent Browser Protocol v${ABP_VERSION} (Chrome ${CHROME_VERSION})`);
+  console.log(`Agent Browser Protocol v${ABP_VERSION}`);
   console.log(`Starting on port ${port}...`);
 
-  const browser = await launch({ port, headless, sessionDir, args: chromeArgs });
+  const browser = await launch({ port, headless, verbose, sessionDir, args: chromeArgs });
 
   console.log(`\nABP is ready!`);
   console.log(`  API:  http://localhost:${port}/api/v1`);

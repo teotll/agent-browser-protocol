@@ -32,8 +32,10 @@ function getPackageRoot(): string {
 
 const PACKAGE_ROOT = getPackageRoot();
 
-export const ABP_VERSION = "0.1.3";
-export const CHROME_VERSION = "146.0.7635.0";
+const pkg = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf-8"));
+export const ABP_VERSION: string = pkg.version;
+export const ABP_RELEASE_VERSION = ABP_VERSION.replace(/-.*$/, "");
+
 export const GITHUB_REPO = "theredsix/agent-browser-protocol";
 
 export interface PlatformInfo {
@@ -75,12 +77,12 @@ export function getPlatformInfo(): PlatformInfo {
 }
 
 export function getArchiveName(info: PlatformInfo): string {
-  return `abp-${ABP_VERSION}-${info.platform}-${info.arch}${info.archiveExt}`;
+  return `abp-${ABP_RELEASE_VERSION}-${info.platform}-${info.arch}${info.archiveExt}`;
 }
 
 export function getDownloadUrl(info: PlatformInfo): string {
   const archive = getArchiveName(info);
-  return `https://github.com/${GITHUB_REPO}/releases/download/v${ABP_VERSION}/${archive}`;
+  return `https://github.com/${GITHUB_REPO}/releases/download/v${ABP_RELEASE_VERSION}/${archive}`;
 }
 
 export function getBrowsersDir(): string {
