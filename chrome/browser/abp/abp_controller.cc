@@ -6076,7 +6076,7 @@ void AbpController::HandleDownloadContent(const std::string& download_id,
     return;
   }
 
-  base::FilePath file_path(download->path);
+  base::FilePath file_path = base::FilePath::FromUTF8Unsafe(download->path);
   std::string mime = download->mime_type;
   std::string filename = download->filename;
   std::string dl_id = download->id;
