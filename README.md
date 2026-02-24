@@ -354,7 +354,7 @@ ABP is under active development. Current implementation:
 - History tracking with SQLite (sessions, actions, events)
 - Virtual cursor rendering (compositor layer)
 - Browser management (status, shutdown)
-- MCP server with 13 tools at `/mcp`
+- MCP server with 14 tools at `/mcp`
 
 **Not yet implemented:**
 - Action success/failure tracking

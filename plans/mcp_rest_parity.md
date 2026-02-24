@@ -2,7 +2,7 @@
 
 ## Problem Statement
 
-The MCP interface currently exposes 13 tools while the REST API provides 25+ endpoints with richer parameters and response data. This gap means AI agents using MCP have fewer capabilities and less control than agents using REST directly. We need full parity so the choice of protocol is about transport preference, not capability.
+The MCP interface currently exposes 14 tools while the REST API provides 25+ endpoints with richer parameters and response data. This gap means AI agents using MCP have fewer capabilities and less control than agents using REST directly. We need full parity so the choice of protocol is about transport preference, not capability.
 
 ## Current Gap Analysis
 

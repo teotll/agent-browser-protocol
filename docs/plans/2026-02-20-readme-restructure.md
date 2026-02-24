@@ -568,7 +568,7 @@ Benefits of the embedded design:
 
 **Step 2: Verify tool names and parameters match `abp_mcp_handler.cc`**
 
-Read through the tool dispatch section to confirm all 12 tools are documented with correct parameter names.
+Read through the tool dispatch section to confirm all 14 tools are documented with correct parameter names.
 
 **Step 3: Commit**
 

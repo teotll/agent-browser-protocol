@@ -40,7 +40,7 @@ src/tools/abp-npm/                # NPM SDK: agent-browser-protocol
 plugins/agent-browser-protocol/
 ├── .claude-plugin/plugin.json    # Plugin metadata
 ├── .mcp.json                     # "npx -y agent-browser-protocol --mcp"
-└── skills/abp-browser/SKILL.md   # Usage guide (13 tools reference)
+└── skills/abp-browser/SKILL.md   # Usage guide (14 tools reference)
 README.md
 ```
 

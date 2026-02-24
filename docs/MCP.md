@@ -1,6 +1,6 @@
 # ABP MCP Server Reference
 
-The Agent Browser Protocol (ABP) includes an embedded MCP server -- no separate process, no Node.js, no bridge. The MCP endpoint runs on the same port as the REST API (`localhost:8222`) and starts automatically. It implements the [Model Context Protocol](https://modelcontextprotocol.io/) Streamable HTTP transport (protocol version `2025-03-26`) and exposes 12 tools for complete browser control.
+The Agent Browser Protocol (ABP) includes an embedded MCP server -- no separate process, no Node.js, no bridge. The MCP endpoint runs on the same port as the REST API (`localhost:8222`) and starts automatically. It implements the [Model Context Protocol](https://modelcontextprotocol.io/) Streamable HTTP transport (protocol version `2025-03-26`) and exposes 14 tools for complete browser control.
 
 ---
 
