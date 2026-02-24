@@ -47,6 +47,11 @@ try {
     # Core binary
     Copy-Item "$BuildDir\abp.exe" "$StagingApp\"
 
+    # Crashpad handler (required for crash reporting)
+    if (Test-Path "$BuildDir\chrome_crashpad_handler.exe") {
+        Copy-Item "$BuildDir\chrome_crashpad_handler.exe" "$StagingApp\"
+    }
+
     # DLLs
     Get-ChildItem "$BuildDir\*.dll" | ForEach-Object {
         Copy-Item $_.FullName "$StagingApp\"
