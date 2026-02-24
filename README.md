@@ -84,35 +84,50 @@ Extensions can't fix this (sandboxed). CDP can't fix this (designed for DevTools
 
 ## Quick Start
 
-### Option A: Claude Code plugin
-
-Three commands — adds the marketplace, installs the plugin, and downloads the browser binary:
+### Claude Code
 
 ```bash
-claude plugin marketplace add theredsix/abp-npm
-claude plugin install agent-browser-protocol
-npx -y agent-browser-protocol --setup   # downloads browser binary (~130MB)
-```
-
-### Option B: npm + MCP (stdio)
-
-```bash
-npm install -g agent-browser-protocol
 claude mcp add browser -- npx -y agent-browser-protocol --mcp
-```
-
-### Option C: npm + MCP (streamable HTTP)
-
-```bash
-npx agent-browser-protocol                 # launches ABP on port 8222
-claude mcp add browser --transport streamable-http --url http://localhost:8222/mcp
 ```
 
 Then ask Claude: *"Go to news.ycombinator.com and find the top post about AI."*
 
+The `--mcp` flag runs ABP as a stdio MCP proxy — it launches the browser on first tool call and forwards JSON-RPC to the embedded MCP server.
+
+### Codex
+
+Add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.browser]
+command = "npx"
+args = ["-y", "agent-browser-protocol", "--mcp"]
+```
+
+### Any MCP Client (HTTP)
+
+Launch ABP:
+
+```bash
+npx -y agent-browser-protocol
+```
+
+Then point your MCP client at `http://localhost:8222/mcp` (streamable HTTP).
+
+For example, in Claude Desktop (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "browser": {
+      "transport": "streamable-http",
+      "url": "http://localhost:8222/mcp"
+    }
+  }
+}
+```
+
 > **npm package details?** See [theredsix/abp-npm](https://github.com/theredsix/abp-npm) for the TypeScript SDK, plugin config, and debug server.
->
-> **Using other MCP clients?** See [docs/MCP.md](docs/MCP.md) for Claude Desktop, Codex, and generic setup.
 >
 > **Prefer REST?** See [docs/REST-API.md](docs/REST-API.md) for curl examples and the full API reference.
 >
