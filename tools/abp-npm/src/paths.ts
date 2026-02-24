@@ -69,7 +69,7 @@ export function getPlatformInfo(): PlatformInfo {
         platform: "win",
         arch: "x64",
         archiveExt: ".zip",
-        executablePath: "abp-chrome/chrome.exe",
+        executablePath: "abp-chrome/abp.exe",
       };
     default:
       throw new Error(`Unsupported platform: ${platform}`);

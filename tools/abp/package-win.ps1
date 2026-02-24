@@ -52,6 +52,11 @@ try {
         Copy-Item "$BuildDir\chrome_crashpad_handler.exe" "$StagingApp\"
     }
 
+    # Manifests (required for SxS assembly loading)
+    Get-ChildItem "$BuildDir\*.manifest" | ForEach-Object {
+        Copy-Item $_.FullName "$StagingApp\"
+    }
+
     # DLLs
     Get-ChildItem "$BuildDir\*.dll" | ForEach-Object {
         Copy-Item $_.FullName "$StagingApp\"
