@@ -52,6 +52,11 @@ echo "=== Copying files ==="
 # Core binary
 cp "$BUILD_DIR/abp" "$STAGING_APP/"
 
+# Crashpad handler (required for crash reporting)
+if [[ -f "$BUILD_DIR/chrome_crashpad_handler" ]]; then
+    cp "$BUILD_DIR/chrome_crashpad_handler" "$STAGING_APP/"
+fi
+
 # Chrome sandbox (if exists)
 if [[ -f "$BUILD_DIR/chrome_sandbox" ]]; then
     cp "$BUILD_DIR/chrome_sandbox" "$STAGING_APP/"
