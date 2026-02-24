@@ -15,7 +15,7 @@ Downloads the pre-built ABP browser binary for your platform (~130MB) on first i
 This package provides three things:
 
 1. **REST API client** — typed TypeScript SDK for the 40+ endpoint ABP REST API
-2. **Claude Code plugin** — 12 MCP tools + usage guide skill for AI-assisted browsing
+2. **MCP server** — 12 tools for AI-assisted browsing (Claude Code, Codex, or any MCP client)
 3. **Debug server** — web UI for inspecting session history, screenshots, and action logs
 
 ---
@@ -113,24 +113,41 @@ The SDK mirrors the REST API 1:1:
 
 ---
 
-## 2. Claude Code Plugin
+## 2. MCP Server
 
-Install as a Claude Code plugin for AI-assisted browser automation:
+ABP exposes 12 MCP tools: `browser_action`, `browser_scroll`, `browser_navigate`, `browser_screenshot`, `browser_tabs`, `browser_javascript`, `browser_text`, `browser_dialog`, `browser_downloads`, `browser_files`, `browser_get_status`, `browser_shutdown`.
+
+The browser launches automatically on first tool call at 1280x800 (optimized for LLM vision). Screenshots are served as WebP and scaled to fit context limits.
+
+### Claude Code
 
 ```bash
-claude plugin install agent-browser-protocol@npm
+claude mcp add browser -- npx -y agent-browser-protocol --mcp
 ```
 
-This gives Claude:
+The `--mcp` flag runs ABP as a stdio MCP proxy — it launches the browser on first tool call and forwards JSON-RPC to the embedded MCP server.
 
-- **12 MCP tools** — `browser_action`, `browser_scroll`, `browser_navigate`, `browser_screenshot`, `browser_tabs`, `browser_javascript`, `browser_text`, `browser_dialog`, `browser_downloads`, `browser_files`, `browser_get_status`, `browser_shutdown`
-- **Usage guide skill** — automatically loaded, teaches Claude the pause/resume cycle, batching patterns, markup overlays, and debugging tips
+### Codex
 
-The browser launches automatically on first tool call at 1280x800 (optimized for Claude's vision). Screenshots are served as WebP and scaled to fit Claude's vision limits. Text responses are truncated to conserve context window.
+Add to `~/.codex/config.toml`:
 
-### MCP Server (Claude Desktop)
+```toml
+[mcp_servers.browser]
+command = "npx"
+args = ["-y", "agent-browser-protocol", "--mcp"]
+```
 
-ABP also exposes a built-in MCP server for direct use in Claude Desktop:
+### Any MCP Client (HTTP)
+
+Launch ABP:
+
+```bash
+npx -y agent-browser-protocol
+```
+
+Then point your MCP client at `http://localhost:8222/mcp` (streamable HTTP).
+
+For example, in Claude Desktop (`claude_desktop_config.json`):
 
 ```json
 {
@@ -143,7 +160,7 @@ ABP also exposes a built-in MCP server for direct use in Claude Desktop:
 }
 ```
 
-### Plugin Configuration
+### Configuration
 
 | Variable | Description | Default |
 |----------|-------------|---------|
