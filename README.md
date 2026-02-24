@@ -94,14 +94,10 @@ Then ask Claude: *"Go to news.ycombinator.com and find the top post about AI."*
 
 The `--mcp` flag runs ABP as a stdio MCP proxy — it launches the browser on first tool call and forwards JSON-RPC to the embedded MCP server.
 
-### Codex
+### Codex CLI
 
-Add to `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.browser]
-command = "npx"
-args = ["-y", "agent-browser-protocol", "--mcp"]
+```bash
+codex mcp add browser -- npx -y agent-browser-protocol --mcp
 ```
 
 ### Any MCP Client (HTTP)
