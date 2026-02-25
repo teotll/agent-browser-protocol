@@ -6035,6 +6035,18 @@ void AbpController::SetEventObserver(AbpEventObserver* observer) {
   event_observer_ = observer;
 }
 
+void AbpController::SetTimingConfig(const AbpConfig::TimingConfig& timing) {
+  timing_config_ = timing;
+}
+
+AbpActionContext::Options AbpController::GetDefaultActionOptions() const {
+  AbpActionContext::Options options;
+  options.min_wait_time = timing_config_.min_wait;
+  options.request_tracking_timeout = timing_config_.tracking_timeout;
+  options.post_tracking_settle_time = timing_config_.post_settle;
+  return options;
+}
+
 void AbpController::SetSessionDir(const base::FilePath& session_dir) {
   session_dir_ = session_dir;
 }

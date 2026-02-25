@@ -105,6 +105,7 @@ void AbpHttpServer::Start() {
 
   // Create controller and connect to history
   controller_ = std::make_unique<AbpController>();
+  controller_->SetTimingConfig(config.timing);
   controller_->SetHistoryController(history_controller_.get());
   controller_->SetSessionDir(config.session_dir);
 

@@ -28,6 +28,7 @@
 #include "url/gurl.h"
 #include "chrome/browser/abp/abp_location_provider.h"
 #include "chrome/browser/abp/abp_permission_observer.h"
+#include "chrome/browser/abp/abp_config.h"
 #include "chrome/browser/abp/abp_types.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/image/image.h"
@@ -248,6 +249,12 @@ class AbpController {
   // Set session directory (called by AbpHttpServer, used for temp file storage)
   void SetSessionDir(const base::FilePath& session_dir);
 
+  // Set timing configuration (called once at startup)
+  void SetTimingConfig(const AbpConfig::TimingConfig& timing);
+
+  // Get default action options with timing from config
+  AbpActionContext::Options GetDefaultActionOptions() const;
+
   // Route incoming HTTP request to appropriate handler
   void HandleRequest(const std::string& method,
                      const std::string& path,
@@ -341,9 +348,9 @@ class AbpController {
   void WaitForActionComplete(
       const std::string& tab_id,
       base::OnceClosure on_complete,
-      base::TimeDelta min_wait_time = base::Milliseconds(150),
+      base::TimeDelta min_wait_time = base::Milliseconds(250),
       base::TimeDelta request_tracking_timeout = base::Seconds(1),
-      base::TimeDelta post_tracking_settle_time = base::Milliseconds(150));
+      base::TimeDelta post_tracking_settle_time = base::Milliseconds(750));
 
   // Wait for a specific condition before calling callback
   // Supports wait types: "text", "url", "network_idle", "time"
@@ -1021,6 +1028,8 @@ class AbpController {
 
   // Static instance pointer for test access.
   static AbpController* instance_for_testing_;
+
+  AbpConfig::TimingConfig timing_config_;
 
   base::WeakPtrFactory<AbpController> weak_factory_{this};
 };
