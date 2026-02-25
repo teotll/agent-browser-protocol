@@ -8,6 +8,9 @@ interface ParsedArgs {
   headless: boolean;
   verbose: boolean;
   sessionDir?: string;
+  minWait?: number;
+  trackingTimeout?: number;
+  postSettle?: number;
   chromeArgs: string[];
 }
 
@@ -16,6 +19,15 @@ function parseArgs(argv: string[]): ParsedArgs {
   let headless = process.env.ABP_HEADLESS === "1";
   let verbose = process.env.ABP_VERBOSE === "1";
   let sessionDir: string | undefined;
+  let minWait: number | undefined = process.env.ABP_MIN_WAIT
+    ? parseInt(process.env.ABP_MIN_WAIT, 10)
+    : undefined;
+  let trackingTimeout: number | undefined = process.env.ABP_TRACKING_TIMEOUT
+    ? parseInt(process.env.ABP_TRACKING_TIMEOUT, 10)
+    : undefined;
+  let postSettle: number | undefined = process.env.ABP_POST_SETTLE
+    ? parseInt(process.env.ABP_POST_SETTLE, 10)
+    : undefined;
   const chromeArgs: string[] = [];
   let pastSeparator = false;
 
@@ -44,6 +56,21 @@ function parseArgs(argv: string[]): ParsedArgs {
       i++;
     } else if (argv[i].startsWith("--session-dir=")) {
       sessionDir = argv[i].split("=").slice(1).join("=");
+    } else if (argv[i] === "--min-wait" && i + 1 < argv.length) {
+      minWait = parseInt(argv[i + 1], 10);
+      i++;
+    } else if (argv[i].startsWith("--min-wait=")) {
+      minWait = parseInt(argv[i].split("=")[1], 10);
+    } else if (argv[i] === "--tracking-timeout" && i + 1 < argv.length) {
+      trackingTimeout = parseInt(argv[i + 1], 10);
+      i++;
+    } else if (argv[i].startsWith("--tracking-timeout=")) {
+      trackingTimeout = parseInt(argv[i].split("=")[1], 10);
+    } else if (argv[i] === "--post-settle" && i + 1 < argv.length) {
+      postSettle = parseInt(argv[i + 1], 10);
+      i++;
+    } else if (argv[i].startsWith("--post-settle=")) {
+      postSettle = parseInt(argv[i].split("=")[1], 10);
     } else if (argv[i] === "--help" || argv[i] === "-h") {
       console.log(`agent-browser-protocol v${ABP_VERSION}
 
@@ -55,6 +82,9 @@ Options:
   --headless             Run without a visible window
   --verbose, -v          Show browser output (pipe to stderr)
   --session-dir <path>   Directory for session data (database, screenshots)
+  --min-wait <ms>        Pre-network settlement wait in ms (default: 250)
+  --tracking-timeout <ms> Request tracking timeout in ms (default: 1000)
+  --post-settle <ms>     Post-network settle time in ms (default: 750)
   --mcp                  Run as MCP server (JSON-RPC over stdio)
   --help, -h             Show this help message
 
@@ -62,6 +92,9 @@ Environment Variables:
   ABP_PORT               Port to listen on (overridden by --port)
   ABP_HEADLESS=1         Run headless (overridden by --headless)
   ABP_VERBOSE=1          Show browser output (overridden by --verbose)
+  ABP_MIN_WAIT           Pre-network settlement wait in ms
+  ABP_TRACKING_TIMEOUT   Request tracking timeout in ms
+  ABP_POST_SETTLE        Post-network settle time in ms
   ABP_BROWSER_PATH       Path to a custom ABP binary
   ABP_SKIP_DOWNLOAD=1    Skip binary download during install
 
@@ -79,7 +112,7 @@ Examples:
     }
   }
 
-  return { port, headless, verbose, sessionDir, chromeArgs };
+  return { port, headless, verbose, sessionDir, minWait, trackingTimeout, postSettle, chromeArgs };
 }
 
 async function main() {
@@ -88,12 +121,12 @@ async function main() {
     return;
   }
 
-  const { port, headless, verbose, sessionDir, chromeArgs } = parseArgs(process.argv);
+  const { port, headless, verbose, sessionDir, minWait, trackingTimeout, postSettle, chromeArgs } = parseArgs(process.argv);
 
   console.log(`Agent Browser Protocol v${ABP_VERSION}`);
   console.log(`Starting on port ${port}...`);
 
-  const browser = await launch({ port, headless, verbose, sessionDir, args: chromeArgs });
+  const browser = await launch({ port, headless, verbose, sessionDir, minWait, trackingTimeout, postSettle, args: chromeArgs });
 
   console.log(`\nABP is ready!`);
   console.log(`  API:  http://localhost:${port}/api/v1`);
