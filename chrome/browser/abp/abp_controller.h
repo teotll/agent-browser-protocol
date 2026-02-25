@@ -28,6 +28,7 @@
 #include "url/gurl.h"
 #include "chrome/browser/abp/abp_location_provider.h"
 #include "chrome/browser/abp/abp_permission_observer.h"
+#include "chrome/browser/abp/abp_action_context.h"
 #include "chrome/browser/abp/abp_config.h"
 #include "chrome/browser/abp/abp_types.h"
 #include "third_party/skia/include/core/SkBitmap.h"

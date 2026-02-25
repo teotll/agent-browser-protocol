@@ -70,10 +70,9 @@ std::optional<base::TimeDelta> ReadTimingMs(const char* env_name,
 
   // Check env var first (lower priority)
   std::optional<base::TimeDelta> result;
-  std::string env_val;
-  if (env->GetVar(env_name, &env_val)) {
+  if (auto env_val = env->GetVar(std::string(env_name))) {
     int ms = 0;
-    if (base::StringToInt(env_val, &ms) && ms >= 0) {
+    if (base::StringToInt(*env_val, &ms) && ms >= 0) {
       result = base::Milliseconds(ms);
     }
   }
