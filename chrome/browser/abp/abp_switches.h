@@ -30,6 +30,15 @@ extern const char kAbpWindowSize[];
 // Default zoom factor as a decimal (default: 1.0 = 100%)
 extern const char kAbpZoom[];
 
+// Minimum wait time in ms before network snapshot (default: 250)
+extern const char kAbpMinWait[];
+
+// Request tracking timeout in ms (default: 1000)
+extern const char kAbpTrackingTimeout[];
+
+// Post-network settle time in ms (default: 750)
+extern const char kAbpPostSettle[];
+
 }  // namespace abp::switches
 
 #endif  // CHROME_BROWSER_ABP_ABP_SWITCHES_H_

@@ -13,5 +13,8 @@ const char kAbpDisablePause[] = "abp-disable-pause";
 const char kAbpSessionDir[] = "abp-session-dir";
 const char kAbpWindowSize[] = "abp-window-size";
 const char kAbpZoom[] = "abp-zoom";
+const char kAbpMinWait[] = "abp-min-wait";
+const char kAbpTrackingTimeout[] = "abp-tracking-timeout";
+const char kAbpPostSettle[] = "abp-post-settle";
 
 }  // namespace abp::switches
