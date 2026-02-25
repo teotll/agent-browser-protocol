@@ -506,6 +506,44 @@ base::Value::List GetToolDefinitions() {
               "Desired logical value to set the slider to")
           .Build());
 
+  // 16. respond_to_permission — handle permission prompts
+  tools.Append(
+      ToolBuilder("respond_to_permission")
+          .Description(
+              "Respond to a pending browser permission prompt. When a page "
+              "requests a permission (e.g. geolocation), a "
+              "'permission_requested' event is emitted with an ID. Use this "
+              "tool to grant or deny that permission. IMPORTANT: If granting "
+              "geolocation permission, call set_geolocation FIRST to provide "
+              "mock coordinates, then call this tool to grant.")
+          .RequiredString("permission_id",
+                          "The permission request ID from the "
+                          "permission_requested event")
+          .RequiredBoolean("allow", "True to grant, false to deny")
+          .Build());
+
+  // 17. set_geolocation — set mock geolocation
+  tools.Append(
+      ToolBuilder("set_geolocation")
+          .Description(
+              "Set mock geolocation coordinates for the browser. This is NOT "
+              "an action — it immediately sets the coordinates without "
+              "affecting page execution. Call this BEFORE granting a "
+              "geolocation permission so the page receives the correct "
+              "coordinates when the permission is granted. Use action='clear' "
+              "to remove the mock and revert to 'position unavailable'.")
+          .OptionalString("action",
+                          "Action to perform: 'set' (default) or 'clear'")
+          .OptionalNumber("latitude",
+                          "Latitude in degrees (-90 to 90). Required for "
+                          "action='set'.")
+          .OptionalNumber("longitude",
+                          "Longitude in degrees (-180 to 180). Required for "
+                          "action='set'.")
+          .OptionalNumber("accuracy",
+                          "Accuracy radius in meters (default: 100)")
+          .Build());
+
   return tools;
 }
 
@@ -548,7 +586,7 @@ When the screenshot shows incomplete content, **call `browser_screenshot`** to w
 
 Pass `markup: ["clickable", "typeable", "grid"]` to `browser_screenshot` to see labeled overlays on interactive elements. Each label shows the element's coordinates for targeting clicks and typing.
 
-## Tool Reference (15 tools)
+## Tool Reference (17 tools)
 
 All `tab_id` parameters are optional and default to the active tab.
 
@@ -571,6 +609,8 @@ All `tab_id` parameters are optional and default to the active tab.
 - `browser_downloads` — action? (list, status, cancel, content; default: list), download_id?, state?, limit?, max_size?. Use action:"content" with download_id to retrieve file bytes as base64 BlobResourceContents.
 - `browser_files` — chooser_id (required), files?, content_files?, path?, cancel?, max_size?. Use content_files for base64 uploads: [{filename, data, mime_type}].
 - `browser_select_picker` — popup_id (required), indices? (array of ints), cancel?. Respond to a pending <select> popup.
+- `respond_to_permission` — permission_id (required), allow (required). Respond to a permission prompt (e.g. geolocation). If granting geolocation, call set_geolocation FIRST.
+- `set_geolocation` — action? (set, clear; default: set), latitude?, longitude?, accuracy?. Set mock geolocation coordinates. NOT an action — takes effect immediately.
 
 **Browser:**
 - `browser_get_status` — no params
@@ -812,6 +852,10 @@ void AbpMcpHandler::HandleToolsCall(const base::Value::Dict& params,
     CallBrowserShutdown(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_slider") {
     CallBrowserSlider(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "respond_to_permission") {
+    CallRespondToPermission(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "set_geolocation") {
+    CallSetGeolocation(*args, std::move(request_id), std::move(callback));
   } else {
     SendJsonRpcError(std::move(request_id), kMethodNotFound,
                      "Unknown tool: " + *name, std::move(callback));
@@ -1663,6 +1707,76 @@ void AbpMcpHandler::SendJsonRpcError(base::Value request_id,
 
 void AbpMcpHandler::SendAccepted(ResponseWithHeadersCallback callback) {
   std::move(callback).Run(202, "application/json", {}, "");
+}
+
+// --- 16. respond_to_permission ---
+void AbpMcpHandler::CallRespondToPermission(
+    const base::Value::Dict& args,
+    base::Value request_id,
+    ResponseWithHeadersCallback callback) {
+  const std::string* perm_id = args.FindString("permission_id");
+  if (!perm_id) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "Missing permission_id", std::move(callback));
+    return;
+  }
+
+  auto allow = args.FindBool("allow");
+  if (!allow.has_value()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "Missing allow boolean", std::move(callback));
+    return;
+  }
+
+  std::string action = *allow ? "grant" : "deny";
+  std::string body = "{}";
+
+  controller_->HandleRequest(
+      "POST", "/api/v1/permissions/" + *perm_id + "/" + action, body,
+      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                     weak_factory_.GetWeakPtr(), std::move(request_id),
+                     std::move(callback)));
+}
+
+// --- 17. set_geolocation ---
+void AbpMcpHandler::CallSetGeolocation(
+    const base::Value::Dict& args,
+    base::Value request_id,
+    ResponseWithHeadersCallback callback) {
+  const std::string* action = args.FindString("action");
+  std::string act = action ? *action : "set";
+
+  if (act == "clear") {
+    controller_->HandleRequest(
+        "DELETE", "/api/v1/geolocation", "",
+        base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                       weak_factory_.GetWeakPtr(), std::move(request_id),
+                       std::move(callback)));
+    return;
+  }
+
+  auto latitude = args.FindDouble("latitude");
+  auto longitude = args.FindDouble("longitude");
+  if (!latitude || !longitude) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "Missing latitude or longitude", std::move(callback));
+    return;
+  }
+
+  base::Value::Dict body_dict;
+  body_dict.Set("latitude", *latitude);
+  body_dict.Set("longitude", *longitude);
+  if (auto accuracy = args.FindDouble("accuracy"))
+    body_dict.Set("accuracy", *accuracy);
+
+  std::string body;
+  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
+
+  controller_->HandleRequest(
+      "POST", "/api/v1/geolocation", body,
+      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                     weak_factory_.GetWeakPtr(), std::move(request_id),
+                     std::move(callback)));
 }
 
 }  // namespace abp
