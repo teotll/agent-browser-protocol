@@ -16,6 +16,12 @@ export interface LaunchOptions {
   windowSize?: [number, number];
   /** Pipe browser stdout/stderr to the parent process stderr. */
   verbose?: boolean;
+  /** Pre-network settlement wait in ms. Default: 250. */
+  minWait?: number;
+  /** Request tracking timeout in ms. Default: 1000. */
+  trackingTimeout?: number;
+  /** Post-network settle time in ms. Default: 750. */
+  postSettle?: number;
   args?: string[];
 }
 
@@ -56,6 +62,9 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
     headless = false,
     windowSize,
     verbose = false,
+    minWait,
+    trackingTimeout,
+    postSettle,
     args = [],
   } = options;
 
@@ -78,6 +87,18 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
 
   if (headless) {
     launchArgs.push("--headless=new");
+  }
+
+  if (minWait !== undefined) {
+    launchArgs.push(`--abp-min-wait=${minWait}`);
+  }
+
+  if (trackingTimeout !== undefined) {
+    launchArgs.push(`--abp-tracking-timeout=${trackingTimeout}`);
+  }
+
+  if (postSettle !== undefined) {
+    launchArgs.push(`--abp-post-settle=${postSettle}`);
   }
 
   // Normalize any --headless args to --headless=new (old headless is not supported)
