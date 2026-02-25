@@ -467,12 +467,15 @@ base::Value::List GetToolDefinitions() {
   tools.Append(
       ToolBuilder("browser_slider")
           .Description(
-              "Move a slider to a target value. Calculates the drag "
-              "from current thumb position to target position using "
-              "linear interpolation over the track geometry and value "
-              "range. Provide orientation ('horizontal' or 'vertical'), "
+              "Move a slider to a target value using linear "
+              "interpolation over track geometry and value range. "
+              "Provide orientation ('horizontal' or 'vertical'), "
               "track bounds, current thumb position, min/max values, "
-              "and target_value.")
+              "and target_value. If the slider has a non-linear scale, "
+              "custom styling, or this tool does not produce the "
+              "desired result, fall back to browser_action with "
+              "mouse_drag — click the thumb position and drag by the "
+              "desired pixel offset.")
           .OptionalString("tab_id", "Target tab ID")
           .RequiredString("orientation",
               "Slider orientation: 'horizontal' (use y, x_start, x_end, "
@@ -552,7 +555,7 @@ All `tab_id` parameters are optional and default to the active tab.
 **Input:**
 - `browser_action` — 1-3 actions: mouse_click (x, y), keyboard_type (text), keyboard_press (key, modifiers?), mouse_hover (x, y), mouse_drag (start_x, start_y, end_x, end_y). Keys are ALL-CAPS (ENTER, TAB, ESCAPE, CONTROL, META, etc.). Abbreviations accepted: CTRL, CMD, ESC, DEL.
 - `browser_scroll` — x, y (where wheel fires), delta_x?, delta_y? (positive=down/right)
-- `browser_slider` — orientation (horizontal/vertical), track bounds, current position, min, max, target_value. Calculates and executes drag automatically.
+- `browser_slider` — orientation (horizontal/vertical), track bounds, current position, min, max, target_value. Calculates and executes drag automatically. If result is incorrect, fall back to `browser_action` with `mouse_drag`.
 
 **Navigation:**
 - `browser_navigate` — url? OR action? (back, forward, reload)
