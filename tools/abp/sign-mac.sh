@@ -158,13 +158,18 @@ else
     echo "    Creating submission archive..."
     ditto -c -k --keepParent "$APP" "$notarize_zip"
 
-    # Submit for notarization
+    # Submit for notarization (retry until success — upload can be flaky)
     echo "    Submitting to Apple notary service..."
-    xcrun notarytool submit "$notarize_zip" \
+    attempt=0
+    until xcrun notarytool submit "$notarize_zip" \
         --key "$NOTARIZE_KEY" \
         --key-id "$NOTARIZE_KEY_ID" \
         --issuer "$NOTARIZE_ISSUER" \
-        --wait
+        --wait; do
+        attempt=$((attempt + 1))
+        echo "    Notarization attempt $attempt failed. Retrying in 10s..."
+        sleep 10
+    done
 
     # Clean up submission zip
     rm -f "$notarize_zip"
