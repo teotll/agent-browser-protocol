@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/files/file_path.h"
+#include "base/time/time.h"
 
 namespace abp {
 
@@ -29,6 +30,16 @@ struct AbpConfig {
     ScreenshotConfig screenshots;
   };
   HistoryConfig history;
+
+  struct TimingConfig {
+    // Phase 1: JS hook window before network snapshot
+    base::TimeDelta min_wait = base::Milliseconds(250);
+    // Phase 2: How long to track in-flight requests
+    base::TimeDelta tracking_timeout = base::Milliseconds(1000);
+    // Phase 3: Settle after tracked requests complete
+    base::TimeDelta post_settle = base::Milliseconds(750);
+  };
+  TimingConfig timing;
 
   // Returns the default configuration with a new UUID-based session directory
   static AbpConfig GetDefaults();

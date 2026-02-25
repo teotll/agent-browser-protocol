@@ -4,6 +4,8 @@
 
 #include "chrome/browser/abp/abp_config.h"
 
+#include <optional>
+
 #include "base/command_line.h"
 #include "base/environment.h"
 #include "base/files/file_path.h"
@@ -11,6 +13,7 @@
 #include "base/json/json_reader.h"
 #include "base/logging.h"
 #include "base/path_service.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/uuid.h"
 #include "build/build_config.h"
@@ -56,6 +59,35 @@ base::FilePath GetDefaultConfigDir() {
   }
 #endif
   return base::FilePath();
+}
+
+// Reads a millisecond timing value from env var, then command-line switch.
+// Switch takes priority over env var. Returns nullopt if neither is set.
+std::optional<base::TimeDelta> ReadTimingMs(const char* env_name,
+                                             const char* switch_name) {
+  auto* command_line = base::CommandLine::ForCurrentProcess();
+  auto env = base::Environment::Create();
+
+  // Check env var first (lower priority)
+  std::optional<base::TimeDelta> result;
+  std::string env_val;
+  if (env->GetVar(env_name, &env_val)) {
+    int ms = 0;
+    if (base::StringToInt(env_val, &ms) && ms >= 0) {
+      result = base::Milliseconds(ms);
+    }
+  }
+
+  // Switch overrides env var
+  if (command_line->HasSwitch(switch_name)) {
+    std::string switch_val = command_line->GetSwitchValueASCII(switch_name);
+    int ms = 0;
+    if (base::StringToInt(switch_val, &ms) && ms >= 0) {
+      result = base::Milliseconds(ms);
+    }
+  }
+
+  return result;
 }
 
 }  // namespace
@@ -153,6 +185,15 @@ AbpConfig LoadAbpConfigFromFile(const base::FilePath& config_path) {
   return config;
 }
 
+void ApplyTimingOverrides(AbpConfig& config) {
+  if (auto v = ReadTimingMs("ABP_MIN_WAIT", switches::kAbpMinWait))
+    config.timing.min_wait = *v;
+  if (auto v = ReadTimingMs("ABP_TRACKING_TIMEOUT", switches::kAbpTrackingTimeout))
+    config.timing.tracking_timeout = *v;
+  if (auto v = ReadTimingMs("ABP_POST_SETTLE", switches::kAbpPostSettle))
+    config.timing.post_settle = *v;
+}
+
 AbpConfig LoadAbpConfig() {
   const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
 
@@ -183,6 +224,7 @@ AbpConfig LoadAbpConfig() {
       config.history.database_path = session_dir.AppendASCII("history.db");
       config.history.screenshots.directory = session_dir.AppendASCII("screenshots");
     }
+    ApplyTimingOverrides(config);
     return config;
   }
 
@@ -198,15 +240,20 @@ AbpConfig LoadAbpConfig() {
         config.history.database_path = session_dir.AppendASCII("history.db");
         config.history.screenshots.directory = session_dir.AppendASCII("screenshots");
       }
+      ApplyTimingOverrides(config);
       return config;
     }
   }
 
   // Return defaults with custom session dir if provided
   if (!session_dir.empty()) {
-    return AbpConfig::GetDefaultsWithSessionDir(session_dir);
+    AbpConfig config = AbpConfig::GetDefaultsWithSessionDir(session_dir);
+    ApplyTimingOverrides(config);
+    return config;
   }
-  return AbpConfig::GetDefaults();
+  AbpConfig config = AbpConfig::GetDefaults();
+  ApplyTimingOverrides(config);
+  return config;
 }
 
 }  // namespace abp
