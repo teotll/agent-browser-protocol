@@ -143,6 +143,15 @@ AbpController::HeldKeyState& AbpController::HeldKeyState::operator=(const HeldKe
 AbpController::ActionCompleteWaiter::ActionCompleteWaiter() = default;
 AbpController::ActionCompleteWaiter::~ActionCompleteWaiter() = default;
 
+// PendingPermissionRequest implementation
+AbpController::PendingPermissionRequest::PendingPermissionRequest() = default;
+AbpController::PendingPermissionRequest::~PendingPermissionRequest() = default;
+AbpController::PendingPermissionRequest::PendingPermissionRequest(
+    const PendingPermissionRequest&) = default;
+AbpController::PendingPermissionRequest&
+AbpController::PendingPermissionRequest::operator=(
+    const PendingPermissionRequest&) = default;
+
 // PendingDialog implementation
 AbpController::PendingDialog::PendingDialog() = default;
 AbpController::PendingDialog::~PendingDialog() = default;
@@ -776,7 +785,8 @@ AbpController::ScreenshotOptions& AbpController::ScreenshotOptions::operator=(
 AbpController::AbpController()
     : event_collector_(std::make_unique<AbpEventCollector>(this)),
       input_dispatcher_(std::make_unique<AbpInputDispatcher>(this)),
-      popup_interceptor_(std::make_unique<AbpPopupInterceptor>(this)) {
+      popup_interceptor_(std::make_unique<AbpPopupInterceptor>(this)),
+      permission_observer_(std::make_unique<AbpPermissionObserver>(this)) {
   instance_for_testing_ = this;
 }
 
@@ -2253,6 +2263,9 @@ void AbpController::CreateTab(const base::Value::Dict& params,
     if (popup_interceptor_) {
       wc->SetPopupInterceptor(popup_interceptor_.get());
     }
+    if (permission_observer_) {
+      permission_observer_->AttachToTab(host->GetId(), wc);
+    }
 
     base::Value::Dict tab;
     tab.Set("id", host->GetId());
@@ -2316,6 +2329,18 @@ void AbpController::CloseTab(const std::string& tab_id,
     }
     if (popup_interceptor_) {
       popup_interceptor_->CleanupForTab(tab_id);
+    }
+    if (permission_observer_) {
+      permission_observer_->DetachFromTab(tab_id);
+    }
+    // Clean pending permissions for this tab
+    for (auto it = pending_permissions_.begin();
+         it != pending_permissions_.end();) {
+      if (it->second.tab_id == tab_id) {
+        it = pending_permissions_.erase(it);
+      } else {
+        ++it;
+      }
     }
     CleanupTabState(tab_id);
 
@@ -3175,6 +3200,9 @@ content::WebContents* AbpController::FindWebContents(
         // Lazily register popup interceptor (idempotent)
         if (popup_interceptor_ && !wc->GetPopupInterceptor()) {
           wc->SetPopupInterceptor(popup_interceptor_.get());
+        }
+        if (permission_observer_) {
+          permission_observer_->AttachToTab(tab_id, wc);
         }
         return wc;
       }
@@ -4114,6 +4142,9 @@ void AbpController::PauseAllTabs() {
       // Register popup interceptor for native popup interception
       if (popup_interceptor_ && !wc->GetPopupInterceptor()) {
         wc->SetPopupInterceptor(popup_interceptor_.get());
+      }
+      if (permission_observer_) {
+        permission_observer_->AttachToTab(tab_id, wc);
       }
 
       // Skip tabs with an action currently executing — the action's
@@ -6136,6 +6167,155 @@ void AbpController::HandleDownloadContent(const std::string& download_id,
           },
           weak_factory_.GetWeakPtr(), std::move(callback), std::move(mime),
           std::move(filename), std::move(dl_id), max_size));
+}
+
+void AbpController::OnPermissionRequested(const std::string& perm_id,
+                                          const std::string& tab_id,
+                                          const std::string& permission_type,
+                                          const std::string& origin) {
+  PendingPermissionRequest req;
+  req.id = perm_id;
+  req.tab_id = tab_id;
+  req.permission_type = permission_type;
+  req.origin = origin;
+  req.requested_at_ms = base::Time::Now().InMillisecondsSinceUnixEpoch();
+  pending_permissions_[perm_id] = std::move(req);
+}
+
+void AbpController::OnPermissionDismissed(const std::string& perm_id,
+                                          const std::string& tab_id) {
+  pending_permissions_.erase(perm_id);
+}
+
+void AbpController::ListPendingPermissions(ResponseCallback callback) {
+  base::Value::List list;
+  for (const auto& [id, req] : pending_permissions_) {
+    base::Value::Dict d;
+    d.Set("id", req.id);
+    d.Set("tab_id", req.tab_id);
+    d.Set("permission_type", req.permission_type);
+    d.Set("origin", req.origin);
+    d.Set("requested_at", static_cast<double>(req.requested_at_ms));
+    list.Append(std::move(d));
+  }
+  base::Value::Dict response;
+  response.Set("permissions", std::move(list));
+  SendJson(200, base::Value(std::move(response)), std::move(callback));
+}
+
+void AbpController::GrantPermission(const std::string& perm_id,
+                                    const base::Value::Dict& params,
+                                    ResponseCallback callback) {
+  auto it = pending_permissions_.find(perm_id);
+  if (it == pending_permissions_.end()) {
+    SendError(404, "No pending permission with id: " + perm_id,
+              std::move(callback));
+    return;
+  }
+
+  std::string tab_id = it->second.tab_id;
+  std::string permission_type = it->second.permission_type;
+
+  // Remove from pending before action
+  pending_permissions_.erase(it);
+
+  AbpActionContext::Run(
+      this, tab_id, "permission_grant", params,
+      base::BindOnce(
+          [](std::string perm_type, AbpActionContext* ctx) {
+            auto* controller = ctx->controller();
+            if (!controller->permission_observer()->GrantPermission(
+                    ctx->tab_id())) {
+              ctx->OnActionError("PERMISSION_ERROR",
+                                 "Failed to grant " + perm_type +
+                                     " permission");
+              return;
+            }
+            base::Value::Dict res;
+            res.Set("status", "granted");
+            res.Set("permission_type", perm_type);
+            ctx->SetResult(std::move(res));
+            ctx->OnActionDispatched();
+          },
+          std::move(permission_type)),
+      std::move(callback));
+}
+
+void AbpController::DenyPermission(const std::string& perm_id,
+                                   const base::Value::Dict& params,
+                                   ResponseCallback callback) {
+  auto it = pending_permissions_.find(perm_id);
+  if (it == pending_permissions_.end()) {
+    SendError(404, "No pending permission with id: " + perm_id,
+              std::move(callback));
+    return;
+  }
+
+  std::string tab_id = it->second.tab_id;
+  std::string permission_type = it->second.permission_type;
+
+  pending_permissions_.erase(it);
+
+  AbpActionContext::Run(
+      this, tab_id, "permission_deny", params,
+      base::BindOnce(
+          [](std::string perm_type, AbpActionContext* ctx) {
+            auto* controller = ctx->controller();
+            if (!controller->permission_observer()->DenyPermission(
+                    ctx->tab_id())) {
+              ctx->OnActionError("PERMISSION_ERROR",
+                                 "Failed to deny " + perm_type +
+                                     " permission");
+              return;
+            }
+            base::Value::Dict res;
+            res.Set("status", "denied");
+            res.Set("permission_type", perm_type);
+            ctx->SetResult(std::move(res));
+            ctx->OnActionDispatched();
+          },
+          std::move(permission_type)),
+      std::move(callback));
+}
+
+void AbpController::SetGeolocation(const base::Value::Dict& params,
+                                   ResponseCallback callback) {
+  auto lat = params.FindDouble("latitude");
+  auto lng = params.FindDouble("longitude");
+  if (!lat || !lng) {
+    SendError(400, "Missing 'latitude' or 'longitude'", std::move(callback));
+    return;
+  }
+  double accuracy = params.FindDouble("accuracy").value_or(100.0);
+
+  auto* provider = AbpLocationProvider::GetInstance();
+  if (!provider) {
+    SendError(500, "Location provider not available", std::move(callback));
+    return;
+  }
+
+  provider->SetPosition(*lat, *lng, accuracy);
+
+  base::Value::Dict response;
+  response.Set("success", true);
+  response.Set("latitude", *lat);
+  response.Set("longitude", *lng);
+  response.Set("accuracy", accuracy);
+  SendJson(200, base::Value(std::move(response)), std::move(callback));
+}
+
+void AbpController::ClearGeolocation(ResponseCallback callback) {
+  auto* provider = AbpLocationProvider::GetInstance();
+  if (!provider) {
+    SendError(500, "Location provider not available", std::move(callback));
+    return;
+  }
+
+  provider->ClearPosition();
+
+  base::Value::Dict response;
+  response.Set("success", true);
+  SendJson(200, base::Value(std::move(response)), std::move(callback));
 }
 
 }  // namespace abp

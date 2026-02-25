@@ -26,6 +26,8 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "url/gurl.h"
+#include "chrome/browser/abp/abp_location_provider.h"
+#include "chrome/browser/abp/abp_permission_observer.h"
 #include "chrome/browser/abp/abp_types.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/image/image.h"
@@ -265,6 +267,33 @@ class AbpController {
 
   // Get popup interceptor
   AbpPopupInterceptor* popup_interceptor() { return popup_interceptor_.get(); }
+
+  // Permission handling (called by AbpPermissionObserver)
+  void OnPermissionRequested(const std::string& perm_id,
+                             const std::string& tab_id,
+                             const std::string& permission_type,
+                             const std::string& origin);
+  void OnPermissionDismissed(const std::string& perm_id,
+                             const std::string& tab_id);
+
+  // Permission API endpoints
+  void ListPendingPermissions(ResponseCallback callback);
+  void GrantPermission(const std::string& perm_id,
+                       const base::Value::Dict& params,
+                       ResponseCallback callback);
+  void DenyPermission(const std::string& perm_id,
+                      const base::Value::Dict& params,
+                      ResponseCallback callback);
+
+  // Geolocation mock API endpoints (non-action)
+  void SetGeolocation(const base::Value::Dict& params,
+                      ResponseCallback callback);
+  void ClearGeolocation(ResponseCallback callback);
+
+  // Permission observer accessor
+  AbpPermissionObserver* permission_observer() {
+    return permission_observer_.get();
+  }
 
   // Center the virtual cursor in the viewport of the specified tab
   // Callback is invoked after cursor is centered (or on error)
@@ -650,6 +679,20 @@ class AbpController {
     int current_modifiers = 0;        // Bitmask of active modifiers (1=Alt, 2=Ctrl, 4=Meta, 8=Shift)
   };
 
+  // Pending permission request state
+  struct PendingPermissionRequest {
+    PendingPermissionRequest();
+    ~PendingPermissionRequest();
+    PendingPermissionRequest(const PendingPermissionRequest&);
+    PendingPermissionRequest& operator=(const PendingPermissionRequest&);
+
+    std::string id;
+    std::string tab_id;
+    std::string permission_type;
+    std::string origin;
+    int64_t requested_at_ms = 0;
+  };
+
   // Pending JavaScript dialog state
   struct PendingDialog {
     PendingDialog();
@@ -959,6 +1002,12 @@ class AbpController {
 
   // Popup interceptor for select dropdowns (owned)
   std::unique_ptr<AbpPopupInterceptor> popup_interceptor_;
+
+  // Permission observer (owned)
+  std::unique_ptr<AbpPermissionObserver> permission_observer_;
+
+  // Pending permission requests (keyed by permission ID)
+  std::map<std::string, PendingPermissionRequest> pending_permissions_;
 
   // Test-only lifecycle observer callback. Null in production.
   LifecycleObserverCallback lifecycle_observer_for_testing_;
