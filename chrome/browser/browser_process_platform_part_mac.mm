@@ -5,9 +5,12 @@
 #include "chrome/browser/browser_process_platform_part_mac.h"
 
 #include "base/apple/foundation_util.h"
+#include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/time/time.h"
 #import "chrome/browser/app_controller_mac.h"
+#include "chrome/browser/abp/abp_switches.h"
+#include "chrome/browser/abp/abp_system_geolocation_source.h"
 #include "chrome/browser/apps/app_shim/app_shim_manager_mac.h"
 #include "chrome/browser/apps/app_shim/web_app_shim_manager_delegate_mac.h"
 #include "chrome/browser/apps/platform_apps/extension_app_shim_manager_delegate_mac.h"
@@ -68,9 +71,20 @@ void BrowserProcessPlatformPart::PreMainMessageLoopRun() {
   // Workaround for https://crbug.com/40155239: This needs to be created at
   // browser startup.
   if (!device::GeolocationSystemPermissionManager::GetInstance()) {
-    device::GeolocationSystemPermissionManager::SetInstance(
-        device::SystemGeolocationSourceApple::
-            CreateGeolocationSystemPermissionManager());
+    // ABP build: Use AbpSystemGeolocationSource to bypass the macOS
+    // "would like to use your current location" dialog. ABP uses a
+    // mock LocationProvider so real CoreLocation is not needed.
+    // Skip in browser tests (--test-type=browser) where the real source
+    // is expected.
+    auto* cmd = base::CommandLine::ForCurrentProcess();
+    if (cmd->GetSwitchValueASCII("test-type") != "browser") {
+      device::GeolocationSystemPermissionManager::SetInstance(
+          abp::AbpSystemGeolocationSource::CreatePermissionManager());
+    } else {
+      device::GeolocationSystemPermissionManager::SetInstance(
+          device::SystemGeolocationSourceApple::
+              CreateGeolocationSystemPermissionManager());
+    }
   }
 }
 

@@ -15,13 +15,12 @@ A Chromium fork implementing the Agent Browser Protocol (ABP) - a REST-based API
 - **Dialogs**: Get pending dialog info, accept, dismiss (alert/confirm/prompt/beforeunload)
 - **Downloads**: List, get status, cancel
 - **File Chooser**: Provide files to native file picker dialogs
-- **Permissions**: Intercept permission prompts, grant/deny geolocation (auto-deny others)
-- **Geolocation**: Set/clear mock geolocation coordinates (no CDP, undetectable)
+- **Permissions**: Intercept permission prompts, grant/deny with type validation (geolocation grant accepts lat/lng/accuracy, auto-deny non-geolocation)
 - **Execution Control**: Pause/resume JS execution with virtual time for deterministic state
 - **Wait**: Duration-based wait with action envelope
 - **History**: Session, action, and event history with SQLite storage
 - **Browser Management**: Status check, graceful shutdown
-- **MCP Server**: Embedded MCP (JSON-RPC over HTTP) with 17 tools at `/mcp`
+- **MCP Server**: Embedded MCP (JSON-RPC over HTTP) with 16 tools at `/mcp`
 
 ### Architecture
 
@@ -65,7 +64,8 @@ chrome/browser/abp/
 ├── abp_controller.h/cc          # Request handler + CDP client (UI thread)
 ├── abp_action_context.h/cc      # Action lifecycle (pause/resume/screenshot)
 ├── abp_input_dispatcher.h/cc    # Native input dispatch (click/scroll/keys)
-├── abp_location_provider.h/cc   # Mock geolocation provider (no CDP)
+├── abp_location_provider.h/cc   # Mock geolocation provider (coordinates set via permission grant)
+├── abp_system_geolocation_source.h/cc # Bypasses macOS system location dialog
 ├── abp_permission_observer.h/cc # Permission prompt interception
 ├── abp_event_observer.h/cc      # CDP event client per tab
 ├── abp_event_collector.h/cc     # Collects events during actions
@@ -303,12 +303,8 @@ See `plans/API.md` for the complete REST API specification. All endpoints:
 | POST | `/api/v1/select/{id}` | Respond to select popup |
 | **Permissions** | | |
 | GET | `/api/v1/permissions` | List pending permission requests |
-| POST | `/api/v1/permissions/{id}/grant` | Grant permission (ABP action) |
-| POST | `/api/v1/permissions/{id}/deny` | Deny permission (ABP action) |
-| **Geolocation** | | |
-| GET | `/api/v1/geolocation` | Get mock geolocation state |
-| POST | `/api/v1/geolocation` | Set mock coordinates |
-| DELETE | `/api/v1/geolocation` | Clear mock coordinates |
+| POST | `/api/v1/permissions/{id}/grant` | Grant permission (requires permission_type; geolocation requires lat/lng) |
+| POST | `/api/v1/permissions/{id}/deny` | Deny permission (requires permission_type) |
 | **History** | | |
 | GET | `/api/v1/history/sessions` | List sessions |
 | GET | `/api/v1/history/sessions/current` | Get current session |

@@ -16,6 +16,7 @@
 #include "chrome/browser/abp/abp_action_context.h"
 #include "chrome/browser/abp/abp_input_dispatcher.h"
 #include "chrome/browser/abp/abp_popup_interceptor.h"
+#include "chrome/browser/abp/abp_system_geolocation_source.h"
 #include "base/command_line.h"
 #include "chrome/browser/abp/abp_switches.h"
 #include "base/containers/span.h"
@@ -2145,39 +2146,6 @@ void AbpController::HandleRequest(const std::string& method,
           SendError(404, "Unknown permission action: " + action,
                     std::move(callback));
         }
-      } else {
-        SendError(405, "Method not allowed", std::move(callback));
-      }
-      return;
-    }
-    SendError(404, "Not found", std::move(callback));
-    return;
-  }
-
-  // Route: /api/v1/geolocation
-  if (resource == "geolocation") {
-    if (segments.size() == 3) {
-      if (method == "POST") {
-        SetGeolocation(params, std::move(callback));
-      } else if (method == "DELETE") {
-        ClearGeolocation(std::move(callback));
-      } else if (method == "GET") {
-        auto* provider = AbpLocationProvider::GetInstance();
-        base::Value::Dict response;
-        if (provider && provider->has_position()) {
-          auto* pos = provider->GetPosition();
-          if (pos && pos->is_position()) {
-            response.Set("active", true);
-            response.Set("latitude", pos->get_position()->latitude);
-            response.Set("longitude", pos->get_position()->longitude);
-            response.Set("accuracy", pos->get_position()->accuracy);
-          } else {
-            response.Set("active", false);
-          }
-        } else {
-          response.Set("active", false);
-        }
-        SendJson(200, base::Value(std::move(response)), std::move(callback));
       } else {
         SendError(405, "Method not allowed", std::move(callback));
       }
@@ -6290,8 +6258,36 @@ void AbpController::GrantPermission(const std::string& perm_id,
     return;
   }
 
+  // Require permission_type and validate it matches the pending request.
+  const std::string* req_type = params.FindString("permission_type");
+  if (!req_type) {
+    SendError(400, "Missing required 'permission_type'", std::move(callback));
+    return;
+  }
+  if (*req_type != it->second.permission_type) {
+    SendError(400,
+              "permission_type mismatch: expected '" +
+                  it->second.permission_type + "', got '" + *req_type + "'",
+              std::move(callback));
+    return;
+  }
+
   std::string tab_id = it->second.tab_id;
   std::string permission_type = it->second.permission_type;
+
+  // For geolocation grants, set mock coordinates from the request body.
+  if (permission_type == "geolocation") {
+    auto lat = params.FindDouble("latitude");
+    auto lng = params.FindDouble("longitude");
+    if (!lat || !lng) {
+      SendError(400,
+                "Granting geolocation requires 'latitude' and 'longitude'",
+                std::move(callback));
+      return;
+    }
+    double accuracy = params.FindDouble("accuracy").value_or(100.0);
+    AbpLocationProvider::SetStoredPosition(*lat, *lng, accuracy);
+  }
 
   // Remove from pending before action
   pending_permissions_.erase(it);
@@ -6301,6 +6297,12 @@ void AbpController::GrantPermission(const std::string& perm_id,
       base::BindOnce(
           [](std::string perm_type, AbpActionContext* ctx) {
             auto* controller = ctx->controller();
+            if (perm_type == "geolocation") {
+              // Transition system permission to kAllowed so the provider can
+              // start delivering coordinates after the web permission is
+              // granted.
+              AbpSystemGeolocationSource::GrantSystemPermission();
+            }
             if (!controller->permission_observer()->GrantPermission(
                     ctx->tab_id())) {
               ctx->OnActionError("PERMISSION_ERROR",
@@ -6324,6 +6326,20 @@ void AbpController::DenyPermission(const std::string& perm_id,
   auto it = pending_permissions_.find(perm_id);
   if (it == pending_permissions_.end()) {
     SendError(404, "No pending permission with id: " + perm_id,
+              std::move(callback));
+    return;
+  }
+
+  // Require permission_type and validate it matches the pending request.
+  const std::string* req_type = params.FindString("permission_type");
+  if (!req_type) {
+    SendError(400, "Missing required 'permission_type'", std::move(callback));
+    return;
+  }
+  if (*req_type != it->second.permission_type) {
+    SendError(400,
+              "permission_type mismatch: expected '" +
+                  it->second.permission_type + "', got '" + *req_type + "'",
               std::move(callback));
     return;
   }
@@ -6353,46 +6369,6 @@ void AbpController::DenyPermission(const std::string& perm_id,
           },
           std::move(permission_type)),
       std::move(callback));
-}
-
-void AbpController::SetGeolocation(const base::Value::Dict& params,
-                                   ResponseCallback callback) {
-  auto lat = params.FindDouble("latitude");
-  auto lng = params.FindDouble("longitude");
-  if (!lat || !lng) {
-    SendError(400, "Missing 'latitude' or 'longitude'", std::move(callback));
-    return;
-  }
-  double accuracy = params.FindDouble("accuracy").value_or(100.0);
-
-  auto* provider = AbpLocationProvider::GetInstance();
-  if (!provider) {
-    SendError(500, "Location provider not available", std::move(callback));
-    return;
-  }
-
-  provider->SetPosition(*lat, *lng, accuracy);
-
-  base::Value::Dict response;
-  response.Set("success", true);
-  response.Set("latitude", *lat);
-  response.Set("longitude", *lng);
-  response.Set("accuracy", accuracy);
-  SendJson(200, base::Value(std::move(response)), std::move(callback));
-}
-
-void AbpController::ClearGeolocation(ResponseCallback callback) {
-  auto* provider = AbpLocationProvider::GetInstance();
-  if (!provider) {
-    SendError(500, "Location provider not available", std::move(callback));
-    return;
-  }
-
-  provider->ClearPosition();
-
-  base::Value::Dict response;
-  response.Set("success", true);
-  SendJson(200, base::Value(std::move(response)), std::move(callback));
 }
 
 }  // namespace abp

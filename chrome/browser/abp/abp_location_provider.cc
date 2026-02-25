@@ -14,15 +14,40 @@ namespace {
 AbpLocationProvider* g_instance = nullptr;
 }  // namespace
 
+// Static member definitions
+bool AbpLocationProvider::s_has_stored_position_ = false;
+double AbpLocationProvider::s_stored_latitude_ = 0.0;
+double AbpLocationProvider::s_stored_longitude_ = 0.0;
+double AbpLocationProvider::s_stored_accuracy_ = 100.0;
+
 AbpLocationProvider::AbpLocationProvider()
     : provider_task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()) {
   g_instance = this;
-  // Initialize with "position unavailable" error
-  result_ = device::mojom::GeopositionResult::NewError(
-      device::mojom::GeopositionError::New(
-          device::mojom::GeopositionErrorCode::kPositionUnavailable,
-          /*error_message=*/"ABP: No mock location set",
-          /*error_technical=*/""));
+
+  // If coordinates were stored before this instance was created, use them.
+  if (s_has_stored_position_) {
+    has_position_ = true;
+    auto position = device::mojom::Geoposition::New();
+    position->latitude = s_stored_latitude_;
+    position->longitude = s_stored_longitude_;
+    position->accuracy = s_stored_accuracy_;
+    position->altitude = 0.0;
+    position->altitude_accuracy = -1.0;
+    position->heading = -1.0;
+    position->speed = -1.0;
+    position->timestamp = base::Time::Now();
+    result_ =
+        device::mojom::GeopositionResult::NewPosition(std::move(position));
+    VLOG(1) << "ABP: Location provider created with stored position: "
+            << s_stored_latitude_ << ", " << s_stored_longitude_;
+  } else {
+    // Initialize with "position unavailable" error
+    result_ = device::mojom::GeopositionResult::NewError(
+        device::mojom::GeopositionError::New(
+            device::mojom::GeopositionErrorCode::kPositionUnavailable,
+            /*error_message=*/"ABP: No mock location set",
+            /*error_technical=*/""));
+  }
 }
 
 AbpLocationProvider::~AbpLocationProvider() {
@@ -33,6 +58,55 @@ AbpLocationProvider::~AbpLocationProvider() {
 // static
 AbpLocationProvider* AbpLocationProvider::GetInstance() {
   return g_instance;
+}
+
+// static
+void AbpLocationProvider::SetStoredPosition(double latitude,
+                                            double longitude,
+                                            double accuracy) {
+  s_has_stored_position_ = true;
+  s_stored_latitude_ = latitude;
+  s_stored_longitude_ = longitude;
+  s_stored_accuracy_ = accuracy;
+  VLOG(1) << "ABP: Stored mock position: " << latitude << ", " << longitude
+          << " accuracy=" << accuracy;
+  // If a provider instance exists, update it too.
+  if (g_instance) {
+    g_instance->SetPosition(latitude, longitude, accuracy);
+  }
+}
+
+// static
+void AbpLocationProvider::ClearStoredPosition() {
+  s_has_stored_position_ = false;
+  s_stored_latitude_ = 0.0;
+  s_stored_longitude_ = 0.0;
+  s_stored_accuracy_ = 100.0;
+  VLOG(1) << "ABP: Cleared stored mock position";
+  // If a provider instance exists, clear it too.
+  if (g_instance) {
+    g_instance->ClearPosition();
+  }
+}
+
+// static
+bool AbpLocationProvider::HasStoredPosition() {
+  return s_has_stored_position_;
+}
+
+// static
+double AbpLocationProvider::stored_latitude() {
+  return s_stored_latitude_;
+}
+
+// static
+double AbpLocationProvider::stored_longitude() {
+  return s_stored_longitude_;
+}
+
+// static
+double AbpLocationProvider::stored_accuracy() {
+  return s_stored_accuracy_;
 }
 
 void AbpLocationProvider::SetPosition(double latitude,

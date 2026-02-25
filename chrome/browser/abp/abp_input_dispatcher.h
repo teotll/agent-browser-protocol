@@ -142,11 +142,41 @@ class AbpInputDispatcher {
                          std::string text,
                          size_t char_index);
 
+  // Send keyUp after dwell, then schedule next character
+  void TypeCharKeyUp(scoped_refptr<AbpActionContext> ctx,
+                     KeyInfo info,
+                     int web_mods,
+                     std::string text,
+                     size_t char_index);
+
   // Type characters one-by-one with delays for Raw dispatch (no action context)
   void TypeNextCharacterRaw(const std::string& tab_id,
                             std::string text,
                             size_t char_index,
                             RawCallback callback);
+
+  // Send keyUp after dwell, then schedule next raw character
+  void TypeCharKeyUpRaw(content::WebContents* wc,
+                        KeyInfo info,
+                        int web_mods,
+                        std::string tab_id,
+                        std::string text,
+                        size_t char_index,
+                        RawCallback callback);
+
+  // Complete key press after dwell: send keyUp, release modifiers, finish action
+  void KeyPressKeyUp(content::WebContents* wc,
+                     KeyInfo key_info,
+                     int web_mods,
+                     std::vector<std::string> mods,
+                     AbpActionContext* ctx);
+
+  // Complete raw key press after dwell: send keyUp, release modifiers, run callback
+  void KeyPressKeyUpRaw(content::WebContents* wc,
+                        KeyInfo key_info,
+                        int web_mods,
+                        std::vector<std::string> modifiers,
+                        RawCallback callback);
 
   // Dispatch the next step in a drag sequence (recursive via PostDelayedTask)
   void DragNextStep(scoped_refptr<AbpActionContext> ctx,

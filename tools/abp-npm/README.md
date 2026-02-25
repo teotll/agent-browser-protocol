@@ -15,7 +15,7 @@ Downloads the pre-built ABP browser binary for your platform (~130MB) on first i
 This package provides three things:
 
 1. **REST API client** — typed TypeScript SDK for the 40+ endpoint ABP REST API
-2. **MCP server** — 14 tools for AI-assisted browsing (Claude Code, Codex, or any MCP client)
+2. **MCP server** — 17 tools for AI-assisted browsing (Claude Code, Codex, or any MCP client)
 3. **Debug server** — web UI for inspecting session history, screenshots, and action logs
 
 ---
@@ -62,7 +62,11 @@ const tabs = await client.tabs.list();
 npx agent-browser-protocol                          # launch with defaults
 npx agent-browser-protocol --port 9222              # custom port
 npx agent-browser-protocol --headless               # headless mode
+npx agent-browser-protocol --verbose                # pipe browser output to stderr
 npx agent-browser-protocol --session-dir ./session   # persist session data
+npx agent-browser-protocol --min-wait 500           # pre-network settlement wait (ms)
+npx agent-browser-protocol --tracking-timeout 2000  # request tracking timeout (ms)
+npx agent-browser-protocol --post-settle 1000       # post-network settle time (ms)
 npx agent-browser-protocol -- --disable-gpu          # pass Chrome flags
 ```
 
@@ -74,9 +78,11 @@ The SDK mirrors the REST API 1:1:
 |-----------|--------------|
 | **Browser** | |
 | `client.browser.status()` | `GET /browser/status` |
+| `client.browser.sessionData()` | `GET /browser/session-data` |
 | `client.browser.shutdown()` | `POST /browser/shutdown` |
 | **Tabs** | |
 | `client.tabs.list()` | `GET /tabs` |
+| `client.tabs.get(id)` | `GET /tabs/{id}` |
 | `client.tabs.create({ url })` | `POST /tabs` |
 | `client.tabs.close(id)` | `DELETE /tabs/{id}` |
 | `client.tabs.activate(id)` | `POST /tabs/{id}/activate` |
@@ -88,8 +94,12 @@ The SDK mirrors the REST API 1:1:
 | `client.tabs.forward(id)` | `POST /tabs/{id}/forward` |
 | **Input** | |
 | `client.tabs.click(id, { x, y })` | `POST /tabs/{id}/click` |
+| `client.tabs.move(id, { x, y })` | `POST /tabs/{id}/move` |
+| `client.tabs.drag(id, { startX, startY, endX, endY })` | `POST /tabs/{id}/drag` |
 | `client.tabs.type(id, { text })` | `POST /tabs/{id}/type` |
 | `client.tabs.keyPress(id, { key })` | `POST /tabs/{id}/keyboard/press` |
+| `client.tabs.keyDown(id, { key })` | `POST /tabs/{id}/keyboard/down` |
+| `client.tabs.keyUp(id, { key })` | `POST /tabs/{id}/keyboard/up` |
 | `client.tabs.scroll(id, { x, y, delta_y })` | `POST /tabs/{id}/scroll` |
 | **Observation** | |
 | `client.tabs.screenshot(id)` | `POST /tabs/{id}/screenshot` |
@@ -110,12 +120,25 @@ The SDK mirrors the REST API 1:1:
 | `client.downloads.cancel(id)` | `POST /downloads/{id}/cancel` |
 | **File Chooser** | |
 | `client.fileChooser.provide(id, opts)` | `POST /file-chooser/{id}` |
+| **History** | |
+| `client.history.sessions()` | `GET /history/sessions` |
+| `client.history.currentSession()` | `GET /history/sessions/current` |
+| `client.history.session(id)` | `GET /history/sessions/{id}` |
+| `client.history.exportSession(id)` | `GET /history/sessions/{id}/export` |
+| `client.history.actions()` | `GET /history/actions` |
+| `client.history.action(id)` | `GET /history/actions/{id}` |
+| `client.history.actionScreenshot(id)` | `GET /history/actions/{id}/screenshot` |
+| `client.history.deleteActions()` | `DELETE /history/actions` |
+| `client.history.events()` | `GET /history/events` |
+| `client.history.event(id)` | `GET /history/events/{id}` |
+| `client.history.deleteEvents()` | `DELETE /history/events` |
+| `client.history.deleteAll()` | `DELETE /history` |
 
 ---
 
 ## 2. MCP Server
 
-ABP exposes 14 MCP tools: `browser_action`, `browser_scroll`, `browser_navigate`, `browser_screenshot`, `browser_tabs`, `browser_javascript`, `browser_text`, `browser_dialog`, `browser_downloads`, `browser_files`, `browser_select_picker`, `browser_get_status`, `browser_shutdown`, `browser_slider`.
+ABP exposes 17 MCP tools: `browser_action`, `browser_scroll`, `browser_navigate`, `browser_screenshot`, `browser_tabs`, `browser_javascript`, `browser_text`, `browser_wait`, `browser_dialog`, `browser_downloads`, `browser_files`, `browser_select_picker`, `browser_get_status`, `browser_shutdown`, `browser_slider`, `respond_to_permission`, `set_geolocation`.
 
 The browser launches automatically on first tool call at 1280x800 (optimized for LLM vision). Screenshots are served as WebP and scaled to fit context limits.
 
@@ -127,14 +150,10 @@ claude mcp add browser -- npx -y agent-browser-protocol --mcp
 
 The `--mcp` flag runs ABP as a stdio MCP proxy — it launches the browser on first tool call and forwards JSON-RPC to the embedded MCP server.
 
-### Codex
+### Codex CLI
 
-Add to `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.browser]
-command = "npx"
-args = ["-y", "agent-browser-protocol", "--mcp"]
+```bash
+codex mcp add browser -- npx -y agent-browser-protocol --mcp
 ```
 
 ### Any MCP Client (HTTP)
@@ -167,6 +186,10 @@ For example, in Claude Desktop (`claude_desktop_config.json`):
 | `ABP_PORT` | Port for ABP server | `8222` |
 | `ABP_BROWSER_PATH` | Custom binary path | auto-detected |
 | `ABP_HEADLESS` | Run headless (`1`/`0`) | `0` |
+| `ABP_VERBOSE` | Pipe browser output to stderr (`1`/`0`) | `0` |
+| `ABP_MIN_WAIT` | Pre-network settlement wait (ms) | `250` |
+| `ABP_TRACKING_TIMEOUT` | Request tracking timeout (ms) | `1000` |
+| `ABP_POST_SETTLE` | Post-network settle time (ms) | `750` |
 | `ABP_ARGS` | Extra Chrome args (comma-separated) | none |
 
 ---
@@ -207,8 +230,12 @@ The debug server reads ABP's SQLite session database directly (read-only) and wa
 |---------|------------|
 | `ABP_PORT` | Port to listen on (default: `8222`) |
 | `ABP_HEADLESS=1` | Run without a visible window |
+| `ABP_VERBOSE=1` | Pipe browser output to stderr |
 | `ABP_BROWSER_PATH` | Path to a custom ABP binary |
 | `ABP_SKIP_DOWNLOAD=1` | Skip binary download during install |
+| `ABP_MIN_WAIT` | Pre-network settlement wait in ms (default: `250`) |
+| `ABP_TRACKING_TIMEOUT` | Request tracking timeout in ms (default: `1000`) |
+| `ABP_POST_SETTLE` | Post-network settle time in ms (default: `750`) |
 | `ABP_ARGS` | Extra Chrome args, comma-separated (plugin only) |
 
 ## Platforms

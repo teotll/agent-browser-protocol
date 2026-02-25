@@ -36,6 +36,17 @@ class AbpLocationProvider : public device::LocationProvider {
 
   static AbpLocationProvider* GetInstance();
 
+  // Static coordinate storage — persists independently of provider instances.
+  // Allows SetGeolocation API to work before any page requests geolocation.
+  static void SetStoredPosition(double latitude,
+                                double longitude,
+                                double accuracy);
+  static void ClearStoredPosition();
+  static bool HasStoredPosition();
+  static double stored_latitude();
+  static double stored_longitude();
+  static double stored_accuracy();
+
  private:
   void NotifyListeners();
 
@@ -46,6 +57,12 @@ class AbpLocationProvider : public device::LocationProvider {
   device::mojom::GeopositionResultPtr result_;
   LocationProviderUpdateCallback callback_;
   scoped_refptr<base::SingleThreadTaskRunner> provider_task_runner_;
+
+  // Static storage for mock coordinates
+  static bool s_has_stored_position_;
+  static double s_stored_latitude_;
+  static double s_stored_longitude_;
+  static double s_stored_accuracy_;
 
   base::WeakPtrFactory<AbpLocationProvider> weak_factory_{this};
 };

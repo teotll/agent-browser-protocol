@@ -293,11 +293,6 @@ class AbpController {
                       const base::Value::Dict& params,
                       ResponseCallback callback);
 
-  // Geolocation mock API endpoints (non-action)
-  void SetGeolocation(const base::Value::Dict& params,
-                      ResponseCallback callback);
-  void ClearGeolocation(ResponseCallback callback);
-
   // Permission observer accessor
   AbpPermissionObserver* permission_observer() {
     return permission_observer_.get();

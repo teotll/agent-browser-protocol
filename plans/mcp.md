@@ -419,6 +419,9 @@ Tools are generated from the REST API specification. See [API.md](./API.md) for 
 - `browser_get_execution_state` - Get JS pause state
 - `browser_set_execution_state` - Pause/resume JS
 
+**Permissions:**
+- `respond_to_permission` - Grant or deny a pending permission prompt (requires permission_type; geolocation grant accepts latitude/longitude/accuracy)
+
 **Browser:**
 - `browser_get_status` - Get browser status
 - `browser_shutdown` - Shut down browser

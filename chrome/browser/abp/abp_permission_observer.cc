@@ -29,6 +29,7 @@ AbpPermissionObserver::TabPermissionObserver::~TabPermissionObserver() {
 }
 
 void AbpPermissionObserver::TabPermissionObserver::OnPromptAdded() {
+  VLOG(1) << "ABP: OnPromptAdded called for tab " << tab_id_;
   if (!manager_ || !owner_ || !owner_->controller_)
     return;
 
@@ -128,17 +129,23 @@ std::string AbpPermissionObserver::GeneratePermissionId() {
 
 void AbpPermissionObserver::AttachToTab(const std::string& tab_id,
                                         content::WebContents* web_contents) {
-  if (!web_contents)
+  if (!web_contents) {
+    VLOG(1) << "ABP: AttachToTab - null web_contents for " << tab_id;
     return;
+  }
 
   auto* manager =
       permissions::PermissionRequestManager::FromWebContents(web_contents);
-  if (!manager)
+  if (!manager) {
+    VLOG(1) << "ABP: AttachToTab - no PermissionRequestManager for " << tab_id;
     return;
+  }
 
   // Don't double-attach
-  if (tab_observers_.count(tab_id))
+  if (tab_observers_.count(tab_id)) {
+    VLOG(2) << "ABP: AttachToTab - already attached to " << tab_id;
     return;
+  }
 
   tab_observers_[tab_id] =
       std::make_unique<TabPermissionObserver>(this, tab_id, manager);

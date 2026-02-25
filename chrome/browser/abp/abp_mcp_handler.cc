@@ -513,35 +513,25 @@ base::Value::List GetToolDefinitions() {
               "Respond to a pending browser permission prompt. When a page "
               "requests a permission (e.g. geolocation), a "
               "'permission_requested' event is emitted with an ID. Use this "
-              "tool to grant or deny that permission. IMPORTANT: If granting "
-              "geolocation permission, call set_geolocation FIRST to provide "
-              "mock coordinates, then call this tool to grant.")
+              "tool to grant or deny that permission. When granting "
+              "geolocation, provide latitude and longitude to set mock "
+              "coordinates.")
           .RequiredString("permission_id",
                           "The permission request ID from the "
                           "permission_requested event")
+          .RequiredString("permission_type",
+                          "The permission type (e.g. 'geolocation'). Must "
+                          "match the type in the permission_requested event.")
           .RequiredBoolean("allow", "True to grant, false to deny")
-          .Build());
-
-  // 17. set_geolocation — set mock geolocation
-  tools.Append(
-      ToolBuilder("set_geolocation")
-          .Description(
-              "Set mock geolocation coordinates for the browser. This is NOT "
-              "an action — it immediately sets the coordinates without "
-              "affecting page execution. Call this BEFORE granting a "
-              "geolocation permission so the page receives the correct "
-              "coordinates when the permission is granted. Use action='clear' "
-              "to remove the mock and revert to 'position unavailable'.")
-          .OptionalString("action",
-                          "Action to perform: 'set' (default) or 'clear'")
           .OptionalNumber("latitude",
-                          "Latitude in degrees (-90 to 90). Required for "
-                          "action='set'.")
+                          "Latitude in degrees (-90 to 90). Required when "
+                          "granting geolocation.")
           .OptionalNumber("longitude",
-                          "Longitude in degrees (-180 to 180). Required for "
-                          "action='set'.")
+                          "Longitude in degrees (-180 to 180). Required when "
+                          "granting geolocation.")
           .OptionalNumber("accuracy",
-                          "Accuracy radius in meters (default: 100)")
+                          "Accuracy radius in meters (default: 100). Only "
+                          "used when granting geolocation.")
           .Build());
 
   return tools;
@@ -586,14 +576,14 @@ When the screenshot shows incomplete content, **call `browser_screenshot`** to w
 
 Pass `markup: ["clickable", "typeable", "grid"]` to `browser_screenshot` to see labeled overlays on interactive elements. Each label shows the element's coordinates for targeting clicks and typing.
 
-## Tool Reference (17 tools)
+## Tool Reference (16 tools)
 
 All `tab_id` parameters are optional and default to the active tab.
 
 **Input:**
 - `browser_action` — 1-3 actions: mouse_click (x, y), keyboard_type (text), keyboard_press (key, modifiers?), mouse_hover (x, y), mouse_drag (start_x, start_y, end_x, end_y). Keys are ALL-CAPS (ENTER, TAB, ESCAPE, CONTROL, META, etc.). Abbreviations accepted: CTRL, CMD, ESC, DEL.
 - `browser_scroll` — x, y (where wheel fires), delta_x?, delta_y? (positive=down/right)
-- `browser_slider` — orientation (horizontal/vertical), track bounds, current position, min, max, target_value. Calculates and executes drag automatically. If result is incorrect, fall back to `browser_action` with `mouse_drag`.
+- `browser_slider` — orientation (horizontal/vertical), track bounds, current position, min, max, target_value. Calculates and executes drag automatically. Fallback chain if result is wrong: (1) `browser_action` with `mouse_drag`, (2) click the slider then use ARROWRIGHT/ARROWLEFT (or ARROWUP/ARROWDOWN) to nudge incrementally.
 
 **Navigation:**
 - `browser_navigate` — url? OR action? (back, forward, reload)
@@ -609,8 +599,7 @@ All `tab_id` parameters are optional and default to the active tab.
 - `browser_downloads` — action? (list, status, cancel, content; default: list), download_id?, state?, limit?, max_size?. Use action:"content" with download_id to retrieve file bytes as base64 BlobResourceContents.
 - `browser_files` — chooser_id (required), files?, content_files?, path?, cancel?, max_size?. Use content_files for base64 uploads: [{filename, data, mime_type}].
 - `browser_select_picker` — popup_id (required), indices? (array of ints), cancel?. Respond to a pending <select> popup.
-- `respond_to_permission` — permission_id (required), allow (required). Respond to a permission prompt (e.g. geolocation). If granting geolocation, call set_geolocation FIRST.
-- `set_geolocation` — action? (set, clear; default: set), latitude?, longitude?, accuracy?. Set mock geolocation coordinates. NOT an action — takes effect immediately.
+- `respond_to_permission` — permission_id (required), permission_type (required), allow (required), latitude?, longitude?, accuracy?. Respond to a permission prompt. When granting geolocation, provide latitude and longitude for mock coordinates.
 
 **Browser:**
 - `browser_get_status` — no params
@@ -635,6 +624,11 @@ SELECT * FROM events WHERE action_id = <id>;
 -- Screenshot paths
 SELECT screenshot_before_path, screenshot_after_path FROM actions WHERE id = <id>;
 ```
+
+## Best Practices
+
+- **Use filters and sorting aggressively.** When a page offers filters (price range, category, date, ratings, size, color, etc.), sorting options, or faceted search — always apply them to narrow results before scrolling through content. This reduces the number of pages you need to process and gets to relevant results faster.
+- **Prefer search over browsing.** If you know what you're looking for, use the site's search bar rather than clicking through menus.
 
 ## Tips
 
@@ -854,8 +848,6 @@ void AbpMcpHandler::HandleToolsCall(const base::Value::Dict& params,
     CallBrowserSlider(*args, std::move(request_id), std::move(callback));
   } else if (*name == "respond_to_permission") {
     CallRespondToPermission(*args, std::move(request_id), std::move(callback));
-  } else if (*name == "set_geolocation") {
-    CallSetGeolocation(*args, std::move(request_id), std::move(callback));
   } else {
     SendJsonRpcError(std::move(request_id), kMethodNotFound,
                      "Unknown tool: " + *name, std::move(callback));
@@ -1721,6 +1713,13 @@ void AbpMcpHandler::CallRespondToPermission(
     return;
   }
 
+  const std::string* perm_type = args.FindString("permission_type");
+  if (!perm_type) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "Missing permission_type", std::move(callback));
+    return;
+  }
+
   auto allow = args.FindBool("allow");
   if (!allow.has_value()) {
     SendJsonRpcError(std::move(request_id), kInvalidParams,
@@ -1729,43 +1728,14 @@ void AbpMcpHandler::CallRespondToPermission(
   }
 
   std::string action = *allow ? "grant" : "deny";
-  std::string body = "{}";
 
-  controller_->HandleRequest(
-      "POST", "/api/v1/permissions/" + *perm_id + "/" + action, body,
-      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                     weak_factory_.GetWeakPtr(), std::move(request_id),
-                     std::move(callback)));
-}
-
-// --- 17. set_geolocation ---
-void AbpMcpHandler::CallSetGeolocation(
-    const base::Value::Dict& args,
-    base::Value request_id,
-    ResponseWithHeadersCallback callback) {
-  const std::string* action = args.FindString("action");
-  std::string act = action ? *action : "set";
-
-  if (act == "clear") {
-    controller_->HandleRequest(
-        "DELETE", "/api/v1/geolocation", "",
-        base::BindOnce(&AbpMcpHandler::OnControllerResponse,
-                       weak_factory_.GetWeakPtr(), std::move(request_id),
-                       std::move(callback)));
-    return;
-  }
-
-  auto latitude = args.FindDouble("latitude");
-  auto longitude = args.FindDouble("longitude");
-  if (!latitude || !longitude) {
-    SendJsonRpcError(std::move(request_id), kInvalidParams,
-                     "Missing latitude or longitude", std::move(callback));
-    return;
-  }
-
+  // Build body with permission_type and optional geolocation coordinates.
   base::Value::Dict body_dict;
-  body_dict.Set("latitude", *latitude);
-  body_dict.Set("longitude", *longitude);
+  body_dict.Set("permission_type", *perm_type);
+  if (auto latitude = args.FindDouble("latitude"))
+    body_dict.Set("latitude", *latitude);
+  if (auto longitude = args.FindDouble("longitude"))
+    body_dict.Set("longitude", *longitude);
   if (auto accuracy = args.FindDouble("accuracy"))
     body_dict.Set("accuracy", *accuracy);
 
@@ -1773,7 +1743,7 @@ void AbpMcpHandler::CallSetGeolocation(
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
   controller_->HandleRequest(
-      "POST", "/api/v1/geolocation", body,
+      "POST", "/api/v1/permissions/" + *perm_id + "/" + action, body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));

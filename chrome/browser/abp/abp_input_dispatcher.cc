@@ -23,6 +23,10 @@ namespace abp {
 
 namespace {
 
+// Key timing constants for realistic input simulation.
+constexpr int kKeyDwellMs = 20;      // Hold time between keyDown and keyUp
+constexpr int kInterKeyDelayMs = 50; // Pause between consecutive key events
+
 // Convert ABP modifier bitmask (1=Alt, 2=Ctrl, 4=Meta, 8=Shift) to
 // blink::WebInputEvent modifier flags.
 int ModifierFlagsToWebModifiers(int flags) {
@@ -514,16 +518,29 @@ void AbpInputDispatcher::TypeNextCharacter(
 
   ForwardKeyEvent(ctx->web_contents(),
                   blink::WebInputEvent::Type::kKeyDown, char_info, web_mods);
-  ForwardKeyEvent(ctx->web_contents(),
-                  blink::WebInputEvent::Type::kKeyUp, char_info, web_mods);
 
-  // 2ms delay before next character to simulate realistic typing speed
+  // Dwell time before keyUp, then inter-key pause before next character
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&AbpInputDispatcher::TypeCharKeyUp,
+                     base::Unretained(this), ctx, char_info, web_mods,
+                     std::move(text), char_index),
+      base::Milliseconds(kKeyDwellMs));
+}
+
+void AbpInputDispatcher::TypeCharKeyUp(scoped_refptr<AbpActionContext> ctx,
+                                       KeyInfo info,
+                                       int web_mods,
+                                       std::string text,
+                                       size_t char_index) {
+  ForwardKeyEvent(ctx->web_contents(), blink::WebInputEvent::Type::kKeyUp,
+                  info, web_mods);
   content::GetUIThreadTaskRunner({})->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&AbpInputDispatcher::TypeNextCharacter,
                      base::Unretained(this), ctx, std::move(text),
                      char_index + 1),
-      base::Milliseconds(2));
+      base::Milliseconds(kInterKeyDelayMs));
 }
 
 void AbpInputDispatcher::Move(const std::string& tab_id,
@@ -703,8 +720,7 @@ void AbpInputDispatcher::KeyPress(const std::string& tab_id,
 
   // Use AbpActionContext for unified action flow.
   // KeyPress uses native keyboard events via ForwardKeyEvent — no CDP.
-  // All events are synchronous (ForwardKeyboardEvent dispatches immediately
-  // to the renderer via IPC), so no async chaining needed.
+  // keyDown is dispatched immediately; keyUp follows after 30ms dwell time.
   AbpActionContext::RunWithOptions(
       controller_, tab_id, "key_press", params, controller_->GetDefaultActionOptions(),
       base::BindOnce(
@@ -728,31 +744,18 @@ void AbpInputDispatcher::KeyPress(const std::string& tab_id,
                   web_mods);
             }
 
-            // Press and release the main key
+            // Press the main key down
             dispatcher->ForwardKeyEvent(
                 wc, blink::WebInputEvent::Type::kKeyDown, key_info, web_mods);
-            dispatcher->ForwardKeyEvent(
-                wc, blink::WebInputEvent::Type::kKeyUp, key_info, web_mods);
 
-            // Release modifier keys in reverse order
-            for (auto it = mods.rbegin(); it != mods.rend(); ++it) {
-              KeyInfo mod_info = GetKeyInfo(*it);
-              dispatcher->ForwardKeyEvent(
-                  wc, blink::WebInputEvent::Type::kKeyUp, mod_info, 0);
-            }
-
-            base::Value::Dict res;
-            res.Set("status", "pressed");
-            res.Set("key", key_info.key);
-            if (!mods.empty()) {
-              base::Value::List mod_result;
-              for (const auto& m : mods) {
-                mod_result.Append(m);
-              }
-              res.Set("modifiers", std::move(mod_result));
-            }
-            ctx->SetResult(std::move(res));
-            ctx->OnActionDispatched();
+            // Dwell time before keyUp + modifier release + action complete
+            content::GetUIThreadTaskRunner({})->PostDelayedTask(
+                FROM_HERE,
+                base::BindOnce(&AbpInputDispatcher::KeyPressKeyUp,
+                               base::Unretained(dispatcher),
+                               base::Unretained(wc), key_info, web_mods,
+                               std::move(mods), base::Unretained(ctx)),
+                base::Milliseconds(kKeyDwellMs));
           },
           std::move(key_copy), std::move(modifiers), this),
       std::move(callback));
@@ -1375,16 +1378,31 @@ void AbpInputDispatcher::TypeNextCharacterRaw(
 
   ForwardKeyEvent(wc, blink::WebInputEvent::Type::kKeyDown, char_info,
                   web_mods);
-  ForwardKeyEvent(wc, blink::WebInputEvent::Type::kKeyUp, char_info,
-                  web_mods);
 
-  // 2ms delay before next character
+  // Dwell time before keyUp, then inter-key pause before next character
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&AbpInputDispatcher::TypeCharKeyUpRaw,
+                     base::Unretained(this), base::Unretained(wc), char_info,
+                     web_mods, tab_id, std::move(text), char_index,
+                     std::move(callback)),
+      base::Milliseconds(kKeyDwellMs));
+}
+
+void AbpInputDispatcher::TypeCharKeyUpRaw(content::WebContents* wc,
+                                          KeyInfo info,
+                                          int web_mods,
+                                          std::string tab_id,
+                                          std::string text,
+                                          size_t char_index,
+                                          RawCallback callback) {
+  ForwardKeyEvent(wc, blink::WebInputEvent::Type::kKeyUp, info, web_mods);
   content::GetUIThreadTaskRunner({})->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&AbpInputDispatcher::TypeNextCharacterRaw,
-                     base::Unretained(this), tab_id, std::move(text),
-                     char_index + 1, std::move(callback)),
-      base::Milliseconds(2));
+                     base::Unretained(this), std::move(tab_id),
+                     std::move(text), char_index + 1, std::move(callback)),
+      base::Milliseconds(kInterKeyDelayMs));
 }
 
 void AbpInputDispatcher::MoveRaw(const std::string& tab_id,
@@ -1458,9 +1476,52 @@ void AbpInputDispatcher::KeyPressRaw(const std::string& tab_id,
                     web_mods);
   }
 
-  // Press and release the main key
+  // Press the main key down
   ForwardKeyEvent(wc, blink::WebInputEvent::Type::kKeyDown, key_info,
                   web_mods);
+
+  // Dwell time before keyUp + modifier release
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&AbpInputDispatcher::KeyPressKeyUpRaw,
+                     base::Unretained(this), base::Unretained(wc), key_info,
+                     web_mods, std::move(modifiers), std::move(callback)),
+      base::Milliseconds(kKeyDwellMs));
+}
+
+void AbpInputDispatcher::KeyPressKeyUp(content::WebContents* wc,
+                                       KeyInfo key_info,
+                                       int web_mods,
+                                       std::vector<std::string> mods,
+                                       AbpActionContext* ctx) {
+  ForwardKeyEvent(wc, blink::WebInputEvent::Type::kKeyUp, key_info, web_mods);
+
+  // Release modifier keys in reverse order
+  for (auto it = mods.rbegin(); it != mods.rend(); ++it) {
+    KeyInfo mod_info = GetKeyInfo(*it);
+    ForwardKeyEvent(wc, blink::WebInputEvent::Type::kKeyUp, mod_info, 0);
+  }
+
+  base::Value::Dict res;
+  res.Set("status", "pressed");
+  res.Set("key", key_info.key);
+  if (!mods.empty()) {
+    base::Value::List mod_result;
+    for (const auto& m : mods) {
+      mod_result.Append(m);
+    }
+    res.Set("modifiers", std::move(mod_result));
+  }
+  ctx->SetResult(std::move(res));
+  ctx->OnActionDispatched();
+}
+
+void AbpInputDispatcher::KeyPressKeyUpRaw(
+    content::WebContents* wc,
+    KeyInfo key_info,
+    int web_mods,
+    std::vector<std::string> modifiers,
+    RawCallback callback) {
   ForwardKeyEvent(wc, blink::WebInputEvent::Type::kKeyUp, key_info, web_mods);
 
   // Release modifier keys in reverse order
