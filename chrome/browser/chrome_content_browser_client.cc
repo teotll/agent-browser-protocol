@@ -51,6 +51,7 @@
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "build/config/chromebox_for_meetings/buildflags.h"  // PLATFORM_CFM
+#include "chrome/browser/abp/abp_location_provider.h"
 #include "chrome/browser/after_startup_task_utils.h"
 #include "chrome/browser/ai/ai_manager.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
@@ -3823,6 +3824,17 @@ std::string ChromeContentBrowserClient::GetGeolocationApiKey() {
   }
 #endif
   return google_apis::GetAPIKey();
+}
+
+std::unique_ptr<device::LocationProvider>
+ChromeContentBrowserClient::OverrideSystemLocationProvider() {
+  // Override geolocation with ABP's mock provider when not running tests.
+  // This prevents real device location from leaking and allows agents to
+  // provide mock coordinates via the ABP API.
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch("test-type")) {
+    return std::make_unique<abp::AbpLocationProvider>();
+  }
+  return nullptr;
 }
 
 #if BUILDFLAG(OS_LEVEL_GEOLOCATION_PERMISSION_SUPPORTED)

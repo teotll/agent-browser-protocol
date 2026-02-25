@@ -470,6 +470,8 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
   GetSystemSharedURLLoaderFactory() override;
   network::mojom::NetworkContext* GetSystemNetworkContext() override;
   std::string GetGeolocationApiKey() override;
+  std::unique_ptr<device::LocationProvider>
+  OverrideSystemLocationProvider() override;
 
 #if BUILDFLAG(OS_LEVEL_GEOLOCATION_PERMISSION_SUPPORTED)
   device::GeolocationSystemPermissionManager*
