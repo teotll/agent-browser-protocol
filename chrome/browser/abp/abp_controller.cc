@@ -2122,6 +2122,71 @@ void AbpController::HandleRequest(const std::string& method,
     }
   }
 
+  // Route: /api/v1/permissions
+  if (resource == "permissions") {
+    if (segments.size() == 3) {
+      // GET /api/v1/permissions
+      if (method == "GET") {
+        ListPendingPermissions(std::move(callback));
+      } else {
+        SendError(405, "Method not allowed", std::move(callback));
+      }
+      return;
+    }
+    if (segments.size() == 5) {
+      const std::string& perm_id = segments[3];
+      const std::string& action = segments[4];
+      if (method == "POST") {
+        if (action == "grant") {
+          GrantPermission(perm_id, params, std::move(callback));
+        } else if (action == "deny") {
+          DenyPermission(perm_id, params, std::move(callback));
+        } else {
+          SendError(404, "Unknown permission action: " + action,
+                    std::move(callback));
+        }
+      } else {
+        SendError(405, "Method not allowed", std::move(callback));
+      }
+      return;
+    }
+    SendError(404, "Not found", std::move(callback));
+    return;
+  }
+
+  // Route: /api/v1/geolocation
+  if (resource == "geolocation") {
+    if (segments.size() == 3) {
+      if (method == "POST") {
+        SetGeolocation(params, std::move(callback));
+      } else if (method == "DELETE") {
+        ClearGeolocation(std::move(callback));
+      } else if (method == "GET") {
+        auto* provider = AbpLocationProvider::GetInstance();
+        base::Value::Dict response;
+        if (provider && provider->has_position()) {
+          auto* pos = provider->GetPosition();
+          if (pos && pos->is_position()) {
+            response.Set("active", true);
+            response.Set("latitude", pos->get_position()->latitude);
+            response.Set("longitude", pos->get_position()->longitude);
+            response.Set("accuracy", pos->get_position()->accuracy);
+          } else {
+            response.Set("active", false);
+          }
+        } else {
+          response.Set("active", false);
+        }
+        SendJson(200, base::Value(std::move(response)), std::move(callback));
+      } else {
+        SendError(405, "Method not allowed", std::move(callback));
+      }
+      return;
+    }
+    SendError(404, "Not found", std::move(callback));
+    return;
+  }
+
   // Route: /api/v1/downloads
   if (resource == "downloads") {
     if (segments.size() == 3) {
