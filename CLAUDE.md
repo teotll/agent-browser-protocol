@@ -15,11 +15,13 @@ A Chromium fork implementing the Agent Browser Protocol (ABP) - a REST-based API
 - **Dialogs**: Get pending dialog info, accept, dismiss (alert/confirm/prompt/beforeunload)
 - **Downloads**: List, get status, cancel
 - **File Chooser**: Provide files to native file picker dialogs
+- **Permissions**: Intercept permission prompts, grant/deny geolocation (auto-deny others)
+- **Geolocation**: Set/clear mock geolocation coordinates (no CDP, undetectable)
 - **Execution Control**: Pause/resume JS execution with virtual time for deterministic state
 - **Wait**: Duration-based wait with action envelope
 - **History**: Session, action, and event history with SQLite storage
 - **Browser Management**: Status check, graceful shutdown
-- **MCP Server**: Embedded MCP (JSON-RPC over HTTP) with 14 tools at `/mcp`
+- **MCP Server**: Embedded MCP (JSON-RPC over HTTP) with 17 tools at `/mcp`
 
 ### Architecture
 
@@ -63,6 +65,8 @@ chrome/browser/abp/
 ├── abp_controller.h/cc          # Request handler + CDP client (UI thread)
 ├── abp_action_context.h/cc      # Action lifecycle (pause/resume/screenshot)
 ├── abp_input_dispatcher.h/cc    # Native input dispatch (click/scroll/keys)
+├── abp_location_provider.h/cc   # Mock geolocation provider (no CDP)
+├── abp_permission_observer.h/cc # Permission prompt interception
 ├── abp_event_observer.h/cc      # CDP event client per tab
 ├── abp_event_collector.h/cc     # Collects events during actions
 ├── abp_mcp_handler.h/cc         # Embedded MCP server (JSON-RPC over HTTP)
@@ -297,6 +301,14 @@ See `plans/API.md` for the complete REST API specification. All endpoints:
 | POST | `/api/v1/file-chooser/{id}` | Provide files to dialog |
 | **Popups** | | |
 | POST | `/api/v1/select/{id}` | Respond to select popup |
+| **Permissions** | | |
+| GET | `/api/v1/permissions` | List pending permission requests |
+| POST | `/api/v1/permissions/{id}/grant` | Grant permission (ABP action) |
+| POST | `/api/v1/permissions/{id}/deny` | Deny permission (ABP action) |
+| **Geolocation** | | |
+| GET | `/api/v1/geolocation` | Get mock geolocation state |
+| POST | `/api/v1/geolocation` | Set mock coordinates |
+| DELETE | `/api/v1/geolocation` | Clear mock coordinates |
 | **History** | | |
 | GET | `/api/v1/history/sessions` | List sessions |
 | GET | `/api/v1/history/sessions/current` | Get current session |
@@ -311,7 +323,7 @@ See `plans/API.md` for the complete REST API specification. All endpoints:
 | DELETE | `/api/v1/history/events` | Delete events |
 | DELETE | `/api/v1/history` | Delete all history |
 | **MCP** | | |
-| POST | `/mcp` | MCP JSON-RPC endpoint (14 tools) |
+| POST | `/mcp` | MCP JSON-RPC endpoint (17 tools) |
 
 ## Development Notes
 
