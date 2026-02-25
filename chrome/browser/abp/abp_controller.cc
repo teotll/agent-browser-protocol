@@ -16,7 +16,10 @@
 #include "chrome/browser/abp/abp_action_context.h"
 #include "chrome/browser/abp/abp_input_dispatcher.h"
 #include "chrome/browser/abp/abp_popup_interceptor.h"
+#include "services/device/public/cpp/geolocation/buildflags.h"
+#if BUILDFLAG(OS_LEVEL_GEOLOCATION_PERMISSION_SUPPORTED)
 #include "chrome/browser/abp/abp_system_geolocation_source.h"
+#endif
 #include "base/command_line.h"
 #include "chrome/browser/abp/abp_switches.h"
 #include "base/containers/span.h"
@@ -6301,7 +6304,9 @@ void AbpController::GrantPermission(const std::string& perm_id,
               // Transition system permission to kAllowed so the provider can
               // start delivering coordinates after the web permission is
               // granted.
+#if BUILDFLAG(OS_LEVEL_GEOLOCATION_PERMISSION_SUPPORTED)
               AbpSystemGeolocationSource::GrantSystemPermission();
+#endif
             }
             if (!controller->permission_observer()->GrantPermission(
                     ctx->tab_id())) {
