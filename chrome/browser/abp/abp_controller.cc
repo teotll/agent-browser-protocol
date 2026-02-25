@@ -2456,7 +2456,7 @@ void AbpController::Navigate(const std::string& tab_id,
 
   // Center cursor after navigation so it's in the viewport center.
   // Paint-based wait handles page readiness — no need for 10s min_wait.
-  AbpActionContext::Options options;
+  auto options = GetDefaultActionOptions();
   options.center_cursor_after = true;
 
   AbpActionContext::RunWithOptions(
@@ -2492,7 +2492,7 @@ void AbpController::Reload(const std::string& tab_id,
 
   // Center cursor after reload so it's in the viewport center.
   // Paint-based wait handles page readiness — no need for 10s min_wait.
-  AbpActionContext::Options options;
+  auto options = GetDefaultActionOptions();
   options.center_cursor_after = true;
 
   AbpActionContext::RunWithOptions(
@@ -2528,7 +2528,7 @@ void AbpController::GoBack(const std::string& tab_id,
 
   // Center cursor after navigation so it's in the viewport center.
   // Paint-based wait handles page readiness — no need for 10s min_wait.
-  AbpActionContext::Options options;
+  auto options = GetDefaultActionOptions();
   options.center_cursor_after = true;
 
   AbpActionContext::RunWithOptions(
@@ -2569,7 +2569,7 @@ void AbpController::GoForward(const std::string& tab_id,
 
   // Center cursor after navigation so it's in the viewport center.
   // Paint-based wait handles page readiness — no need for 10s min_wait.
-  AbpActionContext::Options options;
+  auto options = GetDefaultActionOptions();
   options.center_cursor_after = true;
 
   AbpActionContext::RunWithOptions(
@@ -2606,7 +2606,7 @@ void AbpController::Screenshot(const std::string& tab_id,
   // lifecycle (resume → wait → after screenshot → pause → response) which
   // shares the same proven code path as action screenshots. The screenshot
   // is captured as the "after" screenshot in the response envelope.
-  AbpActionContext::Options options;
+  auto options = GetDefaultActionOptions();
   options.min_wait_time = base::Milliseconds(100);
 
   AbpActionContext::RunWithOptions(
@@ -2819,8 +2819,8 @@ void AbpController::Wait(const std::string& tab_id,
   // Use AbpActionContext with default options (resume + pause enabled)
   // This allows JavaScript to run during the wait period (for animations, etc.)
   // Flow: Resume V8 -> Wait -> Pause V8 -> Screenshot
-  AbpActionContext::Run(
-      this, tab_id, "wait", params,
+  AbpActionContext::RunWithOptions(
+      this, tab_id, "wait", params, GetDefaultActionOptions(),
       // Action callback - performs the wait
       base::BindOnce(
           [](int ms, AbpActionContext* ctx) {
@@ -3155,8 +3155,8 @@ void AbpController::ExecuteBatchActions(
   }
 
   // Use AbpActionContext for the entire batch
-  AbpActionContext::Run(
-      this, tab_id, "batch", batch_params,
+  AbpActionContext::RunWithOptions(
+      this, tab_id, "batch", batch_params, GetDefaultActionOptions(),
       // Action callback — this runs after execution is resumed
       base::BindOnce(
           [](base::Value::List actions,
@@ -5590,7 +5590,7 @@ void AbpController::RunFileChooserAction(
   // File upload is a full ABP action: resume → set files → dispatch change →
   // wait for upload network traffic to settle → wait 2s for page JS to
   // process → pause → screenshot.
-  AbpActionContext::Options opts;
+  auto opts = GetDefaultActionOptions();
   opts.min_wait_time = base::Milliseconds(500);
   opts.request_tracking_timeout = base::Seconds(60);
 
@@ -6296,8 +6296,8 @@ void AbpController::GrantPermission(const std::string& perm_id,
   // Remove from pending before action
   pending_permissions_.erase(it);
 
-  AbpActionContext::Run(
-      this, tab_id, "permission_grant", params,
+  AbpActionContext::RunWithOptions(
+      this, tab_id, "permission_grant", params, GetDefaultActionOptions(),
       base::BindOnce(
           [](std::string perm_type, AbpActionContext* ctx) {
             auto* controller = ctx->controller();
@@ -6333,8 +6333,8 @@ void AbpController::DenyPermission(const std::string& perm_id,
 
   pending_permissions_.erase(it);
 
-  AbpActionContext::Run(
-      this, tab_id, "permission_deny", params,
+  AbpActionContext::RunWithOptions(
+      this, tab_id, "permission_deny", params, GetDefaultActionOptions(),
       base::BindOnce(
           [](std::string perm_type, AbpActionContext* ctx) {
             auto* controller = ctx->controller();

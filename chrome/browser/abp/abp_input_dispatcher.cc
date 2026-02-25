@@ -284,8 +284,8 @@ void AbpInputDispatcher::Click(const std::string& tab_id,
 
   // Use AbpActionContext for unified action flow:
   // Resume -> BeforeScreenshot -> Action -> Wait -> Pause -> AfterScreenshot -> Response
-  AbpActionContext::Run(
-      controller_, tab_id, "click", params,
+  AbpActionContext::RunWithOptions(
+      controller_, tab_id, "click", params, controller_->GetDefaultActionOptions(),
       // Action callback - performs the actual click
       base::BindOnce(
           [](double coord_x, double coord_y, std::string btn, int count,
@@ -431,8 +431,8 @@ void AbpInputDispatcher::Type(const std::string& tab_id,
   // Type uses native keyboard events — each character gets its own
   // keyDown + keyUp pair with a 2ms delay between characters, producing
   // the same DOM event chain as real typing (keydown → keypress → input → keyup).
-  AbpActionContext::Run(
-      controller_, tab_id, "type", params,
+  AbpActionContext::RunWithOptions(
+      controller_, tab_id, "type", params, controller_->GetDefaultActionOptions(),
       base::BindOnce(
           [](std::string text_str, AbpInputDispatcher* dispatcher,
              AbpActionContext* ctx) {
@@ -542,7 +542,7 @@ void AbpInputDispatcher::Move(const std::string& tab_id,
   double move_y = *y_opt;
 
   // Use AbpActionContext for unified action flow.
-  AbpActionContext::Options options;
+  auto options = controller_->GetDefaultActionOptions();
   AbpActionContext::RunWithOptions(
       controller_, tab_id, "move", params, options,
       // Action callback - performs the cursor move.
@@ -648,7 +648,7 @@ void AbpInputDispatcher::Scroll(const std::string& tab_id,
   // Use AbpActionContext for consistent resume/pause/screenshot flow.
   // Use native mouse wheel events for both vertical and horizontal scrolling.
   // This simulates real user behavior: moving mouse over element and scrolling.
-  AbpActionContext::Options options;
+  auto options = controller_->GetDefaultActionOptions();
   options.min_wait_time = base::Milliseconds(500);
   AbpActionContext::RunWithOptions(
       controller_, tab_id, "scroll", params, options,
@@ -705,8 +705,8 @@ void AbpInputDispatcher::KeyPress(const std::string& tab_id,
   // KeyPress uses native keyboard events via ForwardKeyEvent — no CDP.
   // All events are synchronous (ForwardKeyboardEvent dispatches immediately
   // to the renderer via IPC), so no async chaining needed.
-  AbpActionContext::Run(
-      controller_, tab_id, "key_press", params,
+  AbpActionContext::RunWithOptions(
+      controller_, tab_id, "key_press", params, controller_->GetDefaultActionOptions(),
       base::BindOnce(
           [](std::string pressed_key, std::vector<std::string> mods,
              AbpInputDispatcher* dispatcher, AbpActionContext* ctx) {
@@ -771,8 +771,8 @@ void AbpInputDispatcher::KeyDown(const std::string& tab_id,
 
   // Use AbpActionContext for unified action flow.
   // KeyDown uses native keyboard events — no CDP.
-  AbpActionContext::Run(
-      controller_, tab_id, "key_down", params,
+  AbpActionContext::RunWithOptions(
+      controller_, tab_id, "key_down", params, controller_->GetDefaultActionOptions(),
       base::BindOnce(
           [](std::string pressed_key, AbpController* controller,
              AbpInputDispatcher* dispatcher, AbpActionContext* ctx) {
@@ -821,8 +821,8 @@ void AbpInputDispatcher::KeyUp(const std::string& tab_id,
 
   // Use AbpActionContext for unified action flow.
   // KeyUp uses native keyboard events — no CDP.
-  AbpActionContext::Run(
-      controller_, tab_id, "key_up", params,
+  AbpActionContext::RunWithOptions(
+      controller_, tab_id, "key_up", params, controller_->GetDefaultActionOptions(),
       base::BindOnce(
           [](std::string released_key, AbpController* controller,
              AbpInputDispatcher* dispatcher, AbpActionContext* ctx) {
@@ -880,8 +880,8 @@ void AbpInputDispatcher::Drag(const std::string& tab_id,
   if (steps < 1) steps = 1;
   if (steps > 100) steps = 100;
 
-  AbpActionContext::Run(
-      controller_, tab_id, "drag", params,
+  AbpActionContext::RunWithOptions(
+      controller_, tab_id, "drag", params, controller_->GetDefaultActionOptions(),
       base::BindOnce(
           [](double s_x, double s_y, double e_x, double e_y, int num_steps,
              AbpInputDispatcher* dispatcher, AbpActionContext* ctx) {
