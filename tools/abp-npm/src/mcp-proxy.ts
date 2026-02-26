@@ -14,6 +14,9 @@ const HEADLESS =
 const VERBOSE =
   process.env.ABP_VERBOSE === "1" || cliArgs.includes("--verbose") || cliArgs.includes("-v");
 const EXTRA_ARGS = process.env.ABP_ARGS?.split(",").filter(Boolean) || [];
+const USER_DATA_DIR = process.env.ABP_USER_DATA_DIR || undefined;
+const PROFILE_DIRECTORY = process.env.ABP_PROFILE_DIRECTORY || undefined;
+const USER_AGENT = process.env.ABP_USER_AGENT || undefined;
 
 // Claude's recommended resolution for web applications (WXGA)
 // At 1280x800 = 1,024,000 pixels, under Claude's 1.15MP / 1568px limits
@@ -54,6 +57,9 @@ async function ensureBrowser(): Promise<void> {
         headless: HEADLESS,
         verbose: VERBOSE,
         windowSize: [WINDOW_WIDTH, WINDOW_HEIGHT],
+        userDataDir: USER_DATA_DIR,
+        profileDirectory: PROFILE_DIRECTORY,
+        userAgent: USER_AGENT,
         args: EXTRA_ARGS,
       });
       log(`ABP ready on port ${PORT}`);
