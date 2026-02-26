@@ -11,6 +11,9 @@ interface ParsedArgs {
   minWait?: number;
   trackingTimeout?: number;
   postSettle?: number;
+  userDataDir?: string;
+  profileDirectory?: string;
+  userAgent?: string;
   chromeArgs: string[];
 }
 
@@ -28,6 +31,9 @@ function parseArgs(argv: string[]): ParsedArgs {
   let postSettle: number | undefined = process.env.ABP_POST_SETTLE
     ? parseInt(process.env.ABP_POST_SETTLE, 10)
     : undefined;
+  let userDataDir: string | undefined = process.env.ABP_USER_DATA_DIR || undefined;
+  let profileDirectory: string | undefined = process.env.ABP_PROFILE_DIRECTORY || undefined;
+  let userAgent: string | undefined = process.env.ABP_USER_AGENT || undefined;
   const chromeArgs: string[] = [];
   let pastSeparator = false;
 
@@ -71,6 +77,21 @@ function parseArgs(argv: string[]): ParsedArgs {
       i++;
     } else if (argv[i].startsWith("--post-settle=")) {
       postSettle = parseInt(argv[i].split("=")[1], 10);
+    } else if (argv[i] === "--user-data-dir" && i + 1 < argv.length) {
+      userDataDir = argv[i + 1];
+      i++;
+    } else if (argv[i].startsWith("--user-data-dir=")) {
+      userDataDir = argv[i].split("=").slice(1).join("=");
+    } else if (argv[i] === "--profile-directory" && i + 1 < argv.length) {
+      profileDirectory = argv[i + 1];
+      i++;
+    } else if (argv[i].startsWith("--profile-directory=")) {
+      profileDirectory = argv[i].split("=").slice(1).join("=");
+    } else if (argv[i] === "--user-agent" && i + 1 < argv.length) {
+      userAgent = argv[i + 1];
+      i++;
+    } else if (argv[i].startsWith("--user-agent=")) {
+      userAgent = argv[i].split("=").slice(1).join("=");
     } else if (argv[i] === "--help" || argv[i] === "-h") {
       console.log(`agent-browser-protocol v${ABP_VERSION}
 
@@ -85,6 +106,9 @@ Options:
   --min-wait <ms>        Pre-network settlement wait in ms (default: 250)
   --tracking-timeout <ms> Request tracking timeout in ms (default: 1000)
   --post-settle <ms>     Post-network settle time in ms (default: 750)
+  --user-data-dir <path>   Chrome user data directory
+  --profile-directory <name> Chrome profile directory name
+  --user-agent <string>    Custom User-Agent string
   --mcp                  Run as MCP server (JSON-RPC over stdio)
   --help, -h             Show this help message
 
@@ -95,6 +119,9 @@ Environment Variables:
   ABP_MIN_WAIT           Pre-network settlement wait in ms
   ABP_TRACKING_TIMEOUT   Request tracking timeout in ms
   ABP_POST_SETTLE        Post-network settle time in ms
+  ABP_USER_DATA_DIR        Chrome user data directory (overridden by --user-data-dir)
+  ABP_PROFILE_DIRECTORY    Chrome profile directory name (overridden by --profile-directory)
+  ABP_USER_AGENT           Custom User-Agent string (overridden by --user-agent)
   ABP_BROWSER_PATH       Path to a custom ABP binary
   ABP_SKIP_DOWNLOAD=1    Skip binary download during install
 
@@ -103,7 +130,8 @@ Examples:
   agent-browser-protocol --port 9222
   agent-browser-protocol --headless
   agent-browser-protocol --session-dir ./my-session
-  agent-browser-protocol -- --disable-gpu`);
+  agent-browser-protocol -- --disable-gpu
+  agent-browser-protocol --user-data-dir /tmp/profile --user-agent "MyBot/1.0"`);
       process.exit(0);
     } else {
       console.error(`Unknown option: ${argv[i]}`);
@@ -112,7 +140,7 @@ Examples:
     }
   }
 
-  return { port, headless, verbose, sessionDir, minWait, trackingTimeout, postSettle, chromeArgs };
+  return { port, headless, verbose, sessionDir, minWait, trackingTimeout, postSettle, userDataDir, profileDirectory, userAgent, chromeArgs };
 }
 
 async function main() {
@@ -121,12 +149,12 @@ async function main() {
     return;
   }
 
-  const { port, headless, verbose, sessionDir, minWait, trackingTimeout, postSettle, chromeArgs } = parseArgs(process.argv);
+  const { port, headless, verbose, sessionDir, minWait, trackingTimeout, postSettle, userDataDir, profileDirectory, userAgent, chromeArgs } = parseArgs(process.argv);
 
   console.log(`Agent Browser Protocol v${ABP_VERSION}`);
   console.log(`Starting on port ${port}...`);
 
-  const browser = await launch({ port, headless, verbose, sessionDir, minWait, trackingTimeout, postSettle, args: chromeArgs });
+  const browser = await launch({ port, headless, verbose, sessionDir, minWait, trackingTimeout, postSettle, userDataDir, profileDirectory, userAgent, args: chromeArgs });
 
   console.log(`\nABP is ready!`);
   console.log(`  API:  http://localhost:${port}/api/v1`);
