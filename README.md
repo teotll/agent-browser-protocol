@@ -424,6 +424,7 @@ ABP is under active development. Current implementation:
 - Location permissions + geo-spoofing
  
 **Not yet implemented:**
+- Online mind2web benchmarks
 - Action success/failure tracking
 - Revert URL to last known success state
 - Revert browser to last known success state
