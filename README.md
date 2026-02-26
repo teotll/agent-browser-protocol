@@ -187,10 +187,10 @@ ABP makes browsing a step machine. Each request injects native input, waits for 
 Docs
 
 * TypeScript SDK + npm details: https://github.com/theredsix/abp-npm
-* REST API reference + curl examples: docs/REST-API.md
-* Manual binary download + launch: MANUAL_INSTALL.md
-* Building from source: COMPILE.md
-* Training / SQLite session schema: TRAINING.md
+* REST API reference + curl examples: [REST-API.md](docs/REST-API.md)
+* Manual binary download + launch: [MANUAL_INSTALL.md](MANUAL_INSTALL.md)
+* Building from source: [COMPILE.md](COMPILE.md)
+* Training / SQLite session schema: [TRAINING.md](TRAINING.md)
 
 ---
 
