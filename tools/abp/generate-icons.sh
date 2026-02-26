@@ -119,20 +119,23 @@ CAR_OUTPUT_DIR="${SRC_ROOT}/chrome/app/theme/chromium/mac"
 actool --compile "$CAR_OUTPUT_DIR" \
   --platform macosx \
   --minimum-deployment-target 10.15 \
+  --app-icon AppIcon \
+  --output-partial-info-plist "${TMPDIR_ICONS}/partial-info.plist" \
   "$XCASSETS_DIR" >/dev/null
 echo "  [car] ${CAR_OUTPUT_DIR}/Assets.car"
 
 # ---------------------------------------------------------------------------
-# 5. macOS — Delete dynamic icon directory
+# 5. macOS — Delete actool byproducts
 # ---------------------------------------------------------------------------
 echo ""
-echo "=== macOS: Remove AppIcon.icon ==="
+echo "=== macOS: Remove actool byproducts ==="
+# actool --app-icon generates an extra .icns we don't need (build uses app.icns from iconutil)
+rm -f "${CAR_OUTPUT_DIR}/AppIcon.icns"
+# actool may also create a dynamic icon directory
 APPICON_DYNAMIC="${SRC_ROOT}/chrome/app/theme/chromium/mac/AppIcon.icon"
 if [[ -d "$APPICON_DYNAMIC" ]]; then
   rm -rf "$APPICON_DYNAMIC"
   echo "  [deleted] $APPICON_DYNAMIC"
-else
-  echo "  [skipped] $APPICON_DYNAMIC (not found)"
 fi
 
 # ---------------------------------------------------------------------------
