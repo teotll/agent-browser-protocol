@@ -22,6 +22,12 @@ export interface LaunchOptions {
   trackingTimeout?: number;
   /** Post-network settle time in ms. Default: 750. */
   postSettle?: number;
+  /** Chrome user data directory. */
+  userDataDir?: string;
+  /** Chrome profile directory name (e.g. "Profile 1"). */
+  profileDirectory?: string;
+  /** Custom User-Agent string. */
+  userAgent?: string;
   args?: string[];
 }
 
@@ -65,6 +71,9 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
     minWait,
     trackingTimeout,
     postSettle,
+    userDataDir,
+    profileDirectory,
+    userAgent,
     args = [],
   } = options;
 
@@ -99,6 +108,18 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
 
   if (postSettle !== undefined) {
     launchArgs.push(`--abp-post-settle=${postSettle}`);
+  }
+
+  if (userDataDir) {
+    launchArgs.push(`--user-data-dir=${userDataDir}`);
+  }
+
+  if (profileDirectory) {
+    launchArgs.push(`--profile-directory=${profileDirectory}`);
+  }
+
+  if (userAgent) {
+    launchArgs.push(`--user-agent=${userAgent}`);
   }
 
   // Normalize any --headless args to --headless=new (old headless is not supported)
