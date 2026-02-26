@@ -25,13 +25,24 @@ Instructions:
 export { SYSTEM_PROMPT };
 
 /**
+ * Callback invoked with each assistant thought before tool calls execute.
+ * Used to wire thoughts into the proxy's trajectory recording.
+ */
+export type ThoughtCallback = (thought: string) => void;
+
+/**
  * Run the agent on a single task. Returns the agent's messages
  * so we can extract thoughts and final response.
+ *
+ * @param onThought - Called with each assistant text block. The proxy uses
+ *   this to set `currentThought` so trajectory entries capture the reasoning
+ *   that preceded each action.
  */
 export async function runAgent(
   task: Mind2WebTask,
   mcpServer: McpSdkServerConfigWithInstance,
   config: BenchmarkConfig,
+  onThought?: ThoughtCallback,
 ): Promise<{ thoughts: string[]; finalResponse: string }> {
   const thoughts: string[] = [];
   let finalResponse = "";
@@ -53,7 +64,11 @@ export async function runAgent(
       tools: [],
     },
   })) {
-    // Capture assistant text blocks (reasoning/thoughts)
+    // Capture assistant text blocks (reasoning/thoughts).
+    // Each assistant message contains text blocks (reasoning) followed by
+    // tool_use blocks (actions). The text is the thought that precedes the
+    // actions, so we write it to the proxy state via onThought before the
+    // tool calls execute.
     if (message.type === "assistant") {
       const assistantMsg = message as SDKAssistantMessage;
       const content = assistantMsg.message?.content;
@@ -67,6 +82,7 @@ export async function runAgent(
             .join("\n");
           lastAssistantText = text;
           thoughts.push(text);
+          onThought?.(text);
         }
       }
     }

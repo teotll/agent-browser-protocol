@@ -57,15 +57,12 @@ export async function runTask(
     // 5. Create proxy MCP server with trajectory recorder
     const { server, state } = await createProxyMcpServer(abp, trajectoryDir);
 
-    // 6. Run the agent
-    const { thoughts, finalResponse } = await runAgent(task, server, config);
-
-    // Assign thoughts to trajectory entries where possible
-    for (let i = 0; i < state.entries.length; i++) {
-      if (i < thoughts.length && !state.entries[i].thought) {
-        state.entries[i].thought = thoughts[i];
-      }
-    }
+    // 6. Run the agent.
+    // Wire thoughts into proxy state so trajectory entries capture the
+    // reasoning that preceded each action.
+    const { finalResponse } = await runAgent(task, server, config, (thought) => {
+      state.currentThought = thought;
+    });
 
     // 7. Build trajectory and convert to mind2web format
     const trajectory: TaskTrajectory = {
@@ -83,8 +80,21 @@ export async function runTask(
       durationMs: Date.now() - startTime,
     };
   } catch (err: unknown) {
-    // Even on failure, try to save partial results
     const errorMsg = err instanceof Error ? err.message : String(err);
+
+    // Try to save partial trajectory data even on failure
+    try {
+      // Access state from the outer scope if proxy was created
+      // (it may not exist if the error happened before proxy creation)
+      const partialTrajectory: TaskTrajectory = {
+        task,
+        entries: [], // Will be empty if proxy wasn't created
+        final_response: "",
+        error: errorMsg,
+      };
+      await convertAndSave(partialTrajectory, config.outputDir);
+    } catch { /* ignore save failures */ }
+
     return {
       task_id: task.task_id,
       success: false,

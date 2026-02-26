@@ -34,7 +34,7 @@ async function saveTrajectoryScreenshot(
   state: ProxyState,
   step: number,
 ): Promise<string> {
-  const filename = `step_${String(step).padStart(3, "0")}.png`;
+  const filename = `${step}_full_screenshot.png`;
   const filepath = join(state.trajectoryDir, filename);
   try {
     const pngBuf = await abp.takeScreenshotPng(tabId);

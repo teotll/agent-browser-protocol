@@ -19,7 +19,7 @@ export async function convertAndSave(
     task: trajectory.task.confirmed_task,
     final_result_response: trajectory.final_response || "",
     action_history: trajectory.entries.map((e) => e.action_description),
-    thoughts: trajectory.entries.map((e) => e.thought).filter(Boolean),
+    thoughts: trajectory.entries.map((e) => e.thought || ""),
   };
 
   const resultPath = join(taskDir, "result.json");
