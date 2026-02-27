@@ -97,6 +97,9 @@ class AbpMcpHandler {
   void CallBrowserSlider(const base::Value::Dict& args,
                          base::Value request_id,
                          ResponseWithHeadersCallback callback);
+  void CallBrowserClearText(const base::Value::Dict& args,
+                            base::Value request_id,
+                            ResponseWithHeadersCallback callback);
   void CallRespondToPermission(const base::Value::Dict& args,
                                base::Value request_id,
                                ResponseWithHeadersCallback callback);

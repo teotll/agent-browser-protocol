@@ -480,6 +480,9 @@ class AbpController {
   void Slider(const std::string& tab_id,
               const base::Value::Dict& params,
               ResponseCallback callback);
+  void ClearText(const std::string& tab_id,
+                 const base::Value::Dict& params,
+                 ResponseCallback callback);
   void KeyPress(const std::string& tab_id,
                 const base::Value::Dict& params,
                 ResponseCallback callback);

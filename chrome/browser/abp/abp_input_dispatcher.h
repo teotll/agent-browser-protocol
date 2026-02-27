@@ -92,6 +92,11 @@ class AbpInputDispatcher {
               const base::Value::Dict& params,
               ResponseCallback callback);
 
+  // Clear text: click to focus, SelectAll, then single Backspace
+  void ClearText(const std::string& tab_id,
+                 const base::Value::Dict& params,
+                 ResponseCallback callback);
+
   // ========================================================================
   // Raw dispatch methods — dispatch input without creating an AbpActionContext.
   // Used by batch execution where a single action context wraps multiple
@@ -177,6 +182,9 @@ class AbpInputDispatcher {
                         int web_mods,
                         std::vector<std::string> modifiers,
                         RawCallback callback);
+
+  // Send Backspace keyUp after dwell, then complete action
+  void ClearTextBackspaceUp(scoped_refptr<AbpActionContext> ctx);
 
   // Dispatch the next step in a drag sequence (recursive via PostDelayedTask)
   void DragNextStep(scoped_refptr<AbpActionContext> ctx,

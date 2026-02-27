@@ -1101,6 +1101,167 @@ void AbpInputDispatcher::Slider(const std::string& tab_id,
   Drag(tab_id, drag_params, std::move(callback));
 }
 
+void AbpInputDispatcher::ClearText(const std::string& tab_id,
+                                   const base::Value::Dict& params,
+                                   ResponseCallback callback) {
+  auto x_opt = params.FindDouble("x");
+  auto y_opt = params.FindDouble("y");
+  if (!x_opt || !y_opt) {
+    controller_->SendError(400, "Missing required 'x' or 'y' parameter",
+                           std::move(callback));
+    return;
+  }
+
+  double click_x = *x_opt;
+  double click_y = *y_opt;
+
+  AbpActionContext::RunWithOptions(
+      controller_, tab_id, "clear_text", params,
+      controller_->GetDefaultActionOptions(),
+      base::BindOnce(
+          [](double x, double y, AbpInputDispatcher* dispatcher,
+             AbpActionContext* ctx) {
+            // Update virtual cursor to click position
+            ctx->controller()->UpdateVirtualCursorState(ctx->tab_id(), x, y);
+            content::WebContents* wc = ctx->web_contents();
+            if (wc) {
+              ctx->controller()->SetVirtualCursorEnabledViaMojo(wc, true);
+              ctx->controller()->SetVirtualCursorViaMojo(wc, x, y, true);
+            }
+
+            scoped_refptr<AbpActionContext> ctx_ref(ctx);
+            ctx->controller()->InsertVisualStateFence(
+                ctx->tab_id(),
+                base::BindOnce(
+                    [](double x, double y, AbpInputDispatcher* disp,
+                       scoped_refptr<AbpActionContext> action_ctx,
+                       bool fence_ready) {
+                      if (!fence_ready) {
+                        action_ctx->OnActionError(
+                            "VISUAL_STATE_ERROR",
+                            "Failed to establish visual-state fence");
+                        return;
+                      }
+
+                      AbpCdpClient* cdp_client = action_ctx->client();
+                      if (!cdp_client) {
+                        action_ctx->OnActionError("CDP_ERROR",
+                                                  "CDP client lost");
+                        return;
+                      }
+
+                      // Click to focus: mousePressed
+                      base::Value::Dict press_params;
+                      press_params.Set("type", "mousePressed");
+                      press_params.Set("x", x);
+                      press_params.Set("y", y);
+                      press_params.Set("button", "left");
+                      press_params.Set("clickCount", 1);
+
+                      cdp_client->SendCommand(
+                          "Input.dispatchMouseEvent", std::move(press_params),
+                          base::BindOnce(
+                              [](double x, double y,
+                                 AbpInputDispatcher* disp,
+                                 scoped_refptr<AbpActionContext> action_ctx,
+                                 bool success, const std::string& result) {
+                                if (!success) {
+                                  action_ctx->OnActionError("CDP_ERROR",
+                                                            result);
+                                  return;
+                                }
+
+                                AbpCdpClient* cdp_client =
+                                    action_ctx->client();
+                                if (!cdp_client) {
+                                  action_ctx->OnActionError("CDP_ERROR",
+                                                            "CDP client lost");
+                                  return;
+                                }
+
+                                // Click to focus: mouseReleased
+                                base::Value::Dict release_params;
+                                release_params.Set("type", "mouseReleased");
+                                release_params.Set("x", x);
+                                release_params.Set("y", y);
+                                release_params.Set("button", "left");
+                                release_params.Set("clickCount", 1);
+
+                                cdp_client->SendCommand(
+                                    "Input.dispatchMouseEvent",
+                                    std::move(release_params),
+                                    base::BindOnce(
+                                        [](AbpInputDispatcher* disp,
+                                           scoped_refptr<AbpActionContext>
+                                               action_ctx,
+                                           bool success,
+                                           const std::string& result) {
+                                          if (!success) {
+                                            action_ctx->OnActionError(
+                                                "CDP_ERROR", result);
+                                            return;
+                                          }
+
+                                          // Click done — SelectAll + Backspace
+                                          content::WebContents* wc =
+                                              action_ctx->web_contents();
+                                          if (!wc) {
+                                            action_ctx->OnActionError(
+                                                "TAB_ERROR",
+                                                "WebContents lost");
+                                            return;
+                                          }
+
+                                          // Select all text in focused element
+                                          wc->SelectAll();
+
+                                          // Send Backspace keyDown to delete
+                                          // the selection
+                                          KeyInfo bs = GetKeyInfo("Backspace");
+                                          disp->ForwardKeyEvent(
+                                              wc,
+                                              blink::WebInputEvent::Type::
+                                                  kKeyDown,
+                                              bs, 0);
+
+                                          // Schedule keyUp after dwell
+                                          content::GetUIThreadTaskRunner(
+                                              {})->PostDelayedTask(
+                                              FROM_HERE,
+                                              base::BindOnce(
+                                                  &AbpInputDispatcher::
+                                                      ClearTextBackspaceUp,
+                                                  base::Unretained(disp),
+                                                  action_ctx),
+                                              base::Milliseconds(kKeyDwellMs));
+                                        },
+                                        disp, action_ctx));
+                              },
+                              x, y, disp, action_ctx));
+                    },
+                    x, y, dispatcher, std::move(ctx_ref)));
+          },
+          click_x, click_y, this),
+      std::move(callback));
+}
+
+void AbpInputDispatcher::ClearTextBackspaceUp(
+    scoped_refptr<AbpActionContext> ctx) {
+  content::WebContents* wc = ctx->web_contents();
+  if (!wc) {
+    ctx->OnActionError("TAB_ERROR", "WebContents lost");
+    return;
+  }
+
+  KeyInfo bs = GetKeyInfo("Backspace");
+  ForwardKeyEvent(wc, blink::WebInputEvent::Type::kKeyUp, bs, 0);
+
+  base::Value::Dict res;
+  res.Set("status", "cleared");
+  ctx->SetResult(std::move(res));
+  ctx->OnActionDispatched();
+}
+
 void AbpInputDispatcher::DragNextStep(
     scoped_refptr<AbpActionContext> ctx,
     double start_x,

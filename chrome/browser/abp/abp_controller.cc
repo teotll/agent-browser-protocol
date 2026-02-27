@@ -1988,6 +1988,8 @@ void AbpController::HandleRequest(const std::string& method,
         Drag(tab_id, params, std::move(callback));
       } else if (action == "slider") {
         Slider(tab_id, params, std::move(callback));
+      } else if (action == "clear_text") {
+        ClearText(tab_id, params, std::move(callback));
       } else if (action == "activate") {
         ActivateTab(tab_id, std::move(callback));
       } else if (action == "stop") {
@@ -2832,6 +2834,12 @@ void AbpController::Slider(const std::string& tab_id,
                            const base::Value::Dict& params,
                            ResponseCallback callback) {
   input_dispatcher_->Slider(tab_id, params, std::move(callback));
+}
+
+void AbpController::ClearText(const std::string& tab_id,
+                               const base::Value::Dict& params,
+                               ResponseCallback callback) {
+  input_dispatcher_->ClearText(tab_id, params, std::move(callback));
 }
 
 void AbpController::KeyPress(const std::string& tab_id,

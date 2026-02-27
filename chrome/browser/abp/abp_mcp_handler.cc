@@ -506,7 +506,22 @@ base::Value::List GetToolDefinitions() {
               "Desired logical value to set the slider to")
           .Build());
 
-  // 16. respond_to_permission — handle permission prompts
+  // 16. browser_clear_text — clear focused input via backspace
+  tools.Append(
+      ToolBuilder("browser_clear_text")
+          .Description(
+              "Clear the text content of an input element by clicking to "
+              "focus it, selecting all text, then pressing Backspace to "
+              "delete the selection. Use this when you need to clear an "
+              "input field before typing new text.")
+          .OptionalString("tab_id", "Target tab ID")
+          .RequiredNumber("x",
+              "X coordinate of the center of the input field")
+          .RequiredNumber("y",
+              "Y coordinate of the center of the input field")
+          .Build());
+
+  // 17. respond_to_permission — handle permission prompts
   tools.Append(
       ToolBuilder("respond_to_permission")
           .Description(
@@ -576,7 +591,7 @@ When the screenshot shows incomplete content, **call `browser_screenshot`** to w
 
 Pass `markup: ["clickable", "typeable", "grid"]` to `browser_screenshot` to see labeled overlays on interactive elements. Each label shows the element's coordinates for targeting clicks and typing.
 
-## Tool Reference (16 tools)
+## Tool Reference (17 tools)
 
 All `tab_id` parameters are optional and default to the active tab.
 
@@ -584,6 +599,7 @@ All `tab_id` parameters are optional and default to the active tab.
 - `browser_action` — 1-3 actions: mouse_click (x, y), keyboard_type (text), keyboard_press (key, modifiers?), mouse_hover (x, y), mouse_drag (start_x, start_y, end_x, end_y). Keys are ALL-CAPS (ENTER, TAB, ESCAPE, CONTROL, META, etc.). Abbreviations accepted: CTRL, CMD, ESC, DEL.
 - `browser_scroll` — x, y (where wheel fires), delta_x?, delta_y? (positive=down/right)
 - `browser_slider` — orientation (horizontal/vertical), track bounds, current position, min, max, target_value. Calculates and executes drag automatically. Fallback chain if result is wrong: (1) `browser_action` with `mouse_drag`, (2) click the slider then use ARROWRIGHT/ARROWLEFT (or ARROWUP/ARROWDOWN) to nudge incrementally.
+- `browser_clear_text` — x, y (center of input). Clicks to focus, selects all text, then presses Backspace to delete.
 
 **Navigation:**
 - `browser_navigate` — url? OR action? (back, forward, reload)
@@ -846,6 +862,8 @@ void AbpMcpHandler::HandleToolsCall(const base::Value::Dict& params,
     CallBrowserShutdown(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_slider") {
     CallBrowserSlider(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_clear_text") {
+    CallBrowserClearText(*args, std::move(request_id), std::move(callback));
   } else if (*name == "respond_to_permission") {
     CallRespondToPermission(*args, std::move(request_id), std::move(callback));
   } else {
@@ -1490,6 +1508,32 @@ void AbpMcpHandler::CallBrowserSlider(const base::Value::Dict& args,
 
   controller_->HandleRequest(
       "POST", "/api/v1/tabs/" + tab_id + "/slider", body,
+      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                     weak_factory_.GetWeakPtr(), std::move(request_id),
+                     std::move(callback)));
+}
+
+// --- 16. browser_clear_text: clear input via backspace ---
+void AbpMcpHandler::CallBrowserClearText(
+    const base::Value::Dict& args,
+    base::Value request_id,
+    ResponseWithHeadersCallback callback) {
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
+                     std::move(callback));
+    return;
+  }
+
+  base::Value::Dict body_dict = args.Clone();
+  body_dict.Remove("tab_id");
+
+  std::string body;
+  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
+
+  controller_->HandleRequest(
+      "POST", "/api/v1/tabs/" + tab_id + "/clear_text", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
