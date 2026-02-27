@@ -197,14 +197,16 @@ std::unique_ptr<Network::CookiePartitionKey> BuildCookiePartitionKey(
 
 std::unique_ptr<Network::Cookie> BuildCookie(
     const net::CanonicalCookie& cookie) {
-  DCHECK(cookie.ExpiryDate().is_null() || !cookie.ExpiryDate().is_inf());
+  // Note: cookies with infinite expiry (Time::Max) can arrive from real
+  // websites via the network service. Handle gracefully instead of crashing.
   std::unique_ptr<Network::Cookie> devtools_cookie =
       Network::Cookie::Create()
           .SetName(cookie.Name())
           .SetValue(cookie.Value())
           .SetDomain(cookie.Domain())
           .SetPath(cookie.Path())
-          .SetExpires(cookie.ExpiryDate().is_null()
+          .SetExpires(cookie.ExpiryDate().is_null() ||
+                              cookie.ExpiryDate().is_inf()
                           ? -1
                           : cookie.ExpiryDate().InSecondsFSinceUnixEpoch())
           .SetSize(cookie.Name().length() + cookie.Value().length())
@@ -228,10 +230,11 @@ std::unique_ptr<Network::Cookie> BuildCookie(
                      std::string>
           key_serialized_result =
               net::CookiePartitionKey::Serialize(partition_key);
-      CHECK(key_serialized_result.has_value());
-      devtools_cookie->SetPartitionKey(BuildCookiePartitionKey(
-          key_serialized_result->TopLevelSite(),
-          key_serialized_result->has_cross_site_ancestor()));
+      if (key_serialized_result.has_value()) {
+        devtools_cookie->SetPartitionKey(BuildCookiePartitionKey(
+            key_serialized_result->TopLevelSite(),
+            key_serialized_result->has_cross_site_ancestor()));
+      }
     } else {
       devtools_cookie->SetPartitionKeyOpaque(partition_key->site().opaque());
       // IsSerializeable may return false when the partition key's site is not

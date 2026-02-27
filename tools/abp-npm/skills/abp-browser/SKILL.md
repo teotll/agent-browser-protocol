@@ -41,14 +41,14 @@ When the screenshot shows incomplete content, **call `browser_screenshot`** to w
 
 Pass `markup: ["clickable", "typeable", "grid"]` to `browser_screenshot` to see labeled overlays on interactive elements. Each label shows the element's coordinates for targeting clicks and typing.
 
-## Tool Reference (15 tools)
+## Tool Reference (16 tools)
 
 All `tab_id` parameters are optional and default to the active tab.
 
 **Input:**
 - `browser_action` — 1-3 actions: mouse_click (x, y), keyboard_type (text), keyboard_press (key, modifiers?), mouse_hover (x, y), mouse_drag (start_x, start_y, end_x, end_y). Keys are ALL-CAPS (ENTER, TAB, ESCAPE, CONTROL, META, etc.). Abbreviations accepted: CTRL, CMD, ESC, DEL.
 - `browser_scroll` — x, y (where wheel fires), delta_x?, delta_y? (positive=down/right)
-- `browser_slider` — orientation (horizontal/vertical), track bounds, current position, min, max, target_value. Calculates and executes drag automatically.
+- `browser_slider` — orientation (horizontal/vertical), track bounds, current position, min, max, target_value. Calculates and executes drag automatically. Fallback chain if result is wrong: (1) `browser_action` with `mouse_drag`, (2) click the slider then use ARROWRIGHT/ARROWLEFT (or ARROWUP/ARROWDOWN) to nudge incrementally.
 
 **Navigation:**
 - `browser_navigate` — url? OR action? (back, forward, reload)
@@ -64,6 +64,7 @@ All `tab_id` parameters are optional and default to the active tab.
 - `browser_downloads` — action? (list, status, cancel, content; default: list), download_id?, state?, limit?, max_size?. Use action:"content" with download_id to retrieve file bytes as base64 BlobResourceContents.
 - `browser_files` — chooser_id (required), files?, content_files?, path?, cancel?, max_size?. Use content_files for base64 uploads: [{filename, data, mime_type}].
 - `browser_select_picker` — popup_id (required), indices? (array of ints), cancel?. Respond to a pending <select> popup.
+- `respond_to_permission` — permission_id (required), permission_type (required), allow (required), latitude?, longitude?, accuracy?. Respond to a permission prompt. When granting geolocation, provide latitude and longitude for mock coordinates.
 
 **Browser:**
 - `browser_get_status` — no params
@@ -88,6 +89,11 @@ SELECT * FROM events WHERE action_id = <id>;
 -- Screenshot paths
 SELECT screenshot_before_path, screenshot_after_path FROM actions WHERE id = <id>;
 ```
+
+## Best Practices
+
+- **Use filters and sorting aggressively.** When a page offers filters (price range, category, date, ratings, size, color, etc.), sorting options, or faceted search — always apply them to narrow results before scrolling through content. This reduces the number of pages you need to process and gets to relevant results faster.
+- **Prefer search over browsing.** If you know what you're looking for, use the site's search bar rather than clicking through menus.
 
 ## Tips
 

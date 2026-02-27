@@ -275,9 +275,8 @@ CookiePartitionKey::DeserializeInternal(
 }
 
 bool CookiePartitionKey::IsSerializeable() const {
-  // We should not try to serialize a partition key created by a renderer.
-  DCHECK(!from_script_);
-  return !site_.opaque() && !nonce_.has_value();
+  // Partition keys created by a renderer (from_script_) are not serializable.
+  return !from_script_ && !site_.opaque() && !nonce_.has_value();
 }
 
 std::ostream& operator<<(std::ostream& os, const CookiePartitionKey& cpk) {
