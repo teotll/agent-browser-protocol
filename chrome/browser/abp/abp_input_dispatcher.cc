@@ -879,9 +879,9 @@ void AbpInputDispatcher::Drag(const std::string& tab_id,
   double start_y = *sy;
   double end_x = *ex;
   double end_y = *ey;
-  int steps = params.FindInt("steps").value_or(10);
+  int steps = params.FindInt("steps").value_or(50);
   if (steps < 1) steps = 1;
-  if (steps > 100) steps = 100;
+  if (steps > 200) steps = 200;
 
   AbpActionContext::RunWithOptions(
       controller_, tab_id, "drag", params, controller_->GetDefaultActionOptions(),
@@ -1095,7 +1095,7 @@ void AbpInputDispatcher::Slider(const std::string& tab_id,
   drag_params.Set("start_y", start_y);
   drag_params.Set("end_x", end_x);
   drag_params.Set("end_y", end_y);
-  drag_params.Set("steps", 10);
+  drag_params.Set("steps", 50);
 
   // Use Drag() which handles AbpActionContext lifecycle
   Drag(tab_id, drag_params, std::move(callback));
@@ -1146,13 +1146,13 @@ void AbpInputDispatcher::DragNextStep(
                 return;
               }
 
-              // Schedule next step with 5ms delay
+              // Schedule next step with 10ms delay
               content::GetUIThreadTaskRunner({})->PostDelayedTask(
                   FROM_HERE,
                   base::BindOnce(&AbpInputDispatcher::DragNextStep,
                                  base::Unretained(dispatcher), ctx, s_x, s_y,
                                  e_x, e_y, step + 1, total),
-                  base::Milliseconds(5));
+                  base::Milliseconds(10));
             },
             ctx, start_x, start_y, end_x, end_y, current_step, total_steps,
             this));
@@ -1603,9 +1603,9 @@ void AbpInputDispatcher::DragRaw(const std::string& tab_id,
   double start_y = params.FindDouble("start_y").value_or(0);
   double end_x = params.FindDouble("end_x").value_or(0);
   double end_y = params.FindDouble("end_y").value_or(0);
-  int steps = params.FindInt("steps").value_or(10);
+  int steps = params.FindInt("steps").value_or(50);
   if (steps < 1) steps = 1;
-  if (steps > 100) steps = 100;
+  if (steps > 200) steps = 200;
 
   // Update virtual cursor to start position
   controller_->UpdateVirtualCursorState(tab_id, start_x, start_y);
@@ -1740,7 +1740,7 @@ void AbpInputDispatcher::DragNextStepRaw(
                                  std::move(tab_id),
                                  s_x, s_y, e_x, e_y,
                                  step + 1, total, std::move(callback)),
-                  base::Milliseconds(5));
+                  base::Milliseconds(10));
             },
             tab_id, start_x, start_y, end_x, end_y,
             current_step, total_steps, this, std::move(callback)));
