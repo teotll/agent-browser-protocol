@@ -1,84 +1,62 @@
-# Agent Browser Protocol
 
 <p align="center">
-  <img width="384" height="256" alt="ChatGPT Image Jan 25, 2026, 03_59_19 PM" src="https://github.com/user-attachments/assets/6cf0b584-b708-4c75-a146-dd49750e92f0" />
+  <img width="256" height="256" alt="Gemini_Generated_Image_gc6jkxgc6jkxgc6j" src="https://github.com/user-attachments/assets/56c118ca-df5a-4ab6-9c8d-c45adfeb52af" />
 </p>
+<h1 align="center">Agent Browser Protocol</h1>
 
-**Browsers are async. Agents are synchronous. ABP turns continuous browsing into discrete, atomic steps—so LLMs can reason about the web without racing against it.**
+**Browsers are async. Agents are synchronous. ABP turns continuous browsing into discrete, atomic steps so LLMs can reason about the web without racing against it.**
 
-A Chromium fork with a MCP + REST API built directly into the browser engine. One request = one completed step (settled state + screenshot + event log).
+ABP is a Chromium build with **MCP + REST** baked directly into the browser engine.
 
-```
-    AI Agent                                 ABP Chromium
-        │                                         │
-        │  POST /click (x=450, y=320)             │
-        │────────────────────────────────────────>│
-        │                                         │  Inject real input event
-        │                                         │  Wait for page to settle
-        │                                         │  Capture compositor screenshot
-        │                                         │  Collect events (e.g. tab_created)
-        │                                         │  ┌─────────────────────────────┐
-        │                                         │  │ PAUSE JavaScript + virtual  │
-        │                                         │  │ time                        │
-        │                                         │  └─────────────────────────────┘
-        │  200 OK: screenshot + events            │
-        │<────────────────────────────────────────│
-        │                                         │
-        ·  (agent inspects screenshot, decides)   ·
-        │                                         │
-        │  POST /type (text="Show HN")            │
-        │────────────────────────────────────────>│
-        │                                         │  ┌─────────────────────────────┐
-        │                                         │  │ UNPAUSE JavaScript + virtual│
-        │                                         │  │ time                        │
-        │                                         │  └─────────────────────────────┘
-        │                                         │  Inject real keyboard events
-        │                                         │  Wait for page to settle
-        │                                         │  Capture compositor screenshot
-        │                                         │  Collect events
-        │                                         │  ┌─────────────────────────────┐
-        │                                         │  │ PAUSE JavaScript + virtual  │
-        │                                         │  │ time                        │
-        │                                         │  └─────────────────────────────┘
-        │  200 OK: screenshot + events            │
-        │<────────────────────────────────────────│
-        │                                         │
-```
+- **One request = one completed step**: settled state + screenshot + event log
+- **No WebSocket. No CDP session management.** Just HTTP.
+- **~100ms overhead per action** (including screenshots). The bottleneck is the LLM, not the browser.
 
-No WebSocket. No CDP session management. No Puppeteer abstraction layers.
-Just `curl http://localhost:8222/api/v1/tabs` and you're in.
+> **Try it in 60 seconds (Claude Code)**
+>
+> ```bash
+> # 1) Add ABP as an MCP server to Claude Code
+> claude mcp add browser -- npx -y agent-browser-protocol --mcp
+>
+> # 2) Sanity check the server is up (optional)
+> curl -s http://localhost:8222/api/v1/tabs
+> ```
+>
+> Wait for the browser to launch and ask Claude:
+>
+> - “Find me kung pao chicken near 415 Mission St, San Francisco on Doordash.”
+>
+> **What you should notice:** every tool call returns a settled page state (screenshot + events), and the page freezes between steps so Claude never races the browser.
 
-Less than 100ms overhead per action—including screenshots. The bottleneck is the LLM, not the browser.
+![ABP - New Tab - 25 February 2026 (1)](https://github.com/user-attachments/assets/6256ecd8-f9c4-482e-b2e0-533e4e43cd40)
 
 ---
 
-## ABP in Action
+## What you get per action
 
-https://github.com/user-attachments/assets/739d13ac-193a-4910-b347-7493f6da15a4
-
-Notice the freezing of the spinners while the LLM is thinking. JavaScript and virtual time are paused between actions—the page waits for the agent, not the other way around.
-
----
-
-## Why Fork Chromium?
-
-Web browsing is inherently asynchronous—events fire unpredictably, pages settle on their own timeline, state changes continuously. LLMs reason synchronously—one observation, one decision, one action. This mismatch is fundamental: existing tools force agents to race against a live browser, guessing when actions complete and papering over timing with retries.
-
-Extensions can't fix this (sandboxed). CDP can't fix this (designed for DevTools, not autonomous control). Playwright and Puppeteer inherit the same model. We needed to go deeper.
-
-**ABP reformats browsing into a step machine**: a request/response contract where the agent only ever acts on a stable, frozen world state.
-
-| What agents need | What existing tools provide |
-|------------------|----------------------------|
-| Pause JavaScript between actions | Debugging pause only |
-| Pause time between actions | Real-time only |
-| Compositor-layer cursor rendering | No cursor visibility |
-| Simple REST API | WebSocket + session management |
-| Engine-level event injection | DOM simulation or CDP passthrough |
-| Action-complete detection | Manual waits or flaky heuristics |
-| Event list between actions (new tab, dialog, file picker, etc.) | Polling, or async event subscriptions |
-
-**Each API call is one atomic step.** ABP injects real input through Chromium's input system, waits for an engine-defined "settled" boundary, captures compositor output (with cursor), and returns the events that occurred. JavaScript and virtual time freeze between steps. The agent never races against the browser—it observes, decides, acts, and repeats on a world that waits for it.
+```
+AI Agent                                 ABP Chromium
+    │                                         │
+    │  POST /click (x=450, y=320)             │
+    │────────────────────────────────────────>│
+    │                                         │  Inject real input event
+    │                                         │  Wait for page to settle
+    │                                         │  Capture compositor screenshot
+    │                                         │  Collect events (tab_created, dialog, file_chooser…)
+    │                                         │  Pause JavaScript + virtual time
+    │  200 OK: screenshot + events            │
+    │<────────────────────────────────────────│
+    │
+    ·  (agent inspects screenshot, decides)   ·
+    │
+    │  POST /type (text="Show HN")            │
+    │────────────────────────────────────────>│
+    │                                         │  Unpause JS + time
+    │                                         │  Inject real keyboard events
+    │                                         │  Wait for settle → screenshot → events → pause
+    │  200 OK: screenshot + events            │
+    │<────────────────────────────────────────│
+```
 
 ---
 
@@ -92,12 +70,29 @@ claude mcp add browser -- npx -y agent-browser-protocol --mcp
 
 Then ask Claude: *"Go to news.ycombinator.com and find the top post about AI."*
 
-The `--mcp` flag runs ABP as a stdio MCP proxy — it launches the browser on first tool call and forwards JSON-RPC to the embedded MCP server.
-
 ### Codex CLI
 
 ```bash
 codex mcp add browser -- npx -y agent-browser-protocol --mcp
+```
+
+### Opencode
+
+Configure a model with vision and add the MCP server.
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "browser": {
+      "type": "local",
+      "command": ["npx", "-y", "agent-browser-protocol", "--mcp"],
+      "enabled": true,
+      "environment": {
+      }
+    }
+  }
+}
 ```
 
 ### Any MCP Client (HTTP)
@@ -123,15 +118,90 @@ For example, in Claude Desktop (`claude_desktop_config.json`):
 }
 ```
 
+### REST (no MCP)
+
+Launch ABP:
+
+```bash
+npx -y agent-browser-protocol
+```
+
+Then drive it with curl:
+
+```bash
+# List tabs
+curl -s http://localhost:8222/api/v1/tabs
+
+# Navigate (returns screenshot + events)
+# Make sure you replace <TAB_ID> with an actual tab_id from above
+curl -s -X POST http://localhost:8222/api/v1/tabs/<TAB_ID>/navigate \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com","screenshot":{"format":"webp"}}'
+```
+
+See [docs/REST-API.md](docs/REST-API.md) for curl examples and the full API reference.
+
 > **npm package details?** See [theredsix/abp-npm](https://github.com/theredsix/abp-npm) for the TypeScript SDK, plugin config, and debug server.
->
-> **Prefer REST?** See [docs/REST-API.md](docs/REST-API.md) for curl examples and the full API reference.
 >
 > **Manual binary download?** See [MANUAL_INSTALL.md](MANUAL_INSTALL.md) for direct download and launch instructions.
 >
 > **Building from source?** See [COMPILE.md](COMPILE.md) for macOS, Linux, and Windows.
 
 ---
+
+## ABP in Action
+
+Short demo: Use google maps and find a route from Seattle to LA by train.
+
+https://github.com/user-attachments/assets/739d13ac-193a-4910-b347-7493f6da15a4
+
+Notice the freezing of the spinners while the LLM is thinking. ABP pauses JavaScript and virtual time between actions so the page waits for the agent.
+
+---
+
+## Why ABP (and why a Chromium build)
+
+The core problem is a mismatch:
+* Web browsing is continuous and asynchronous
+* LLM agents reason step-by-step
+
+Most automation stacks force agents to race against a live browser, then patch over the mismatch with waits and retries.
+
+ABP makes browsing a step machine. Each request injects native input, waits for an engine-defined “settled” boundary, captures compositor output (with cursor), returns an event log, then freezes JavaScript + virtual time until the next step.
+
+**ABP reformats browsing into a step machine**: a request/response contract where the agent only ever acts on a stable, frozen world state.
+
+| What agents need | What existing tools provide |
+|------------------|----------------------------|
+| Deterministic step boundary (“settled”) | Manual waits, heuristics |
+| Pause time between actions | Real-time only |
+| Screenshot on every step (with cursor) | Extra calls, no cursor |
+| Simple REST API | WebSocket + session management |
+| Engine-level event injection | DOM simulation or CDP passthrough |
+| Dialog/file chooser/download surfaced as events | Polling or async subscriptions |
+
+**Each API call is one atomic step.** ABP injects real input through Chromium's input system, waits for an engine-defined "settled" boundary, captures compositor output (with cursor), and returns the events that occurred. JavaScript and virtual time freeze between steps. The agent never races against the browser—it observes, decides, acts, and repeats on a world that waits for it.
+
+---
+
+Docs
+
+* TypeScript SDK + npm details: [README](tools/abp-npm/README.md)
+* REST API reference + curl examples: [REST-API.md](docs/REST-API.md)
+* Manual binary download + launch: [MANUAL_INSTALL.md](MANUAL_INSTALL.md)
+* Building from source: [COMPILE.md](COMPILE.md)
+* Training / SQLite session schema: [TRAINING.md](TRAINING.md)
+
+---
+
+Security notes
+
+* ABP is intended to run locally on your machine.
+* The API is served on localhost by default (--abp-port=8222).
+* ABP blocks real system input by default; use --allow-system-inputs to override.
+
+---
+
 
 ## What Makes ABP Different
 
@@ -351,8 +421,10 @@ ABP is under active development. Current implementation:
 - Virtual cursor rendering (compositor layer)
 - Browser management (status, shutdown)
 - MCP server with 14 tools at `/mcp`
-
+- Location permissions + geo-spoofing
+ 
 **Not yet implemented:**
+- Online mind2web benchmarks
 - Action success/failure tracking
 - Revert URL to last known success state
 - Revert browser to last known success state
