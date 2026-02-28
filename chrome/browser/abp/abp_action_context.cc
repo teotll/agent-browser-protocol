@@ -122,6 +122,7 @@ void AbpActionContext::RunWithOptions(AbpController* controller,
   auto ctx = base::MakeRefCounted<AbpActionContext>(
       controller, tab_id, action_type, params, options, std::move(action),
       std::move(response));
+  ctx->profile_queued_at_ = base::TimeTicks::Now();
 
   bool accepted = controller->RunOrQueueDeterministicAction(
       tab_id,
@@ -166,6 +167,7 @@ void AbpActionContext::RejectBeforeStart(int status,
 void AbpActionContext::StartOnDeterministicSlot(uint64_t action_epoch) {
   action_epoch_ = action_epoch;
   deterministic_slot_active_ = true;
+  profile_slot_acquired_ = base::TimeTicks::Now();
   Start();
 }
 
@@ -254,6 +256,28 @@ void AbpActionContext::Start() {
   if (!client_) {
     Fail(500, "CDP_ERROR", "Failed to create CDP client");
     return;
+  }
+
+  // Record whether the page's main document was already loaded before resume.
+  // This prevents waiting for load/dcl/paint lifecycle events that either
+  // already fired or will never fire (because they are one-shot per navigation
+  // and fired before this waiter's observer was created).
+  //
+  // Three checks, any one sufficient:
+  // 1. IsDocumentOnLoadCompleted — main document fully loaded
+  // 2. !IsLoading — no pending loads at all
+  // 3. Execution control is paused — the page was frozen by a prior action,
+  //    meaning DCL/paint already fired (we only freeze after JS has executed).
+  //    Even if load hasn't completed (e.g. ad scripts still pending), the
+  //    main document is rendered and interactive.
+  {
+    auto tab_it = controller_->tab_states_.find(tab_id_);
+    bool exec_paused = tab_it != controller_->tab_states_.end() &&
+                       tab_it->second.execution.IsPaused();
+    page_was_loaded_before_action_ =
+        web_contents_->IsDocumentOnLoadCompletedInPrimaryMainFrame() ||
+        !web_contents_->IsLoading() ||
+        exec_paused;
   }
 
   // Start event capture
@@ -487,7 +511,8 @@ void AbpActionContext::DoWaitUntil() {
                      weak_factory_.GetWeakPtr()),
       options_.min_wait_time,
       options_.request_tracking_timeout,
-      options_.post_tracking_settle_time);
+      options_.post_tracking_settle_time,
+      page_was_loaded_before_action_);
 }
 
 void AbpActionContext::OnWaitUntilComplete() {
@@ -660,8 +685,10 @@ void AbpActionContext::LogProfilingSummary() {
     return (end - start).InMilliseconds();
   };
   auto total = ms(start_ticks_, base::TimeTicks::Now());
-  LOG(INFO) << "ABP PROFILE [" << action_type_ << "] tab=" << tab_id_
+  auto queue_wait = ms(profile_queued_at_, profile_slot_acquired_);
+  VLOG(1) << "ABP PROFILE [" << action_type_ << "] tab=" << tab_id_
             << " total=" << total << "ms"
+            << " | queue_wait=" << queue_wait << "ms"
             << " | before_ss=" << ms(profile_before_ss_start_, profile_before_ss_end_) << "ms"
             << " | resume=" << ms(profile_resume_start_, profile_resume_end_) << "ms"
             << " | action=" << ms(profile_action_start_, profile_action_end_) << "ms"
@@ -793,7 +820,24 @@ void AbpActionContext::SendResponse() {
     }
   }
 
-  // 8. Add virtual cursor position
+  // 8. Add profiling breakdown (ms per phase)
+  {
+    auto ms = [](base::TimeTicks start, base::TimeTicks end) -> int {
+      if (start.is_null() || end.is_null()) return -1;
+      return static_cast<int>((end - start).InMilliseconds());
+    };
+    base::Value::Dict profiling;
+    profiling.Set("queue_wait_ms", ms(profile_queued_at_, profile_slot_acquired_));
+    profiling.Set("before_screenshot_ms", ms(profile_before_ss_start_, profile_before_ss_end_));
+    profiling.Set("resume_ms", ms(profile_resume_start_, profile_resume_end_));
+    profiling.Set("action_ms", ms(profile_action_start_, profile_action_end_));
+    profiling.Set("wait_ms", ms(profile_wait_start_, profile_wait_end_));
+    profiling.Set("after_screenshot_ms", ms(profile_after_ss_start_, profile_after_ss_end_));
+    profiling.Set("total_ms", ms(profile_queued_at_, profile_after_ss_end_));
+    envelope.Set("profiling", std::move(profiling));
+  }
+
+  // 9. Add virtual cursor position
   {
     auto it = controller_->tab_states_.find(tab_id_);
     if (it != controller_->tab_states_.end()) {

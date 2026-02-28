@@ -241,6 +241,11 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   base::Value::Dict scroll_info_;
   int64_t wait_completed_ms_ = 0;
 
+  // Pre-resume loading state: true if page was NOT loading before resume.
+  // Used to skip waiting for load/dcl/first_paint events when the page was
+  // already loaded before the action was dispatched.
+  bool page_was_loaded_before_action_ = false;
+
   // Error state
   bool has_error_ = false;
   std::string error_code_;
@@ -251,6 +256,8 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   scoped_refptr<AbpActionContext> prevent_destroy_;
 
   // Profiling: stage timestamps for latency breakdown
+  base::TimeTicks profile_queued_at_;       // RunWithOptions() — HTTP request received
+  base::TimeTicks profile_slot_acquired_;   // StartOnDeterministicSlot() — slot acquired
   base::TimeTicks profile_before_ss_start_;
   base::TimeTicks profile_before_ss_end_;
   base::TimeTicks profile_resume_start_;

@@ -61,7 +61,9 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "skia/ext/image_operations.h"
+#include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "ui/snapshot/snapshot.h"
+#include "url/gurl.h"
 
 namespace abp {
 
@@ -1357,7 +1359,7 @@ void AbpController::CaptureActionScreenshot(
     js_params.Set("returnByValue", true);
     js_params.Set("disableBreaks", true);
 
-    LOG(INFO) << "ABP PROFILE [screenshot] markup inject SEND tab=" << tab_id;
+    VLOG(1) << "ABP PROFILE [screenshot] markup inject SEND tab=" << tab_id;
     auto markup_send = base::TimeTicks::Now();
     client->SendCommand(
         "Runtime.evaluate", js_params,
@@ -1367,7 +1369,7 @@ void AbpController::CaptureActionScreenshot(
                ActionScreenshotCallback cb, base::FilePath h_path,
                int w, int h, base::TimeTicks send_time,
                bool success, const std::string& result) {
-              LOG(INFO) << "ABP PROFILE [screenshot] markup inject DONE"
+              VLOG(1) << "ABP PROFILE [screenshot] markup inject DONE"
                         << " elapsed=" << (base::TimeTicks::Now() - send_time).InMilliseconds() << "ms"
                         << " tab=" << tid;
               if (!ctrl) {
@@ -1497,7 +1499,7 @@ void AbpController::CaptureActionScreenshotWithRetry(
           st, weak_factory_.GetWeakPtr()),
       base::Milliseconds(1500));
 
-  LOG(INFO) << "ABP PROFILE [screenshot] ForceRedraw SEND tab=" << tab_id;
+  VLOG(1) << "ABP PROFILE [screenshot] ForceRedraw SEND tab=" << tab_id;
   rwhi->ForceRedrawWithCallback(base::BindOnce(
       [](std::shared_ptr<ActionSnapState> s,
          base::WeakPtr<AbpController> ctrl) {
@@ -1507,7 +1509,7 @@ void AbpController::CaptureActionScreenshotWithRetry(
           s->watcher->Cancel();
           s->watcher.reset();
         }
-        LOG(INFO) << "ABP PROFILE [screenshot] ForceRedraw DONE"
+        VLOG(1) << "ABP PROFILE [screenshot] ForceRedraw DONE"
                   << " elapsed=" << (base::TimeTicks::Now() - s->force_redraw_start).InMilliseconds() << "ms"
                   << " tab=" << s->tab_id;
         if (!ctrl) {
@@ -1517,7 +1519,7 @@ void AbpController::CaptureActionScreenshotWithRetry(
         }
         // Wait 50ms for CoreAnimation to composite the frame to the
         // window server buffer before OS-level capture.
-        LOG(INFO) << "ABP PROFILE [screenshot] CoreAnimation wait 50ms tab=" << s->tab_id;
+        VLOG(1) << "ABP PROFILE [screenshot] CoreAnimation wait 50ms tab=" << s->tab_id;
         base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
             FROM_HERE,
             base::BindOnce(
@@ -1602,7 +1604,7 @@ void AbpController::GrabViewSnapshotWithFreshnessCheck(
               std::move(s->cb).Run(ActionScreenshotResult());
               return;
             }
-            LOG(INFO) << "ABP PROFILE [screenshot] GrabViewSnapshot success"
+            VLOG(1) << "ABP PROFILE [screenshot] GrabViewSnapshot success"
                       << " total_from_forceredraw=" << (base::TimeTicks::Now() - s->force_redraw_start).InMilliseconds() << "ms"
                       << " retry=" << retry_count
                       << " tab=" << s->tab_id;
@@ -1732,7 +1734,7 @@ void AbpController::OnActionScreenshotCaptured(
   r.height = bitmap.height();
   r.scroll_info = std::move(scroll_info);
 
-  LOG(INFO) << "ABP PROFILE [screenshot] pipeline"
+  VLOG(1) << "ABP PROFILE [screenshot] pipeline"
             << " raw=" << raw_bitmap.width() << "x" << raw_bitmap.height()
             << " scaled=" << bitmap.width() << "x" << bitmap.height()
             << " format=" << options.format << " quality=" << options.quality
@@ -1765,7 +1767,7 @@ void AbpController::OnActionScreenshotCaptured(
                base::TimeTicks disk_start_time,
                std::string tab_id,
                std::string saved_path) {
-              LOG(INFO) << "ABP PROFILE [screenshot] disk_write"
+              VLOG(1) << "ABP PROFILE [screenshot] disk_write"
                         << " elapsed=" << (base::TimeTicks::Now() - disk_start_time).InMilliseconds() << "ms"
                         << " path=" << saved_path
                         << " tab=" << tab_id;
@@ -1845,7 +1847,7 @@ void AbpController::CaptureScreenshotFromBuffer(
 
   // Grab the current screen buffer directly — no ForceRedraw needed since
   // the compositor surface is already frozen (JS paused).
-  LOG(INFO) << "ABP PROFILE [before_ss] GrabViewSnapshot SEND tab=" << tab_id;
+  VLOG(1) << "ABP PROFILE [before_ss] GrabViewSnapshot SEND tab=" << tab_id;
   auto before_ss_send = base::TimeTicks::Now();
   ui::GrabViewSnapshot(
       native_view, bounds,
@@ -1857,7 +1859,7 @@ void AbpController::CaptureScreenshotFromBuffer(
              std::string tab_id,
              base::TimeTicks send_time,
              gfx::Image image) {
-            LOG(INFO) << "ABP PROFILE [before_ss] GrabViewSnapshot DONE"
+            VLOG(1) << "ABP PROFILE [before_ss] GrabViewSnapshot DONE"
                       << " elapsed=" << (base::TimeTicks::Now() - send_time).InMilliseconds() << "ms"
                       << " empty=" << image.IsEmpty()
                       << " tab=" << tab_id;
@@ -2428,9 +2430,9 @@ void AbpController::Navigate(const std::string& tab_id,
   std::string url_copy = gurl.spec();
 
   // Center cursor after navigation so it's in the viewport center.
-  // Paint-based wait handles page readiness — no need for 10s min_wait.
   auto options = GetDefaultActionOptions();
   options.center_cursor_after = true;
+
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "navigate", params, options,
@@ -2464,9 +2466,9 @@ void AbpController::Reload(const std::string& tab_id,
   base::Value::Dict params;  // Empty params for reload
 
   // Center cursor after reload so it's in the viewport center.
-  // Paint-based wait handles page readiness — no need for 10s min_wait.
   auto options = GetDefaultActionOptions();
   options.center_cursor_after = true;
+
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "reload", params, options,
@@ -2500,9 +2502,9 @@ void AbpController::GoBack(const std::string& tab_id,
   base::Value::Dict params;  // Empty params for back
 
   // Center cursor after navigation so it's in the viewport center.
-  // Paint-based wait handles page readiness — no need for 10s min_wait.
   auto options = GetDefaultActionOptions();
   options.center_cursor_after = true;
+
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "back", params, options,
@@ -2541,9 +2543,9 @@ void AbpController::GoForward(const std::string& tab_id,
   base::Value::Dict params;  // Empty params for forward
 
   // Center cursor after navigation so it's in the viewport center.
-  // Paint-based wait handles page readiness — no need for 10s min_wait.
   auto options = GetDefaultActionOptions();
   options.center_cursor_after = true;
+
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "forward", params, options,
@@ -3708,7 +3710,7 @@ void AbpController::ResumeExecution(const std::string& tab_id,
   // next ABP-initiated pause.
   base::Value::Dict resume_params;
   resume_params.Set("disableOnResume", true);
-  LOG(INFO) << "ABP PROFILE [resume] Debugger.resume(disableOnResume) SEND tab=" << tab_id;
+  VLOG(1) << "ABP PROFILE [resume] Debugger.resume(disableOnResume) SEND tab=" << tab_id;
   auto send_time = base::TimeTicks::Now();
 
   client->SendCommand(
@@ -3717,7 +3719,7 @@ void AbpController::ResumeExecution(const std::string& tab_id,
           [](base::WeakPtr<AbpController> ctrl, std::string tid,
              base::OnceClosure cb, base::TimeTicks t0,
              bool success, const std::string& result) {
-            LOG(INFO) << "ABP PROFILE [resume] Debugger.resume(disableOnResume) DONE"
+            VLOG(1) << "ABP PROFILE [resume] Debugger.resume(disableOnResume) DONE"
                       << " elapsed="
                       << (base::TimeTicks::Now() - t0).InMilliseconds()
                       << "ms tab=" << tid;
@@ -3796,7 +3798,7 @@ void AbpController::SwitchToRealtimeVirtualTime(
 
   base::Value::Dict params;
   params.Set("policy", "realtime");
-  LOG(INFO) << "ABP PROFILE [resume] setVirtualTimePolicy(realtime) SEND tab=" << tab_id;
+  VLOG(1) << "ABP PROFILE [resume] setVirtualTimePolicy(realtime) SEND tab=" << tab_id;
   auto vt_send_time = base::TimeTicks::Now();
   client->SendCommand(
       "Emulation.setVirtualTimePolicy", params,
@@ -3804,7 +3806,7 @@ void AbpController::SwitchToRealtimeVirtualTime(
           [](base::WeakPtr<AbpController> ctrl, std::string tid,
              base::OnceClosure then, base::TimeTicks send_time,
              bool success, const std::string& result) {
-            LOG(INFO) << "ABP PROFILE [resume] setVirtualTimePolicy(realtime) DONE"
+            VLOG(1) << "ABP PROFILE [resume] setVirtualTimePolicy(realtime) DONE"
                       << " elapsed=" << (base::TimeTicks::Now() - send_time).InMilliseconds() << "ms"
                       << " tab=" << tid;
             if (ctrl) {
@@ -3868,7 +3870,7 @@ void AbpController::PauseVirtualTimeAfterDebugger(
   base::Value::Dict params;
   params.Set("policy", "pause");
 
-  LOG(INFO) << "ABP PROFILE [pause] setVirtualTimePolicy(pause) SEND tab=" << tab_id;
+  VLOG(1) << "ABP PROFILE [pause] setVirtualTimePolicy(pause) SEND tab=" << tab_id;
   auto pause_vt_send = base::TimeTicks::Now();
   client->SendCommand(
       "Emulation.setVirtualTimePolicy", params,
@@ -3876,7 +3878,7 @@ void AbpController::PauseVirtualTimeAfterDebugger(
           [](base::WeakPtr<AbpController> ctrl, std::string tid,
              base::OnceClosure cb, base::TimeTicks send_time,
              bool success, const std::string& result) {
-            LOG(INFO) << "ABP PROFILE [pause] setVirtualTimePolicy(pause) DONE"
+            VLOG(1) << "ABP PROFILE [pause] setVirtualTimePolicy(pause) DONE"
                       << " elapsed=" << (base::TimeTicks::Now() - send_time).InMilliseconds() << "ms"
                       << " tab=" << tid;
             if (ctrl) {
@@ -3905,7 +3907,7 @@ void AbpController::SendDeterministicPause(const std::string& tab_id,
   // renderer has no CDP domains enabled. Debugger.enable is idempotent
   // so this is safe even if already enabled.
   base::Value::Dict enable_params;
-  LOG(INFO) << "ABP PROFILE [pause] Debugger.enable SEND tab=" << tab_id;
+  VLOG(1) << "ABP PROFILE [pause] Debugger.enable SEND tab=" << tab_id;
   auto dbg_enable_send = base::TimeTicks::Now();
   client->SendCommand(
       "Debugger.enable", enable_params,
@@ -3914,7 +3916,7 @@ void AbpController::SendDeterministicPause(const std::string& tab_id,
              base::OnceClosure cb, base::TimeTicks send_time,
              bool success, const std::string& result) {
             if (!ctrl) return;
-            LOG(INFO) << "ABP PROFILE [pause] Debugger.enable DONE"
+            VLOG(1) << "ABP PROFILE [pause] Debugger.enable DONE"
                       << " elapsed=" << (base::TimeTicks::Now() - send_time).InMilliseconds() << "ms"
                       << " tab=" << tid;
             content::WebContents* wc = ctrl->FindWebContents(tid);
@@ -3924,7 +3926,7 @@ void AbpController::SendDeterministicPause(const std::string& tab_id,
 
             // Step 2: Pause debugger (halt JS)
             base::Value::Dict params;
-            LOG(INFO) << "ABP PROFILE [pause] Debugger.pause SEND tab=" << tid;
+            VLOG(1) << "ABP PROFILE [pause] Debugger.pause SEND tab=" << tid;
             auto dbg_pause_send = base::TimeTicks::Now();
             c->SendCommand(
                 "Debugger.pause", params,
@@ -3932,7 +3934,7 @@ void AbpController::SendDeterministicPause(const std::string& tab_id,
                     [](base::WeakPtr<AbpController> ctrl2, std::string tid2,
                        base::OnceClosure cb2, base::TimeTicks send_time2,
                        bool success2, const std::string& result2) {
-                      LOG(INFO) << "ABP PROFILE [pause] Debugger.pause DONE"
+                      VLOG(1) << "ABP PROFILE [pause] Debugger.pause DONE"
                                 << " elapsed=" << (base::TimeTicks::Now() - send_time2).InMilliseconds() << "ms"
                                 << " tab=" << tid2;
                       if (ctrl2) {
@@ -4035,7 +4037,7 @@ void AbpController::OnDebuggerPausedEvent(const std::string& tab_id) {
     it->second.pause_confirmation_timer->Stop();
   }
   it->second.execution.phase = ExecutionPhase::kPaused;
-  LOG(INFO) << "ABP PROFILE [pause] Debugger.paused EVENT"
+  VLOG(1) << "ABP PROFILE [pause] Debugger.paused EVENT"
             << " wait=" << (base::TimeTicks::Now() - it->second.pause_event_wait_start).InMilliseconds() << "ms"
             << " tab=" << tab_id;
   if (lifecycle_observer_for_testing_) {
@@ -4337,7 +4339,8 @@ void AbpController::WaitForActionComplete(
     base::OnceClosure on_complete,
     base::TimeDelta min_wait_time,
     base::TimeDelta request_tracking_timeout,
-    base::TimeDelta post_tracking_settle_time) {
+    base::TimeDelta post_tracking_settle_time,
+    bool page_was_loaded_before_action) {
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
     // Tab not found, call callback immediately
@@ -4356,9 +4359,37 @@ void AbpController::WaitForActionComplete(
   waiter->request_tracking_timeout = request_tracking_timeout;
   waiter->post_tracking_settle_time = post_tracking_settle_time;
 
-  // For pages that are already loaded, set load events and paint as fired.
-  // We'll still wait for min time.
-  if (!wc->IsLoading()) {
+  // Extract page's registrable domain (eTLD+1) for same-site request filtering.
+  // Only requests to this domain or its subdomains will be tracked.
+  // Use GetVisibleURL() instead of GetLastCommittedURL() because during
+  // navigation the committed URL is still the OLD page — GetVisibleURL()
+  // reflects the target URL as soon as navigation begins.
+  {
+    GURL page_url = wc->GetVisibleURL();
+    waiter->page_registrable_domain =
+        net::registry_controlled_domains::GetDomainAndRegistry(
+            page_url,
+            net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
+  }
+
+  bool currently_loading = wc->IsLoading();
+  // Use the pre-resume snapshot: if the page was loaded before the action
+  // started (before JS was resumed), skip waiting for load events even if
+  // the page is now loading due to action-triggered resource loads (ads etc).
+  bool skip_load_events = page_was_loaded_before_action || !currently_loading;
+  VLOG(1) << "ABP PROFILE [wait] START tab=" << tab_id
+            << " page_loaded_before=" << page_was_loaded_before_action
+            << " currently_loading=" << currently_loading
+            << " skip_load_events=" << skip_load_events
+            << " min_wait=" << min_wait_time.InMilliseconds() << "ms"
+            << " tracking_timeout=" << request_tracking_timeout.InMilliseconds() << "ms"
+            << " settle=" << post_tracking_settle_time.InMilliseconds() << "ms";
+
+  // For pages that were already loaded (either before the action or right now),
+  // set load events as fired so the min_wait timer starts immediately.
+  // Action-triggered resource loads (ads, analytics, XHR) should not delay
+  // the min_wait timer — they'll be caught by the request tracking phase.
+  if (skip_load_events) {
     waiter->load_fired = true;
     waiter->dom_content_loaded_fired = true;
     waiter->first_paint_fired = true;
@@ -4371,7 +4402,9 @@ void AbpController::WaitForActionComplete(
       wc, base::BindRepeating(&AbpController::OnPageLifecycleEvent,
                                weak_factory_.GetWeakPtr(), tab_id));
 
-  GetOrCreateTabState(tab_id).action_waiter = std::move(waiter);
+  auto& tab_state = GetOrCreateTabState(tab_id);
+  waiter->waiter_epoch = ++tab_state.next_waiter_epoch;
+  tab_state.action_waiter = std::move(waiter);
 
   // Enable Network domain for request tracking (all actions)
   AbpCdpClient* client = GetOrCreateCdpClient(wc);
@@ -4386,11 +4419,13 @@ void AbpController::WaitForActionComplete(
   // the page is already loaded.
   MaybeStartMinWaitTimer(tab_id);
 
-  // Start timeout timer (absolute safety net)
+  // Start timeout timer (absolute safety net).
+  // Pass waiter_epoch so stale timeouts from prior actions are ignored.
   content::GetUIThreadTaskRunner({})->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&AbpController::OnWaitTimeout,
-                     weak_factory_.GetWeakPtr(), tab_id),
+                     weak_factory_.GetWeakPtr(), tab_id,
+                     tab_state.action_waiter->waiter_epoch),
       kWaitTimeout);
 }
 
@@ -4404,6 +4439,58 @@ void AbpController::OnCdpEventForWait(const std::string& tab_id,
 
   ActionCompleteWaiter* waiter = it->second.action_waiter.get();
 
+  // Main-frame navigation during wait: reset load flags and domain so we
+  // wait for the NEW page's first paint / DCL / load events and track
+  // same-site requests against the new domain.
+  if (method == "Page.frameNavigated") {
+    const base::Value::Dict* frame = params.FindDict("frame");
+    if (frame) {
+      const std::string* parent_id = frame->FindString("parentId");
+      if (!parent_id) {  // main frame only
+        const std::string* url = frame->FindString("url");
+        VLOG(1) << "ABP PROFILE [wait] main-frame navigation detected"
+                << " url=" << (url ? *url : "?")
+                << " elapsed="
+                << (base::TimeTicks::Now() - waiter->action_start_time)
+                       .InMilliseconds()
+                << "ms tab=" << tab_id;
+
+        // Reset page load flags — must re-fire for the new page.
+        // Don't gate on `load` (waits for ALL subresources including ads);
+        // DCL + first_paint is sufficient to know the page is interactive.
+        waiter->load_fired = true;
+        waiter->dom_content_loaded_fired = false;
+        waiter->first_paint_fired = false;
+
+        // Update registrable domain from the new URL
+        if (url) {
+          GURL new_url(*url);
+          waiter->page_registrable_domain =
+              net::registry_controlled_domains::GetDomainAndRegistry(
+                  new_url,
+                  net::registry_controlled_domains::
+                      INCLUDE_PRIVATE_REGISTRIES);
+        }
+
+        // Clear stale request tracking from the old page
+        waiter->active_request_ids.clear();
+        waiter->tracked_requests.clear();
+        waiter->active_requests = 0;
+        waiter->tracking_snapshot_taken = false;
+        waiter->tracked_requests_resolved = false;
+        waiter->tracking_timed_out = false;
+        waiter->post_tracking_settle_started = false;
+        waiter->post_tracking_settled = false;
+
+        // Reset min-wait timer so Phase 1 restarts for the new page
+        waiter->min_time_elapsed = false;
+        waiter->min_wait_timer_started = false;
+        MaybeStartMinWaitTimer(tab_id);
+      }
+    }
+    return;
+  }
+
   // Track network events with per-request ID tracking
   if (method == "Network.requestWillBeSent") {
     const std::string* request_id = params.FindString("requestId");
@@ -4415,6 +4502,28 @@ void AbpController::OnCdpEventForWait(const std::string& tab_id,
         skip = (*type == "WebSocket" || *type == "EventSource" ||
                 *type == "Ping" || *type == "Prefetch" ||
                 *type == "CSPViolationReport");
+      }
+      // Skip third-party requests: only track requests whose host is
+      // the page's registrable domain or a subdomain of it.
+      if (!skip && !waiter->page_registrable_domain.empty()) {
+        const std::string* url_str =
+            params.FindStringByDottedPath("request.url");
+        if (url_str) {
+          GURL request_url(*url_str);
+          std::string request_host(request_url.host());
+          const std::string& page_domain = waiter->page_registrable_domain;
+          // Match: host == domain OR host ends with ".domain"
+          bool same_site =
+              request_host == page_domain ||
+              (request_host.size() > page_domain.size() &&
+               request_host.compare(request_host.size() - page_domain.size(),
+                                    page_domain.size(), page_domain) == 0 &&
+               request_host[request_host.size() - page_domain.size() - 1] ==
+                   '.');
+          if (!same_site) {
+            skip = true;
+          }
+        }
       }
       if (!skip) {
         waiter->active_request_ids.insert(*request_id);
@@ -4434,9 +4543,15 @@ void AbpController::OnCdpEventForWait(const std::string& tab_id,
           waiter->tracked_requests.empty() &&
           !waiter->tracked_requests_resolved) {
         waiter->tracked_requests_resolved = true;
+        VLOG(1) << "ABP PROFILE [wait] Phase2 tracked requests RESOLVED"
+                  << " elapsed=" << (base::TimeTicks::Now() - waiter->action_start_time).InMilliseconds() << "ms"
+                  << " tab=" << tab_id;
         // Start Phase 3: post-tracking settle
         if (!waiter->post_tracking_settle_started) {
           waiter->post_tracking_settle_started = true;
+          VLOG(1) << "ABP PROFILE [wait] Phase3 settle START"
+                    << " settle=" << waiter->post_tracking_settle_time.InMilliseconds() << "ms"
+                    << " tab=" << tab_id;
           content::GetUIThreadTaskRunner({})->PostDelayedTask(
               FROM_HERE,
               base::BindOnce(&AbpController::OnPostTrackingSettle,
@@ -4464,23 +4579,27 @@ void AbpController::OnPageLifecycleEvent(const std::string& tab_id,
 
   if (event == "load") {
     waiter->load_fired = true;
-    VLOG(1) << "ABP: load fired for tab " << tab_id << " (WebContents observer)";
+    VLOG(1) << "ABP PROFILE [wait] event=load"
+              << " elapsed=" << (base::TimeTicks::Now() - waiter->action_start_time).InMilliseconds() << "ms"
+              << " tab=" << tab_id;
     if (waiter->wait_type == "time" && !waiter->time_wait_started &&
         waiter->dom_content_loaded_fired) {
       OnLoadFiredForTimeWait(tab_id);
     }
   } else if (event == "dom_content_loaded") {
     waiter->dom_content_loaded_fired = true;
-    VLOG(1) << "ABP: DOMContentLoaded fired for tab " << tab_id
-            << " (WebContents observer)";
+    VLOG(1) << "ABP PROFILE [wait] event=dom_content_loaded"
+              << " elapsed=" << (base::TimeTicks::Now() - waiter->action_start_time).InMilliseconds() << "ms"
+              << " tab=" << tab_id;
     if (waiter->wait_type == "time" && !waiter->time_wait_started &&
         waiter->load_fired) {
       OnLoadFiredForTimeWait(tab_id);
     }
   } else if (event == "first_paint") {
     waiter->first_paint_fired = true;
-    VLOG(1) << "ABP: first paint fired for tab " << tab_id
-            << " (WebContents observer)";
+    VLOG(1) << "ABP PROFILE [wait] event=first_paint"
+              << " elapsed=" << (base::TimeTicks::Now() - waiter->action_start_time).InMilliseconds() << "ms"
+              << " tab=" << tab_id;
   }
 
   MaybeStartMinWaitTimer(tab_id);
@@ -4512,8 +4631,10 @@ void AbpController::MaybeStartMinWaitTimer(const std::string& tab_id) {
   }
 
   waiter->min_wait_timer_started = true;
-  VLOG(1) << "ABP: starting min_wait timer (" << waiter->min_wait_time
-           << ") for tab " << tab_id;
+  VLOG(1) << "ABP PROFILE [wait] min_wait_timer STARTED"
+            << " elapsed=" << (base::TimeTicks::Now() - waiter->action_start_time).InMilliseconds() << "ms"
+            << " min_wait=" << waiter->min_wait_time.InMilliseconds() << "ms"
+            << " tab=" << tab_id;
 
   content::GetUIThreadTaskRunner({})->PostDelayedTask(
       FROM_HERE,
@@ -4535,10 +4656,19 @@ void AbpController::OnMinWaitTimeElapsed(const std::string& tab_id) {
   waiter->tracked_requests = waiter->active_request_ids;
   waiter->tracking_snapshot_taken = true;
 
+  VLOG(1) << "ABP PROFILE [wait] min_wait ELAPSED"
+            << " elapsed=" << (base::TimeTicks::Now() - waiter->action_start_time).InMilliseconds() << "ms"
+            << " active_requests=" << waiter->active_request_ids.size()
+            << " tracked=" << waiter->tracked_requests.size()
+            << " tab=" << tab_id;
+
   if (waiter->tracked_requests.empty()) {
     // No requests in flight — resolve immediately, start Phase 3
     waiter->tracked_requests_resolved = true;
     waiter->post_tracking_settle_started = true;
+    VLOG(1) << "ABP PROFILE [wait] Phase3 settle START (no tracked requests)"
+              << " settle=" << waiter->post_tracking_settle_time.InMilliseconds() << "ms"
+              << " tab=" << tab_id;
     content::GetUIThreadTaskRunner({})->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&AbpController::OnPostTrackingSettle,
@@ -4546,9 +4676,10 @@ void AbpController::OnMinWaitTimeElapsed(const std::string& tab_id) {
         waiter->post_tracking_settle_time);
   } else {
     // Requests in flight — start Phase 2 tracking timeout
-    VLOG(1) << "ABP: tracking " << waiter->tracked_requests.size()
-            << " in-flight requests for tab " << tab_id
-            << " (timeout " << waiter->request_tracking_timeout << ")";
+    VLOG(1) << "ABP PROFILE [wait] Phase2 tracking START"
+              << " tracking " << waiter->tracked_requests.size()
+              << " requests, timeout=" << waiter->request_tracking_timeout.InMilliseconds() << "ms"
+              << " tab=" << tab_id;
     content::GetUIThreadTaskRunner({})->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&AbpController::OnRequestTrackingTimeout,
@@ -4571,8 +4702,10 @@ void AbpController::OnRequestTrackingTimeout(const std::string& tab_id) {
   }
 
   int unresolved_count = static_cast<int>(waiter->tracked_requests.size());
-  VLOG(1) << "ABP: request tracking timeout for tab " << tab_id
-          << " (" << unresolved_count << " unresolved)";
+  VLOG(1) << "ABP PROFILE [wait] Phase2 tracking TIMEOUT"
+            << " elapsed=" << (base::TimeTicks::Now() - waiter->action_start_time).InMilliseconds() << "ms"
+            << " unresolved=" << unresolved_count
+            << " tab=" << tab_id;
   waiter->tracked_requests_resolved = true;
   waiter->tracking_timed_out = true;
 
@@ -4603,6 +4736,9 @@ void AbpController::OnPostTrackingSettle(const std::string& tab_id) {
     return;
   }
 
+  VLOG(1) << "ABP PROFILE [wait] Phase3 settle DONE"
+            << " elapsed=" << (base::TimeTicks::Now() - it->second.action_waiter->action_start_time).InMilliseconds() << "ms"
+            << " tab=" << tab_id;
   it->second.action_waiter->post_tracking_settled = true;
   CheckActionCompleteConditions(tab_id);
 }
@@ -4636,13 +4772,26 @@ void AbpController::OnNetworkIdleCheck(const std::string& tab_id) {
       kNetworkIdleCheckInterval);
 }
 
-void AbpController::OnWaitTimeout(const std::string& tab_id) {
+void AbpController::OnWaitTimeout(const std::string& tab_id,
+                                   uint64_t waiter_epoch) {
   auto it = tab_states_.find(tab_id);
   if (it == tab_states_.end() || !it->second.action_waiter) {
     return;
   }
+  // Ignore stale timeouts from prior waiters
+  if (it->second.action_waiter->waiter_epoch != waiter_epoch) {
+    return;
+  }
 
-  VLOG(1) << "ABP: action_complete wait timed out for tab " << tab_id;
+  VLOG(1) << "ABP PROFILE [wait] TIMEOUT (10s safety net)"
+               << " elapsed=" << (base::TimeTicks::Now() - it->second.action_waiter->action_start_time).InMilliseconds() << "ms"
+               << " load=" << it->second.action_waiter->load_fired
+               << " dcl=" << it->second.action_waiter->dom_content_loaded_fired
+               << " paint=" << it->second.action_waiter->first_paint_fired
+               << " min_elapsed=" << it->second.action_waiter->min_time_elapsed
+               << " tracked_resolved=" << it->second.action_waiter->tracked_requests_resolved
+               << " post_settled=" << it->second.action_waiter->post_tracking_settled
+               << " tab=" << tab_id;
 
   // Force complete - removing the waiter stops OnCdpEventForWait from processing events
   std::unique_ptr<ActionCompleteWaiter> waiter = std::move(it->second.action_waiter);
@@ -4667,7 +4816,7 @@ void AbpController::CheckActionCompleteConditions(const std::string& tab_id) {
   // All conditions met - removing the waiter stops OnCdpEventForWait from processing events
   std::unique_ptr<ActionCompleteWaiter> completed_waiter = std::move(it->second.action_waiter);
 
-  LOG(INFO) << "ABP PROFILE [wait] complete"
+  VLOG(1) << "ABP PROFILE [wait] complete"
             << " elapsed=" << (base::TimeTicks::Now() - completed_waiter->action_start_time).InMilliseconds() << "ms"
             << " load=" << completed_waiter->load_fired
             << " dcl=" << completed_waiter->dom_content_loaded_fired
@@ -4776,11 +4925,12 @@ void AbpController::WaitFor(const std::string& tab_id,
     }
   }
 
-  // Start timeout timer
+  // Start timeout timer (pass epoch for stale-timeout filtering)
   content::GetUIThreadTaskRunner({})->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&AbpController::OnWaitTimeout,
-                     weak_factory_.GetWeakPtr(), tab_id),
+                     weak_factory_.GetWeakPtr(), tab_id,
+                     GetOrCreateTabState(tab_id).action_waiter->waiter_epoch),
       kWaitTimeout);
 }
 
@@ -4954,7 +5104,7 @@ void AbpController::GetScrollPosition(
   }
 
   // Execute JavaScript to get scroll info
-  LOG(INFO) << "ABP PROFILE [scroll] GetScrollPosition SEND tab=" << tab_id;
+  VLOG(1) << "ABP PROFILE [scroll] GetScrollPosition SEND tab=" << tab_id;
   auto scroll_send = base::TimeTicks::Now();
   const std::string script = R"(
     (function() {
@@ -5011,7 +5161,7 @@ void AbpController::GetScrollPosition(
              bool success, const std::string& result) {
             if (*d) return;
             *d = true;
-            LOG(INFO) << "ABP PROFILE [scroll] GetScrollPosition DONE"
+            VLOG(1) << "ABP PROFILE [scroll] GetScrollPosition DONE"
                       << " elapsed=" << (base::TimeTicks::Now() - send_time).InMilliseconds() << "ms";
             base::Value::Dict scroll_info;
 

@@ -346,7 +346,8 @@ class AbpController {
       base::OnceClosure on_complete,
       base::TimeDelta min_wait_time = base::Milliseconds(250),
       base::TimeDelta request_tracking_timeout = base::Seconds(1),
-      base::TimeDelta post_tracking_settle_time = base::Milliseconds(750));
+      base::TimeDelta post_tracking_settle_time = base::Milliseconds(750),
+      bool page_was_loaded_before_action = false);
 
   // Wait for a specific condition before calling callback
   // Supports wait types: "text", "url", "network_idle", "time"
@@ -745,9 +746,14 @@ class AbpController {
 
     // Timeout
     base::TimeTicks timeout_time;
+    uint64_t waiter_epoch = 0;  // Prevents stale timeouts from prior waiters
 
     // Minimum wait time (configurable per action)
     base::TimeDelta min_wait_time = base::Milliseconds(500);
+
+    // Page registrable domain (eTLD+1) for same-site request filtering.
+    // Only requests to this domain or its subdomains are tracked.
+    std::string page_registrable_domain;
 
     // Request ID tracking (for action-triggered network requests)
     std::set<std::string> active_request_ids;        // all in-flight request IDs (filtered)
@@ -824,6 +830,7 @@ class AbpController {
 
     // Action completion waiter (for screenshot timing)
     std::unique_ptr<ActionCompleteWaiter> action_waiter;
+    uint64_t next_waiter_epoch = 0;
 
     // Deterministic action loop state.
     bool action_in_flight = false;
@@ -957,7 +964,7 @@ class AbpController {
   void OnNetworkIdleCheck(const std::string& tab_id);
 
   // Timer callback for wait timeout
-  void OnWaitTimeout(const std::string& tab_id);
+  void OnWaitTimeout(const std::string& tab_id, uint64_t waiter_epoch);
 
   // Polling for text wait condition
   void OnTextPollCheck(const std::string& tab_id);
