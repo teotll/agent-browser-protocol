@@ -101,10 +101,12 @@ namespace abp {
 
 // static
 std::string AbpActionContext::GenerateActionId() {
-  static constexpr char kChars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  std::string id(6, '\0');
+  static constexpr std::string_view kChars(
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+  std::string id;
+  id.reserve(6);
   for (int i = 0; i < 6; ++i) {
-    id[i] = kChars[base::RandInt(0, 35)];
+    id += kChars[static_cast<size_t>(base::RandInt(0, 35))];
   }
   return id;
 }
