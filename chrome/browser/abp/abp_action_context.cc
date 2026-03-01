@@ -765,6 +765,9 @@ void AbpActionContext::SendResponse() {
   // Build full response envelope
   base::Value::Dict envelope;
 
+  // 0. Add action ID
+  envelope.Set("action_id", action_id_);
+
   // 1. Add action result
   envelope.Set("result", std::move(result_));
 
@@ -896,7 +899,13 @@ void AbpActionContext::SendErrorResponse(int status,
     RecordHistory(false, error_code, error_message);
   }
 
-  controller_->SendError(status, error_message, std::move(response_callback_));
+  // Build error response with action_id
+  base::Value::Dict envelope;
+  envelope.Set("action_id", action_id_);
+  envelope.Set("error", error_code);
+  envelope.Set("message", error_message);
+  controller_->SendJson(status, base::Value(std::move(envelope)),
+                        std::move(response_callback_));
 
   ReleaseDeterministicSlot();
   // Clear self-reference to allow destruction
@@ -921,8 +930,12 @@ void AbpActionContext::Fail(int http_status,
   RecordHistory(false, error_code, error_message);
 
   if (response_callback_ && controller_) {
-    controller_->SendError(http_status, error_message,
-                           std::move(response_callback_));
+    base::Value::Dict envelope;
+    envelope.Set("action_id", action_id_);
+    envelope.Set("error", error_code);
+    envelope.Set("message", error_message);
+    controller_->SendJson(http_status, base::Value(std::move(envelope)),
+                          std::move(response_callback_));
   }
 
   ReleaseDeterministicSlot();
