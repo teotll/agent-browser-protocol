@@ -82,7 +82,7 @@ constexpr char kCreateSessionsTable[] = R"(
 
 constexpr char kCreateActionsTable[] = R"(
   CREATE TABLE IF NOT EXISTS actions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL REFERENCES sessions(id),
     tab_id TEXT,
     action_type TEXT NOT NULL,
@@ -454,48 +454,47 @@ void AbpHistoryDatabase::InsertAction(const ActionRecord& action,
                                       InsertActionCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(ui_sequence_checker_);
 
-  db_task_runner_->PostTaskAndReplyWithResult(
+  db_task_runner_->PostTaskAndReply(
       FROM_HERE,
       base::BindOnce(&AbpHistoryDatabase::InsertActionOnDB,
                      base::Unretained(this), action),
       std::move(callback));
 }
 
-int64_t AbpHistoryDatabase::InsertActionOnDB(ActionRecord action) {
+void AbpHistoryDatabase::InsertActionOnDB(ActionRecord action) {
   DCHECK(db_task_runner_->RunsTasksInCurrentSequence());
   if (!db_) {
-    return 0;
+    return;
   }
 
   sql::Statement stmt(db_->GetCachedStatement(
       SQL_FROM_HERE,
-      "INSERT INTO actions (session_id, tab_id, action_type, timestamp, "
+      "INSERT INTO actions (id, session_id, tab_id, action_type, timestamp, "
       "duration_ms, params, result, success, error_code, error_message, "
       "screenshot_before_path, screenshot_after_path) "
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
 
-  stmt.BindString(0, action.session_id);
-  stmt.BindString(1, action.tab_id);
-  stmt.BindString(2, action.action_type);
-  stmt.BindInt64(3, action.timestamp);
-  stmt.BindInt64(4, action.duration_ms);
-  stmt.BindString(5, action.params_json);
-  stmt.BindString(6, action.result_json);
-  stmt.BindInt(7, action.success ? 1 : 0);
-  stmt.BindString(8, action.error_code);
-  stmt.BindString(9, action.error_message);
-  stmt.BindString(10, action.screenshot_before_path);
-  stmt.BindString(11, action.screenshot_after_path);
+  stmt.BindString(0, action.id);
+  stmt.BindString(1, action.session_id);
+  stmt.BindString(2, action.tab_id);
+  stmt.BindString(3, action.action_type);
+  stmt.BindInt64(4, action.timestamp);
+  stmt.BindInt64(5, action.duration_ms);
+  stmt.BindString(6, action.params_json);
+  stmt.BindString(7, action.result_json);
+  stmt.BindInt(8, action.success ? 1 : 0);
+  stmt.BindString(9, action.error_code);
+  stmt.BindString(10, action.error_message);
+  stmt.BindString(11, action.screenshot_before_path);
+  stmt.BindString(12, action.screenshot_after_path);
 
   if (!stmt.Run()) {
-    LOG(ERROR) << "ABP: Failed to insert action";
-    return 0;
+    LOG(ERROR) << "ABP: Failed to insert action: " << action.id;
   }
-
-  return db_->GetLastInsertRowId();
 }
 
-void AbpHistoryDatabase::GetAction(int64_t action_id, ActionCallback callback) {
+void AbpHistoryDatabase::GetAction(const std::string& action_id,
+                                    ActionCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(ui_sequence_checker_);
 
   db_task_runner_->PostTaskAndReplyWithResult(
@@ -506,7 +505,7 @@ void AbpHistoryDatabase::GetAction(int64_t action_id, ActionCallback callback) {
 }
 
 std::optional<ActionRecord> AbpHistoryDatabase::GetActionOnDB(
-    int64_t action_id) {
+    const std::string& action_id) {
   DCHECK(db_task_runner_->RunsTasksInCurrentSequence());
   if (!db_) {
     return std::nullopt;
@@ -519,14 +518,14 @@ std::optional<ActionRecord> AbpHistoryDatabase::GetActionOnDB(
       "screenshot_before_path, screenshot_after_path "
       "FROM actions WHERE id = ?"));
 
-  stmt.BindInt64(0, action_id);
+  stmt.BindString(0, action_id);
 
   if (!stmt.Step()) {
     return std::nullopt;
   }
 
   ActionRecord record;
-  record.id = stmt.ColumnInt64(0);
+  record.id = stmt.ColumnString(0);
   record.session_id = stmt.ColumnString(1);
   record.tab_id = stmt.ColumnString(2);
   record.action_type = stmt.ColumnString(3);
@@ -563,9 +562,8 @@ ActionsResult AbpHistoryDatabase::GetActionsOnDB(
     return result;
   }
 
-  // Build query with filters
   std::string query =
-      "SELECT id, session_id, tab_id, action_type, timestamp, duration_ms, "
+      "SELECT rowid, id, session_id, tab_id, action_type, timestamp, duration_ms, "
       "params, result, success, error_code, error_message, "
       "screenshot_before_path, screenshot_after_path "
       "FROM actions WHERE 1=1";
@@ -600,17 +598,17 @@ ActionsResult AbpHistoryDatabase::GetActionsOnDB(
 
   if (filter.cursor > 0) {
     if (filter.forward) {
-      query += " AND id > ?";
+      query += " AND rowid > ?";
     } else {
-      query += " AND id < ?";
+      query += " AND rowid < ?";
     }
     int_binds.push_back(filter.cursor);
   }
 
   if (filter.forward) {
-    query += " ORDER BY id ASC";
+    query += " ORDER BY rowid ASC";
   } else {
-    query += " ORDER BY id DESC";
+    query += " ORDER BY rowid DESC";
   }
 
   query += " LIMIT ?";
@@ -626,41 +624,44 @@ ActionsResult AbpHistoryDatabase::GetActionsOnDB(
     stmt.BindInt64(param_idx++, i);
   }
 
+  std::vector<int64_t> rowids;
   while (stmt.Step()) {
     if (static_cast<int>(result.actions.size()) >= filter.limit) {
       result.has_more = true;
       break;
     }
 
+    int64_t rowid = stmt.ColumnInt64(0);
+    rowids.push_back(rowid);
+
     ActionRecord record;
-    record.id = stmt.ColumnInt64(0);
-    record.session_id = stmt.ColumnString(1);
-    record.tab_id = stmt.ColumnString(2);
-    record.action_type = stmt.ColumnString(3);
-    record.timestamp = stmt.ColumnInt64(4);
-    record.duration_ms = stmt.ColumnInt64(5);
-    record.params_json = stmt.ColumnString(6);
-    record.result_json = stmt.ColumnString(7);
-    record.success = stmt.ColumnInt(8) != 0;
-    record.error_code = stmt.ColumnString(9);
-    record.error_message = stmt.ColumnString(10);
-    record.screenshot_before_path = stmt.ColumnString(11);
-    record.screenshot_after_path = stmt.ColumnString(12);
+    record.id = stmt.ColumnString(1);
+    record.session_id = stmt.ColumnString(2);
+    record.tab_id = stmt.ColumnString(3);
+    record.action_type = stmt.ColumnString(4);
+    record.timestamp = stmt.ColumnInt64(5);
+    record.duration_ms = stmt.ColumnInt64(6);
+    record.params_json = stmt.ColumnString(7);
+    record.result_json = stmt.ColumnString(8);
+    record.success = stmt.ColumnInt(9) != 0;
+    record.error_code = stmt.ColumnString(10);
+    record.error_message = stmt.ColumnString(11);
+    record.screenshot_before_path = stmt.ColumnString(12);
+    record.screenshot_after_path = stmt.ColumnString(13);
     result.actions.push_back(std::move(record));
   }
 
-  // Set cursors
-  if (!result.actions.empty()) {
+  if (!rowids.empty()) {
     if (filter.forward) {
-      result.prev_cursor = base::NumberToString(result.actions.front().id);
+      result.prev_cursor = base::NumberToString(rowids.front());
       if (result.has_more) {
-        result.next_cursor = base::NumberToString(result.actions.back().id);
+        result.next_cursor = base::NumberToString(rowids.back());
       }
     } else {
       if (result.has_more) {
-        result.prev_cursor = base::NumberToString(result.actions.back().id);
+        result.prev_cursor = base::NumberToString(rowids.back());
       }
-      result.next_cursor = base::NumberToString(result.actions.front().id);
+      result.next_cursor = base::NumberToString(rowids.front());
     }
   }
 

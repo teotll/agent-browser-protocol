@@ -48,7 +48,7 @@ struct ActionRecord {
   ActionRecord(ActionRecord&&);
   ActionRecord& operator=(ActionRecord&&);
 
-  int64_t id = 0;
+  std::string id;
   std::string session_id;
   std::string tab_id;
   std::string action_type;
@@ -181,7 +181,7 @@ class AbpHistoryDatabase {
   using DeleteCallback = base::OnceCallback<void(DeleteResult)>;
   using BulkDeleteCallback = base::OnceCallback<void(BulkDeleteResult)>;
   using VoidCallback = base::OnceCallback<void()>;
-  using InsertActionCallback = base::OnceCallback<void(int64_t id)>;
+  using InsertActionCallback = base::OnceCallback<void()>;
   using InsertEventCallback = base::OnceCallback<void(int64_t id)>;
 
   explicit AbpHistoryDatabase(const base::FilePath& database_path);
@@ -210,7 +210,7 @@ class AbpHistoryDatabase {
 
   // Action operations
   void InsertAction(const ActionRecord& action, InsertActionCallback callback);
-  void GetAction(int64_t action_id, ActionCallback callback);
+  void GetAction(const std::string& action_id, ActionCallback callback);
   void GetActions(const ActionQueryFilter& filter, ActionsCallback callback);
   void DeleteActions(const std::string& session_id,
                      const std::string& tab_id,
@@ -245,8 +245,8 @@ class AbpHistoryDatabase {
                                  bool forward,
                                  bool active_only);
 
-  int64_t InsertActionOnDB(ActionRecord action);
-  std::optional<ActionRecord> GetActionOnDB(int64_t action_id);
+  void InsertActionOnDB(ActionRecord action);
+  std::optional<ActionRecord> GetActionOnDB(const std::string& action_id);
   ActionsResult GetActionsOnDB(const ActionQueryFilter& filter);
   int64_t DeleteActionsOnDB(const std::string& session_id,
                             const std::string& tab_id,
