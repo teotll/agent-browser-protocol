@@ -740,9 +740,9 @@ void AbpActionContext::RecordHistory(bool success,
 
   base::Value result_value(result_.Clone());
   controller_->history_controller_->RecordAction(
-      tab_id_, action_type_, params_, &result_value, success, error_code,
-      error_message, start_time_ms_, duration_ms, screenshot_before_path_,
-      screenshot_after_path_);
+      action_id_, tab_id_, action_type_, params_, &result_value, success,
+      error_code, error_message, start_time_ms_, duration_ms,
+      screenshot_before_path_, screenshot_after_path_);
 }
 
 void AbpActionContext::BuildResponseEnvelope() {
