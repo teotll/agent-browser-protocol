@@ -2280,7 +2280,7 @@ void AbpController::CreateTab(const base::Value::Dict& params,
   }
   if (!browser) {
     if (history_controller_) {
-      history_controller_->RecordAction("", "create_tab", params, nullptr,
+      history_controller_->RecordAction("", "", "create_tab", params, nullptr,
                                         false, "NO_BROWSER", "No active browser",
                                         start_time, 0, "", "");
     }
@@ -2319,7 +2319,7 @@ void AbpController::CreateTab(const base::Value::Dict& params,
       int64_t duration_ms =
           base::Time::Now().InMillisecondsSinceUnixEpoch() - start_time;
       base::Value result_value(tab.Clone());
-      history_controller_->RecordAction(host->GetId(), "create_tab", params,
+      history_controller_->RecordAction("", host->GetId(), "create_tab", params,
                                         &result_value, true, "", "", start_time,
                                         duration_ms, "", "");
     }
@@ -2327,7 +2327,7 @@ void AbpController::CreateTab(const base::Value::Dict& params,
     SendJson(201, base::Value(std::move(tab)), std::move(callback));
   } else {
     if (history_controller_) {
-      history_controller_->RecordAction("", "create_tab", params, nullptr,
+      history_controller_->RecordAction("", "", "create_tab", params, nullptr,
                                         false, "CREATE_FAILED",
                                         "Failed to create tab", start_time, 0,
                                         "", "");
@@ -2353,7 +2353,7 @@ void AbpController::CloseTab(const std::string& tab_id,
       int64_t duration_ms =
           base::Time::Now().InMillisecondsSinceUnixEpoch() - start_time;
       base::Value result_value(result.Clone());
-      history_controller_->RecordAction(tab_id, "close_tab", params,
+      history_controller_->RecordAction("", tab_id, "close_tab", params,
                                         &result_value, true, "", "",
                                         start_time, duration_ms, "", "");
     }
@@ -2404,7 +2404,7 @@ void AbpController::CloseTab(const std::string& tab_id,
   }
 
   if (history_controller_) {
-    history_controller_->RecordAction(tab_id, "close_tab", params, nullptr,
+    history_controller_->RecordAction("", tab_id, "close_tab", params, nullptr,
                                       false, "TAB_NOT_FOUND", "Tab not found",
                                       start_time, 0, "", "");
   }
@@ -3180,7 +3180,7 @@ void AbpController::ActivateTab(const std::string& tab_id,
           int64_t duration_ms =
               base::Time::Now().InMillisecondsSinceUnixEpoch() - start_time;
           base::Value result_value(result.Clone());
-          history_controller_->RecordAction(tab_id, "activate_tab", params,
+          history_controller_->RecordAction("", tab_id, "activate_tab", params,
                                             &result_value, true, "", "",
                                             start_time, duration_ms, "", "");
         }
@@ -3192,9 +3192,9 @@ void AbpController::ActivateTab(const std::string& tab_id,
   }
 
   if (history_controller_) {
-    history_controller_->RecordAction(tab_id, "activate_tab", params, nullptr,
-                                      false, "TAB_NOT_FOUND", "Tab not found",
-                                      start_time, 0, "", "");
+    history_controller_->RecordAction("", tab_id, "activate_tab", params,
+                                      nullptr, false, "TAB_NOT_FOUND",
+                                      "Tab not found", start_time, 0, "", "");
   }
   SendError(404, "Tab not found", std::move(callback));
 }
@@ -3208,9 +3208,9 @@ void AbpController::StopLoading(const std::string& tab_id,
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
     if (history_controller_) {
-      history_controller_->RecordAction(tab_id, "stop_loading", params, nullptr,
-                                        false, "TAB_NOT_FOUND", "Tab not found",
-                                        start_time, 0, "", "");
+      history_controller_->RecordAction("", tab_id, "stop_loading", params,
+                                        nullptr, false, "TAB_NOT_FOUND",
+                                        "Tab not found", start_time, 0, "", "");
     }
     SendError(404, "Tab not found", std::move(callback));
     return;
@@ -3227,7 +3227,7 @@ void AbpController::StopLoading(const std::string& tab_id,
     int64_t duration_ms =
         base::Time::Now().InMillisecondsSinceUnixEpoch() - start_time;
     base::Value result_value(result.Clone());
-    history_controller_->RecordAction(tab_id, "stop_loading", params,
+    history_controller_->RecordAction("", tab_id, "stop_loading", params,
                                       &result_value, true, "", "",
                                       start_time, duration_ms, "", "");
   }
