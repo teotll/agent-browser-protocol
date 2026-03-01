@@ -50,7 +50,7 @@ std::string ReadFileContent(const base::FilePath& path) {
 // Convert action record to JSON value
 base::Value::Dict ActionRecordToJson(const ActionRecord& action) {
   base::Value::Dict dict;
-  dict.Set("id", static_cast<int>(action.id));
+  dict.Set("id", action.id);
   dict.Set("session_id", action.session_id);
   dict.Set("tab_id", action.tab_id);
   dict.Set("action_type", action.action_type);
@@ -204,7 +204,8 @@ void AbpHistoryController::Shutdown() {
   VLOG(1) << "ABP: History session ended: " << session_id_;
 }
 
-void AbpHistoryController::RecordAction(const std::string& tab_id,
+void AbpHistoryController::RecordAction(const std::string& action_id,
+                                        const std::string& tab_id,
                                         const std::string& action_type,
                                         const base::Value::Dict& params,
                                         const base::Value* result,
@@ -222,6 +223,7 @@ void AbpHistoryController::RecordAction(const std::string& tab_id,
   }
 
   ActionRecord action;
+  action.id = action_id;
   action.session_id = session_id_;
   action.tab_id = tab_id;
   action.action_type = action_type;
@@ -385,12 +387,7 @@ void AbpHistoryController::HandleRequest(const std::string& method,
     }
 
     if (segments.size() >= 5) {
-      int64_t action_id = 0;
-      if (!base::StringToInt64(segments[4], &action_id)) {
-        SendError(400, "INVALID_QUERY", "Invalid action ID",
-                  std::move(callback));
-        return;
-      }
+      const std::string& action_id = segments[4];
 
       if (segments.size() == 5) {
         if (method == "GET") {
@@ -586,7 +583,7 @@ void AbpHistoryController::HandleGetActions(const std::string& query,
                              weak_factory_.GetWeakPtr(), std::move(callback)));
 }
 
-void AbpHistoryController::HandleGetAction(int64_t action_id,
+void AbpHistoryController::HandleGetAction(const std::string& action_id,
                                            ResponseCallback callback) {
   database_->GetAction(
       action_id, base::BindOnce(&AbpHistoryController::OnActionResult,
@@ -594,7 +591,7 @@ void AbpHistoryController::HandleGetAction(int64_t action_id,
 }
 
 void AbpHistoryController::HandleGetActionScreenshot(
-    int64_t action_id,
+    const std::string& action_id,
     const std::string& type,
     ResponseCallback callback) {
   database_->GetAction(

@@ -43,7 +43,8 @@ class AbpHistoryController {
 
   // Record an action after it completes
   // Called by AbpController after each action handler
-  void RecordAction(const std::string& tab_id,
+  void RecordAction(const std::string& action_id,
+                    const std::string& tab_id,
                     const std::string& action_type,
                     const base::Value::Dict& params,
                     const base::Value* result,
@@ -100,8 +101,8 @@ class AbpHistoryController {
 
   void HandleGetActions(const std::string& query,
                         ResponseCallback callback);
-  void HandleGetAction(int64_t action_id, ResponseCallback callback);
-  void HandleGetActionScreenshot(int64_t action_id,
+  void HandleGetAction(const std::string& action_id, ResponseCallback callback);
+  void HandleGetActionScreenshot(const std::string& action_id,
                                  const std::string& type,
                                  ResponseCallback callback);
   void HandleDeleteActions(const std::string& query,
