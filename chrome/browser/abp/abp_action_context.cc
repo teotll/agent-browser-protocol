@@ -7,6 +7,7 @@
 #include <set>
 
 #include "base/logging.h"
+#include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 #include "chrome/browser/abp/abp_controller.h"
@@ -99,6 +100,16 @@ std::string CursorTypeToString(ui::mojom::CursorType type) {
 namespace abp {
 
 // static
+std::string AbpActionContext::GenerateActionId() {
+  static constexpr char kChars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  std::string id(6, '\0');
+  for (int i = 0; i < 6; ++i) {
+    id[i] = kChars[base::RandInt(0, 35)];
+  }
+  return id;
+}
+
+// static
 void AbpActionContext::Run(AbpController* controller,
                            const std::string& tab_id,
                            const std::string& action_type,
@@ -144,6 +155,7 @@ AbpActionContext::AbpActionContext(AbpController* controller,
     : controller_(controller->GetWeakPtr()),
       tab_id_(tab_id),
       action_type_(action_type),
+      action_id_(GenerateActionId()),
       params_(params.Clone()),
       options_(options),
       action_(std::move(action)),

@@ -137,6 +137,9 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   // Access to tab_id for action implementation
   const std::string& tab_id() const { return tab_id_; }
 
+  // Access to action_id for action implementation
+  const std::string& action_id() const { return action_id_; }
+
   // Access to controller for action implementation
   // Use sparingly - prefer using context methods when possible
   AbpController* controller() const { return controller_.get(); }
@@ -153,6 +156,8 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
  private:
   friend class base::RefCounted<AbpActionContext>;
   ~AbpActionContext();
+
+  static std::string GenerateActionId();
 
   // Internal flow methods
   void Start();
@@ -202,6 +207,7 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   base::WeakPtr<AbpController> controller_;
   std::string tab_id_;
   std::string action_type_;
+  std::string action_id_;
   base::Value::Dict params_;
   Options options_;
   ActionCallback action_;
