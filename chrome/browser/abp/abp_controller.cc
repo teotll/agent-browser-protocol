@@ -3565,6 +3565,16 @@ void AbpController::OnDebuggerEnabled(
     base::OnceClosure then,
     bool success,
     const std::string& result) {
+  // Guard: skip if tab was backgrounded while CDP command was inflight
+  {
+    auto bit = tab_states_.find(tab_id);
+    if (bit != tab_states_.end() && bit->second.backgrounded) {
+      VLOG(1) << "ABP: Tab " << tab_id << " backgrounded, skipping OnDebuggerEnabled";
+      std::move(then).Run();
+      return;
+    }
+  }
+
   // Log CDP ground truth
   if (success) {
     VLOG(1) << "ABP: Debugger.enable (initial setup) succeeded for tab " << tab_id;
@@ -3603,6 +3613,16 @@ void AbpController::EnableVirtualTimeAfterDebugger(
     const std::string& tab_id,
     std::optional<double> initial_virtual_time,
     base::OnceClosure then) {
+  // Guard: skip if tab was backgrounded while CDP command was inflight
+  {
+    auto bit = tab_states_.find(tab_id);
+    if (bit != tab_states_.end() && bit->second.backgrounded) {
+      VLOG(1) << "ABP: Tab " << tab_id << " backgrounded, skipping EnableVirtualTimeAfterDebugger";
+      std::move(then).Run();
+      return;
+    }
+  }
+
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
     std::move(then).Run();
@@ -3635,6 +3655,16 @@ void AbpController::OnVirtualTimeEnabled(
     base::OnceClosure then,
     bool success,
     const std::string& result) {
+  // Guard: skip if tab was backgrounded while CDP command was inflight
+  {
+    auto bit = tab_states_.find(tab_id);
+    if (bit != tab_states_.end() && bit->second.backgrounded) {
+      VLOG(1) << "ABP: Tab " << tab_id << " backgrounded, skipping OnVirtualTimeEnabled";
+      std::move(then).Run();
+      return;
+    }
+  }
+
   // Log CDP ground truth
   if (success) {
     VLOG(1) << "ABP: Emulation.setVirtualTimePolicy (pause, initial enable) succeeded for tab " << tab_id;
@@ -3748,6 +3778,16 @@ void AbpController::OnVirtualTimeResumed(const std::string& tab_id,
                                          base::OnceClosure then,
                                          bool success,
                                          const std::string& result) {
+  // Guard: skip if tab was backgrounded while CDP command was inflight
+  {
+    auto bit = tab_states_.find(tab_id);
+    if (bit != tab_states_.end() && bit->second.backgrounded) {
+      VLOG(1) << "ABP: Tab " << tab_id << " backgrounded, skipping OnVirtualTimeResumed";
+      std::move(then).Run();
+      return;
+    }
+  }
+
   if (success) {
     LOG(INFO) << "ABP: Emulation.setVirtualTimePolicy (realtime) succeeded for tab " << tab_id
               << " result=" << result;
@@ -3769,6 +3809,16 @@ void AbpController::OnVirtualTimeResumed(const std::string& tab_id,
 void AbpController::ForceRedrawThenResumeVirtualTime(
     const std::string& tab_id,
     base::OnceClosure then) {
+  // Guard: skip if tab was backgrounded while CDP command was inflight
+  {
+    auto bit = tab_states_.find(tab_id);
+    if (bit != tab_states_.end() && bit->second.backgrounded) {
+      VLOG(1) << "ABP: Tab " << tab_id << " backgrounded, skipping ForceRedrawThenResumeVirtualTime";
+      std::move(then).Run();
+      return;
+    }
+  }
+
   // Activate the tab (required — GrabViewSnapshot captures from the OS
   // compositor which only renders the active tab) but do NOT bring the
   // window to front.  ScreenCaptureKit captures by window ID regardless
@@ -3795,6 +3845,16 @@ void AbpController::ForceRedrawThenResumeVirtualTime(
 void AbpController::SwitchToRealtimeVirtualTime(
     const std::string& tab_id,
     base::OnceClosure then) {
+  // Guard: skip if tab was backgrounded while CDP command was inflight
+  {
+    auto bit = tab_states_.find(tab_id);
+    if (bit != tab_states_.end() && bit->second.backgrounded) {
+      VLOG(1) << "ABP: Tab " << tab_id << " backgrounded, skipping SwitchToRealtimeVirtualTime";
+      std::move(then).Run();
+      return;
+    }
+  }
+
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
     std::move(then).Run();
@@ -3864,6 +3924,16 @@ void AbpController::PauseExecution(const std::string& tab_id,
 void AbpController::PauseVirtualTimeAfterDebugger(
     const std::string& tab_id,
     base::OnceClosure then) {
+  // Guard: skip if tab was backgrounded while CDP command was inflight
+  {
+    auto bit = tab_states_.find(tab_id);
+    if (bit != tab_states_.end() && bit->second.backgrounded) {
+      VLOG(1) << "ABP: Tab " << tab_id << " backgrounded, skipping PauseVirtualTimeAfterDebugger";
+      std::move(then).Run();
+      return;
+    }
+  }
+
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
     std::move(then).Run();
@@ -3901,6 +3971,16 @@ void AbpController::PauseVirtualTimeAfterDebugger(
 
 void AbpController::SendDeterministicPause(const std::string& tab_id,
                                            base::OnceClosure then) {
+  // Guard: skip if tab was backgrounded while CDP command was inflight
+  {
+    auto bit = tab_states_.find(tab_id);
+    if (bit != tab_states_.end() && bit->second.backgrounded) {
+      VLOG(1) << "ABP: Tab " << tab_id << " backgrounded, skipping SendDeterministicPause";
+      std::move(then).Run();
+      return;
+    }
+  }
+
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
     std::move(then).Run();
@@ -3930,6 +4010,11 @@ void AbpController::SendDeterministicPause(const std::string& tab_id,
             VLOG(1) << "ABP PROFILE [pause] Debugger.enable DONE"
                       << " elapsed=" << (base::TimeTicks::Now() - send_time).InMilliseconds() << "ms"
                       << " tab=" << tid;
+            if (ctrl->tab_states_.count(tid) && ctrl->tab_states_[tid].backgrounded) {
+              VLOG(1) << "ABP: Tab " << tid << " backgrounded, skipping pause chain after Debugger.enable";
+              std::move(cb).Run();
+              return;
+            }
             content::WebContents* wc = ctrl->FindWebContents(tid);
             if (!wc) { std::move(cb).Run(); return; }
             AbpCdpClient* c = ctrl->GetOrCreateCdpClient(wc);
@@ -3948,9 +4033,13 @@ void AbpController::SendDeterministicPause(const std::string& tab_id,
                       VLOG(1) << "ABP PROFILE [pause] Debugger.pause DONE"
                                 << " elapsed=" << (base::TimeTicks::Now() - send_time2).InMilliseconds() << "ms"
                                 << " tab=" << tid2;
-                      if (ctrl2) {
-                        ctrl2->OnDebuggerPauseCommandSent(tid2, std::move(cb2), success2, result2);
+                      if (!ctrl2) return;
+                      if (ctrl2->tab_states_.count(tid2) && ctrl2->tab_states_[tid2].backgrounded) {
+                        VLOG(1) << "ABP: Tab " << tid2 << " backgrounded, skipping pause chain after Debugger.pause";
+                        std::move(cb2).Run();
+                        return;
                       }
+                      ctrl2->OnDebuggerPauseCommandSent(tid2, std::move(cb2), success2, result2);
                     },
                     ctrl, tid, std::move(cb), dbg_pause_send));
           },
@@ -3961,6 +4050,16 @@ void AbpController::OnVirtualTimePaused(const std::string& tab_id,
                                         base::OnceClosure then,
                                         bool success,
                                         const std::string& result) {
+  // Guard: skip if tab was backgrounded while CDP command was inflight
+  {
+    auto bit = tab_states_.find(tab_id);
+    if (bit != tab_states_.end() && bit->second.backgrounded) {
+      VLOG(1) << "ABP: Tab " << tab_id << " backgrounded, skipping OnVirtualTimePaused";
+      std::move(then).Run();
+      return;
+    }
+  }
+
   // Log CDP ground truth
   if (success) {
     LOG(INFO) << "ABP: Emulation.setVirtualTimePolicy (pause) succeeded for tab " << tab_id
@@ -4042,6 +4141,10 @@ void AbpController::OnDebuggerPauseCommandSent(
 void AbpController::OnDebuggerPausedEvent(const std::string& tab_id) {
   auto it = tab_states_.find(tab_id);
   if (it == tab_states_.end()) return;
+  if (it->second.backgrounded) {
+    VLOG(1) << "ABP: Tab " << tab_id << " backgrounded, ignoring Debugger.paused event";
+    return;
+  }
   if (!it->second.pause_completion_callback) return;
 
   if (it->second.pause_confirmation_timer) {
@@ -4215,6 +4318,86 @@ void AbpController::PauseAllTabs() {
 
       PauseExecution(tab_id, base::DoNothing());
     }
+  }
+}
+
+void AbpController::BackgroundTab(const std::string& tab_id) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end()) {
+    return;
+  }
+
+  TabState& tab = it->second;
+  tab.backgrounded = true;
+
+  VLOG(1) << "ABP: Backgrounding tab " << tab_id
+          << " phase=" << static_cast<int>(tab.execution.phase);
+
+  // If the debugger is actively paused, resume+disable atomically first.
+  // Debugger.resume is NOT idempotent (errors if not paused), so only
+  // call it when we know the tab is in kPaused phase.
+  if (tab.execution.IsPaused()) {
+    content::WebContents* wc = FindWebContents(tab_id);
+    if (wc) {
+      AbpCdpClient* client = GetOrCreateCdpClient(wc);
+      if (client) {
+        base::Value::Dict resume_params;
+        resume_params.Set("disableOnResume", true);
+        VLOG(1) << "ABP: BackgroundTab sending Debugger.resume(disableOnResume) tab=" << tab_id;
+        client->SendCommand(
+            "Debugger.resume", resume_params,
+            base::BindOnce([](bool, const std::string&) {}));
+      }
+    }
+  }
+
+  // Unconditional Debugger.disable — idempotent safety net for any inflight
+  // Debugger.enable/pause commands that may have landed in the renderer via
+  // Mojo after the resume above. Mojo ordering guarantees this arrives after
+  // any inflight commands on the same channel.
+  content::WebContents* wc = FindWebContents(tab_id);
+  if (wc) {
+    AbpCdpClient* client = GetOrCreateCdpClient(wc);
+    if (client) {
+      base::Value::Dict empty;
+      VLOG(1) << "ABP: BackgroundTab sending Debugger.disable tab=" << tab_id;
+      client->SendCommand(
+          "Debugger.disable", empty,
+          base::BindOnce([](bool, const std::string&) {}));
+
+      // Release virtual time fences if execution control was ever enabled.
+      if (tab.execution.IsEnabled()) {
+        base::Value::Dict vt_params;
+        vt_params.Set("policy", "realtime");
+        VLOG(1) << "ABP: BackgroundTab sending setVirtualTimePolicy(realtime) tab=" << tab_id;
+        client->SendCommand(
+            "Emulation.setVirtualTimePolicy", vt_params,
+            base::BindOnce([](bool, const std::string&) {}));
+      }
+    }
+  }
+
+  tab.execution.phase = ExecutionPhase::kDisabled;
+}
+
+void AbpController::ForegroundTab(const std::string& tab_id) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  auto it = tab_states_.find(tab_id);
+  if (it != tab_states_.end()) {
+    it->second.backgrounded = false;
+  } else {
+    GetOrCreateTabState(tab_id).backgrounded = false;
+  }
+
+  VLOG(1) << "ABP: Foregrounding tab " << tab_id;
+
+  // Re-establish execution control if global flag is set.
+  // EnableExecutionControl starts in kPaused state (debugger paused + vtime frozen).
+  if (IsExecutionControlEnabled()) {
+    EnableExecutionControl(tab_id, std::nullopt, base::DoNothing());
   }
 }
 
