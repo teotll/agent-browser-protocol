@@ -10,7 +10,9 @@
 #include "base/base64.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/run_loop.h"
 #include "base/synchronization/lock.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/run_until.h"
 #include "base/test/test_future.h"
 #include "build/build_config.h"
@@ -568,6 +570,89 @@ IN_PROC_BROWSER_TEST_F(AbpActionLifecycleTest, SliderValidationErrors) {
     auto result = SendAction(tab_id, "slider", std::move(body));
     EXPECT_EQ(result.status, 400);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Test 11: CreateTab backgrounds old tab (disables execution control).
+// ---------------------------------------------------------------------------
+IN_PROC_BROWSER_TEST_F(AbpActionLifecycleTest, CreateTabBackgroundsOldTab) {
+  // Navigate the initial tab
+  GURL url = embedded_test_server()->GetURL("/multi_tab_test.html");
+  std::string initial_tab = controller_->GetActiveTabId();
+  ASSERT_FALSE(initial_tab.empty());
+
+  auto nav_result = SendRequest("POST", "/api/v1/tabs/" + initial_tab + "/navigate",
+                                "{\"url\":\"" + url.spec() + "\"}");
+  EXPECT_EQ(nav_result.status, 200);
+
+  // Enable execution control on the initial tab
+  auto exec_result = SendRequest("POST", "/api/v1/tabs/" + initial_tab + "/execution",
+                                 "{\"paused\":true}");
+  EXPECT_EQ(exec_result.status, 200);
+
+  // Verify initial tab is paused
+  auto state_result = SendRequest("GET", "/api/v1/tabs/" + initial_tab + "/execution");
+  EXPECT_EQ(state_result.status, 200);
+  ASSERT_TRUE(state_result.parsed.FindBool("paused").has_value());
+  EXPECT_TRUE(*state_result.parsed.FindBool("paused"));
+
+  // Create a new tab — this should background the initial tab
+  auto create_result = SendRequest("POST", "/api/v1/tabs",
+                                   "{\"url\":\"" + url.spec() + "\"}");
+  EXPECT_EQ(create_result.status, 201);
+  const std::string* new_tab_id = create_result.parsed.FindString("id");
+  ASSERT_TRUE(new_tab_id);
+  EXPECT_NE(*new_tab_id, initial_tab);
+
+  // Verify the initial tab's execution control is disabled (backgrounded)
+  auto old_state = SendRequest("GET", "/api/v1/tabs/" + initial_tab + "/execution");
+  EXPECT_EQ(old_state.status, 200);
+  // Phase should be kDisabled after backgrounding — paused should be false
+  ASSERT_TRUE(old_state.parsed.FindBool("paused").has_value());
+  EXPECT_FALSE(*old_state.parsed.FindBool("paused"));
+}
+
+// ---------------------------------------------------------------------------
+// Test 12: ActivateTab foregrounds tab and re-establishes execution control.
+// ---------------------------------------------------------------------------
+IN_PROC_BROWSER_TEST_F(AbpActionLifecycleTest, ActivateTabForegroundsAndPauses) {
+  GURL url = embedded_test_server()->GetURL("/multi_tab_test.html");
+
+  // Navigate initial tab
+  std::string tab_a = controller_->GetActiveTabId();
+  ASSERT_FALSE(tab_a.empty());
+  SendRequest("POST", "/api/v1/tabs/" + tab_a + "/navigate",
+              "{\"url\":\"" + url.spec() + "\"}");
+
+  // Enable execution control
+  SendRequest("POST", "/api/v1/tabs/" + tab_a + "/execution",
+              "{\"paused\":true}");
+
+  // Create tab B (backgrounds tab A)
+  auto create_result = SendRequest("POST", "/api/v1/tabs",
+                                   "{\"url\":\"" + url.spec() + "\"}");
+  ASSERT_EQ(create_result.status, 201);
+  std::string tab_b = *create_result.parsed.FindString("id");
+
+  // Tab A should be backgrounded (execution disabled)
+  auto state_a = SendRequest("GET", "/api/v1/tabs/" + tab_a + "/execution");
+  EXPECT_FALSE(*state_a.parsed.FindBool("paused"));
+
+  // Activate tab A — should foreground and re-pause it
+  auto activate_result = SendRequest("POST", "/api/v1/tabs/" + tab_a + "/activate", "{}");
+  EXPECT_EQ(activate_result.status, 200);
+
+  // Wait for EnableExecutionControl to complete (async CDP chain)
+  base::RunLoop run_loop;
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE, run_loop.QuitClosure(), base::Milliseconds(500));
+  run_loop.Run();
+
+  // Tab A should be paused again
+  auto state_a2 = SendRequest("GET", "/api/v1/tabs/" + tab_a + "/execution");
+  EXPECT_EQ(state_a2.status, 200);
+  ASSERT_TRUE(state_a2.parsed.FindBool("paused").has_value());
+  EXPECT_TRUE(*state_a2.parsed.FindBool("paused"));
 }
 
 }  // namespace abp
