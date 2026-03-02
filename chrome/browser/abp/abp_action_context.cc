@@ -670,6 +670,18 @@ void AbpActionContext::PauseExecutionIfNeeded() {
     return;
   }
 
+  // If tab was backgrounded during this action (e.g., page JS opened a new
+  // tab), skip pausing — the tab has already been fully released.
+  {
+    auto it = controller_->tab_states_.find(tab_id_);
+    if (it != controller_->tab_states_.end() && it->second.backgrounded) {
+      VLOG(1) << "ABP ActionContext: Tab " << tab_id_
+              << " backgrounded, skipping PauseExecutionIfNeeded";
+      OnExecutionPaused();
+      return;
+    }
+  }
+
   // Global execution control is enabled — delegate to PauseExecution which
   // handles auto-enabling per-tab execution control if not yet enabled.
   controller_->PauseExecution(
