@@ -797,6 +797,11 @@ AbpController::AbpController()
 }
 
 AbpController::~AbpController() {
+  for (TabStripModel* ts : observed_tab_strips_) {
+    ts->RemoveObserver(this);
+  }
+  observed_tab_strips_.clear();
+
   if (instance_for_testing_ == this) {
     instance_for_testing_ = nullptr;
   }
@@ -2299,6 +2304,21 @@ void AbpController::CreateTab(const base::Value::Dict& params,
     return;
   }
 
+  // Ensure we're observing this browser's tab strip
+  TabStripModel* tab_strip = browser->tab_strip_model();
+  if (observed_tab_strips_.find(tab_strip) == observed_tab_strips_.end()) {
+    tab_strip->AddObserver(this);
+    observed_tab_strips_.insert(tab_strip);
+  }
+
+  // Background the currently active tab before creating a new foreground tab.
+  // This releases execution control (debugger + virtual time) on the old tab
+  // so the new tab doesn't show "debugger paused in another tab".
+  std::string old_active_tab = GetActiveTabId();
+  if (!old_active_tab.empty()) {
+    BackgroundTab(old_active_tab);
+  }
+
   const std::string* url = params.FindString("url");
   GURL gurl = url ? GURL(*url) : GURL("about:blank");
 
@@ -3176,6 +3196,13 @@ void AbpController::ActivateTab(const std::string& tab_id,
       content::WebContents* wc = tab_strip->GetWebContentsAt(i);
       auto host = content::DevToolsAgentHost::GetOrCreateFor(wc);
       if (host->GetId() == tab_id) {
+        // Background old tab, foreground new tab
+        std::string old_active_tab = GetActiveTabId();
+        if (!old_active_tab.empty() && old_active_tab != tab_id) {
+          BackgroundTab(old_active_tab);
+        }
+        ForegroundTab(tab_id);
+
         // Activate the tab
         tab_strip->ActivateTabAt(i);
 
@@ -4163,6 +4190,13 @@ void AbpController::OnDebuggerPausedEvent(const std::string& tab_id) {
 void AbpController::OnPauseConfirmationTimeout(const std::string& tab_id) {
   auto it = tab_states_.find(tab_id);
   if (it == tab_states_.end()) return;
+  if (it->second.backgrounded) {
+    // Tab was backgrounded while waiting for Debugger.paused event.
+    // Cancel the stored callback — BackgroundTab already handled cleanup.
+    VLOG(1) << "ABP: Tab " << tab_id << " backgrounded, skipping OnPauseConfirmationTimeout";
+    it->second.pause_completion_callback.Reset();
+    return;
+  }
   if (!it->second.pause_completion_callback) return;
 
   LOG(WARNING) << "ABP: Debugger.paused event not received within 2s for tab "
@@ -4307,6 +4341,12 @@ void AbpController::PauseAllTabs() {
         permission_observer_->AttachToTab(tab_id, wc);
       }
 
+      // Register as tab strip observer to detect page-interaction tab opens
+      if (observed_tab_strips_.find(tab_strip) == observed_tab_strips_.end()) {
+        tab_strip->AddObserver(this);
+        observed_tab_strips_.insert(tab_strip);
+      }
+
       // Skip tabs with an action currently executing — the action's
       // own PauseExecutionIfNeeded() will pause when it completes.
       auto it = tab_states_.find(tab_id);
@@ -4331,6 +4371,12 @@ void AbpController::BackgroundTab(const std::string& tab_id) {
 
   TabState& tab = it->second;
   tab.backgrounded = true;
+
+  // Cancel any pending pause confirmation timer/callback.
+  if (tab.pause_confirmation_timer) {
+    tab.pause_confirmation_timer->Stop();
+  }
+  tab.pause_completion_callback.Reset();
 
   VLOG(1) << "ABP: Backgrounding tab " << tab_id
           << " phase=" << static_cast<int>(tab.execution.phase);
@@ -4398,6 +4444,51 @@ void AbpController::ForegroundTab(const std::string& tab_id) {
   // EnableExecutionControl starts in kPaused state (debugger paused + vtime frozen).
   if (IsExecutionControlEnabled()) {
     EnableExecutionControl(tab_id, std::nullopt, base::DoNothing());
+  }
+}
+
+void AbpController::OnTabStripModelChanged(
+    TabStripModel* tab_strip_model,
+    const TabStripModelChange& change,
+    const TabStripSelectionChange& selection) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  // We only care about active tab changes (selection changes).
+  // This catches page-interaction tab opens (window.open, target=_blank)
+  // where Chrome automatically foregrounds the new tab.
+  if (!selection.active_tab_changed()) {
+    return;
+  }
+
+  // Don't react if execution control is not enabled globally.
+  if (!IsExecutionControlEnabled()) {
+    return;
+  }
+
+  // Background the old active tab
+  if (selection.old_contents) {
+    auto old_host = content::DevToolsAgentHost::GetOrCreateFor(
+        selection.old_contents);
+    std::string old_tab_id = old_host->GetId();
+
+    auto it = tab_states_.find(old_tab_id);
+    if (it != tab_states_.end() && !it->second.backgrounded) {
+      BackgroundTab(old_tab_id);
+    }
+  }
+
+  // Foreground the new active tab
+  if (selection.new_contents) {
+    auto new_host = content::DevToolsAgentHost::GetOrCreateFor(
+        selection.new_contents);
+    std::string new_tab_id = new_host->GetId();
+
+    auto it = tab_states_.find(new_tab_id);
+    // Only foreground if not already foregrounded (avoid duplicate work
+    // when ActivateTab already called ForegroundTab).
+    if (it != tab_states_.end() && it->second.backgrounded) {
+      ForegroundTab(new_tab_id);
+    }
   }
 }
 
