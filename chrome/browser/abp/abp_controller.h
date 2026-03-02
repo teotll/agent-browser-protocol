@@ -273,6 +273,10 @@ class AbpController {
   void EmitPopupEvent(const std::string& event_type,
                       base::Value::Dict event_data);
 
+  // HTTP auth auto-dismiss notification (called by AbpLoginDelegate)
+  void OnHttpAuthDismissed(const std::string& tab_id,
+                           base::Value::Dict event_data);
+
   // Get popup interceptor
   AbpPopupInterceptor* popup_interceptor() { return popup_interceptor_.get(); }
 

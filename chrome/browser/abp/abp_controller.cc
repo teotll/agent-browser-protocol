@@ -871,6 +871,17 @@ void AbpController::EmitPopupEvent(const std::string& event_type,
   }
 }
 
+void AbpController::OnHttpAuthDismissed(const std::string& tab_id,
+                                         base::Value::Dict event_data) {
+  // RecordEvent takes const ref, so call it first. Then move to AddEvent.
+  if (history_controller_) {
+    history_controller_->RecordEvent(tab_id, "http_auth_dismissed", event_data);
+  }
+  if (event_collector_) {
+    event_collector_->AddEvent("http_auth_dismissed", std::move(event_data));
+  }
+}
+
 void AbpController::CenterCursorInTab(const std::string& tab_id,
                                        base::OnceClosure callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);

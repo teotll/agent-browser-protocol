@@ -51,7 +51,9 @@
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "build/config/chromebox_for_meetings/buildflags.h"  // PLATFORM_CFM
+#include "chrome/browser/abp/abp_controller.h"
 #include "chrome/browser/abp/abp_location_provider.h"
+#include "chrome/browser/abp/abp_login_delegate.h"
 #include "chrome/browser/after_startup_task_utils.h"
 #include "chrome/browser/ai/ai_manager.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
@@ -6858,6 +6860,20 @@ ChromeContentBrowserClient::CreateLoginDelegate(
                                        std::move(auth_required_callback));
   }
 #endif  // BUILDFLAG(IS_CHROMEOS)
+
+  // ABP: auto-dismiss HTTP auth dialogs and emit event.
+  // Skip in test mode so browser tests can test auth normally.
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch("test-type")) {
+    auto* controller = abp::AbpController::GetInstanceForTesting();
+    return std::make_unique<abp::AbpLoginDelegate>(
+        auth_info.scheme, auth_info.realm,
+        auth_info.challenger.Serialize(), auth_info.is_proxy,
+        auth_info.path,
+        web_contents,
+        controller ? controller->GetWeakPtr()
+                   : base::WeakPtr<abp::AbpController>(),
+        std::move(auth_required_callback));
+  }
 
   if (!http_auth_coordinator_) {
     http_auth_coordinator_ = CreateHttpAuthCoordinator();
