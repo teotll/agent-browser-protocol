@@ -842,6 +842,11 @@ class AbpController {
     uint64_t next_action_epoch = 0;
     std::deque<base::OnceCallback<void(uint64_t)>> queued_action_starters;
 
+    // True when this tab is not the active tab. Execution control is fully
+    // released on backgrounded tabs. CDP callbacks in the execution control
+    // chain check this flag and no-op if set.
+    bool backgrounded = false;
+
     // Pending callback for deterministic pause confirmation.
     // Set during PauseExecution, fired when Debugger.paused event arrives.
     base::OnceClosure pause_completion_callback;
