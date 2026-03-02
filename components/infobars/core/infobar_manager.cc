@@ -9,11 +9,9 @@
 
 #include "base/command_line.h"
 #include "base/observer_list.h"
-#include "build/branding_buildflags.h"
 #include "components/infobars/core/confirm_infobar_delegate.h"
 #include "components/infobars/core/infobar.h"
 #include "components/infobars/core/infobars_switches.h"
-#include "ui/gfx/switches.h"
 
 namespace infobars {
 
@@ -21,13 +19,7 @@ namespace {
 
 bool DisableInfoBars() {
   const auto* const command_line = base::CommandLine::ForCurrentProcess();
-  // Infobars can only be disabled when Chrome is running in headless mode and
-  // in Chrome for Testing.
-  return command_line->HasSwitch(::switches::kDisableInfoBars)
-#if !BUILDFLAG(CHROME_FOR_TESTING)
-         && command_line->HasSwitch(::switches::kHeadless)
-#endif
-      ;
+  return command_line->HasSwitch(::switches::kDisableInfoBars);
 }
 
 }  // namespace

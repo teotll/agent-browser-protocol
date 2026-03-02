@@ -489,7 +489,8 @@ void BackForwardCachePageLoadMetricsObserver::
           clock->NowTicks() - back_forward_state.navigation_start_time;
     }
 
-    if (foreground_duration.has_value()) {
+    if (foreground_duration.has_value() &&
+        foreground_duration.value().InMilliseconds() > 0) {
       ukm::builders::HistoryNavigation builder(
           GetLastUkmSourceIdForBackForwardCacheRestore());
       builder.SetForegroundDurationAfterBackForwardCacheRestore(

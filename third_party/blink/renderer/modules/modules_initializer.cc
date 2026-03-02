@@ -226,10 +226,13 @@ void ModulesInitializer::InitLocalFrame(LocalFrame& frame) const {
     frame.GetInterfaceRegistry()->AddInterface(BindRepeating(
         &DocumentMetadataServer::BindReceiver, WrapWeakPersistent(&frame)));
   }
-  if (frame.IsLocalRoot()) {
-    frame.GetInterfaceRegistry()->AddInterface(BindRepeating(
-        &AIPageContentAgent::BindReceiver, WrapWeakPersistent(&frame)));
-  }
+  // ABP: Disabled AIPageContentAgent - its UpdateLifecycle() call can trigger
+  // a DCHECK in LayoutObject::AssertLaidOut() when devtools/virtual time is
+  // active. ABP doesn't use Chrome's AI content extraction features.
+  // if (frame.IsLocalRoot()) {
+  //   frame.GetInterfaceRegistry()->AddInterface(BindRepeating(
+  //       &AIPageContentAgent::BindReceiver, WrapWeakPersistent(&frame)));
+  // }
   frame.GetInterfaceRegistry()->AddAssociatedInterface(BindRepeating(
       &WebLaunchServiceImpl::BindReceiver, WrapWeakPersistent(&frame)));
 

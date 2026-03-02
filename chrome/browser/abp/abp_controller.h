@@ -28,6 +28,7 @@
 #include "url/gurl.h"
 #include "chrome/browser/abp/abp_location_provider.h"
 #include "chrome/browser/abp/abp_permission_observer.h"
+#include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/abp/abp_action_context.h"
 #include "chrome/browser/abp/abp_config.h"
 #include "chrome/browser/abp/abp_types.h"
@@ -155,7 +156,7 @@ inline constexpr size_t kAllMarkupTagsCount = 5;
 
 // Handles ABP REST API requests on the UI thread.
 // Provides direct access to browser windows and tabs.
-class AbpController {
+class AbpController : public TabStripModelObserver {
   // AbpActionContext needs access to execution control, history, and
   // screenshot methods to implement the unified action flow.
   friend class AbpActionContext;
@@ -166,7 +167,7 @@ class AbpController {
 
  public:
   AbpController();
-  ~AbpController();
+  ~AbpController() override;
 
   AbpController(const AbpController&) = delete;
   AbpController& operator=(const AbpController&) = delete;
@@ -342,6 +343,14 @@ class AbpController {
   // Pause execution on all open tabs (used at startup)
   void PauseAllTabs();
 
+  // Release execution control on a tab that is losing focus.
+  // Sets backgrounded=true, sends Debugger.disable + setVirtualTimePolicy("realtime").
+  void BackgroundTab(const std::string& tab_id);
+
+  // Re-establish execution control on a tab that is gaining focus.
+  // Clears backgrounded=false, calls EnableExecutionControl if global flag is set.
+  void ForegroundTab(const std::string& tab_id);
+
   // Wait for action_complete conditions before calling callback.
   // Three-phase wait: min_wait (JS hook window) → request tracking →
   // post-tracking settle. All durations configurable per action type.
@@ -441,6 +450,11 @@ class AbpController {
                                 base::OnceClosure callback);
 
  private:
+  // TabStripModelObserver:
+  void OnTabStripModelChanged(TabStripModel* tab_strip_model,
+                              const TabStripModelChange& change,
+                              const TabStripSelectionChange& selection) override;
+
   // Tab operations
   void ListTabs(ResponseCallback callback);
   void GetTab(const std::string& tab_id, ResponseCallback callback);
@@ -865,6 +879,9 @@ class AbpController {
 
   // All per-tab state, keyed by DevToolsAgentHost ID
   std::map<std::string, TabState> tab_states_;
+
+  // Tab strip models we're observing for page-interaction tab opens.
+  std::set<TabStripModel*> observed_tab_strips_;
 
   // Get or create TabState for a tab
   TabState& GetOrCreateTabState(const std::string& tab_id);

@@ -84,6 +84,7 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_result_codes.h"
 #include "chrome/common/chrome_switches.h"
+#include "components/infobars/core/infobars_switches.h"
 #include "chrome/common/crash_keys.h"
 #include "chrome/common/media/media_resource_provider.h"
 #include "chrome/common/net/net_resource_provider.h"
@@ -937,6 +938,20 @@ int ChromeBrowserMainParts::PreEarlyInitialization() {
   TRACE_EVENT0("startup", "ChromeBrowserMainParts::PreEarlyInitialization");
   for (auto& chrome_extra_part : chrome_extra_parts_) {
     chrome_extra_part->PreEarlyInitialization();
+  }
+
+  // ABP: Suppress first-run dialogs, default browser prompts, and infobars.
+  {
+    auto* command_line = base::CommandLine::ForCurrentProcess();
+    if (!command_line->HasSwitch(switches::kNoFirstRun)) {
+      command_line->AppendSwitch(switches::kNoFirstRun);
+    }
+    if (!command_line->HasSwitch(switches::kNoDefaultBrowserCheck)) {
+      command_line->AppendSwitch(switches::kNoDefaultBrowserCheck);
+    }
+    if (!command_line->HasSwitch(switches::kDisableInfoBars)) {
+      command_line->AppendSwitch(switches::kDisableInfoBars);
+    }
   }
 
   // Create BrowserProcess in PreEarlyInitialization() so that we can load

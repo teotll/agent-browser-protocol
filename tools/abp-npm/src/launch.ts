@@ -81,8 +81,6 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
 
   const launchArgs: string[] = [
     `--abp-port=${port}`,
-    "--no-first-run",
-    "--no-default-browser-check",
     "--use-mock-keychain",
   ];
 
