@@ -1463,9 +1463,10 @@ void BrowserView::Show() {
   browser()->DidBecomeActive();
 #endif
 
-  // If the window is already visible, just activate it.
+  // ABP: Show the window without stealing focus from the user's active
+  // application.  Use ShowInactive() instead of Show() to avoid
+  // makeKeyAndOrderFront on macOS / SetForegroundWindow on Windows.
   if (browser_widget_->IsVisible()) {
-    browser_widget_->Activate();
     return;
   }
 
@@ -1475,7 +1476,7 @@ void BrowserView::Show() {
     restore_focus_on_activation_ = true;
   }
 
-  browser_widget_->Show();
+  browser_widget_->ShowInactive();
 
   browser()->OnWindowDidShow();
 
@@ -1531,12 +1532,11 @@ void BrowserView::Close() {
 }
 
 void BrowserView::Activate() {
-#if !BUILDFLAG(IS_WIN) && !BUILDFLAG(IS_CHROMEOS)
-  // Update the list managed by `BrowserList` synchronously the same way
-  // `BrowserView::Show()` does.
-  browser_->DidBecomeActive();
-#endif
-  browser_widget_->Activate();
+  // ABP: Window activation is a no-op in automated browser mode.
+  // OS-level window focus (makeKeyAndOrderFront + activateIgnoringOtherApps
+  // on macOS, SetForegroundWindow on Windows) steals focus from the user's
+  // active application, which is disruptive during automated browser control.
+  // Tab activation within the tab strip still works normally.
 }
 
 void BrowserView::Deactivate() {

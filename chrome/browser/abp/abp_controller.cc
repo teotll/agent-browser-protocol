@@ -2461,8 +2461,12 @@ void AbpController::Navigate(const std::string& tab_id,
   std::string url_copy = gurl.spec();
 
   // Center cursor after navigation so it's in the viewport center.
+  // Execute LoadURL BEFORE resuming JS: queue the navigation IPC while the
+  // renderer is frozen, then resume. This way the navigation teardown
+  // preempts old page microtasks/streams, preventing DCHECK races.
   auto options = GetDefaultActionOptions();
   options.center_cursor_after = true;
+  options.action_before_resume = true;
 
 
   AbpActionContext::RunWithOptions(
@@ -2499,6 +2503,7 @@ void AbpController::Reload(const std::string& tab_id,
   // Center cursor after reload so it's in the viewport center.
   auto options = GetDefaultActionOptions();
   options.center_cursor_after = true;
+  options.action_before_resume = true;
 
 
   AbpActionContext::RunWithOptions(
@@ -2535,6 +2540,7 @@ void AbpController::GoBack(const std::string& tab_id,
   // Center cursor after navigation so it's in the viewport center.
   auto options = GetDefaultActionOptions();
   options.center_cursor_after = true;
+  options.action_before_resume = true;
 
 
   AbpActionContext::RunWithOptions(
@@ -2576,6 +2582,7 @@ void AbpController::GoForward(const std::string& tab_id,
   // Center cursor after navigation so it's in the viewport center.
   auto options = GetDefaultActionOptions();
   options.center_cursor_after = true;
+  options.action_before_resume = true;
 
 
   AbpActionContext::RunWithOptions(

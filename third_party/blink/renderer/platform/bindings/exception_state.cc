@@ -188,7 +188,12 @@ void ExceptionState::ThrowWasmCompileError(const String& message) {
 
 void ExceptionState::RethrowV8Exception(v8::TryCatch& try_catch) {
 #if DCHECK_IS_ON()
-  DCHECK_AT(!assert_no_exceptions_, location_)
+  // When script execution is being aborted (e.g., BFCache eviction via
+  // AbortScriptExecution callback), V8 termination exceptions can propagate
+  // into code paths that use ASSERT_NO_EXCEPTION because those paths don't
+  // expect spec-level JS exceptions. Termination exceptions are not spec-level
+  // errors, so tolerate them here.
+  DCHECK_AT(!assert_no_exceptions_ || try_catch.HasTerminated(), location_)
       << "A V8 exception should not be thrown.";
 #endif
   SetExceptionInfo(

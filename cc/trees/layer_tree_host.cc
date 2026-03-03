@@ -1950,8 +1950,13 @@ void LayerTreeHost::ElementIsAnimatingChanged(
     const PropertyAnimationState& state) {
   if (list_type == ElementListType::PENDING)
     return;
+  // Pass false for check_node_existence: an element may have animations
+  // registered but no corresponding property tree node yet (e.g. element
+  // removed from DOM while animation cleanup is still pending, or
+  // BeginMainFrame arriving during a property tree rebuild). The impl thread
+  // already passes false here. Missing nodes are harmlessly skipped.
   property_trees()->ElementIsAnimatingChanged(element_id_map, mask, state,
-                                              true);
+                                              false);
 }
 
 void LayerTreeHost::MaximumScaleChanged(ElementId element_id,

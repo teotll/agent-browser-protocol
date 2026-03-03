@@ -2185,7 +2185,11 @@ WebLocalFrameImpl* WebLocalFrameImpl::CreateProvisional(
     WebView* web_view) {
   DCHECK(client);
   Frame* previous_frame = ToCoreFrame(*previous_web_frame);
-  DCHECK(name.IsEmpty() || name.Equals(previous_frame->Tree().GetName()));
+  // The browser's FrameReplicationState name may differ from the previous
+  // frame's local name due to IPC races: e.g. JS sets window.name but the
+  // DidChangeName IPC hasn't been processed by the browser before it
+  // constructs CreateViewParams for a new navigation. The provisional frame
+  // correctly uses the browser's name (source of truth for the new document).
   auto* web_frame = MakeGarbageCollected<WebLocalFrameImpl>(
       base::PassKey<WebLocalFrameImpl>(),
       previous_web_frame->GetTreeScopeType(), client, interface_registry,

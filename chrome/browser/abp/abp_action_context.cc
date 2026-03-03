@@ -381,10 +381,16 @@ void AbpActionContext::OnExecutionResumed() {
     return;
   }
 
-  // Before screenshot was already captured from the frozen buffer before
-  // resume.  Proceed directly to executing the action.
-  profile_action_start_ = base::TimeTicks::Now();
-  ExecuteAction();
+  if (options_.action_before_resume) {
+    // Navigation path: action already executed, resume just completed.
+    // Proceed to wait phase (new page is loading).
+    profile_resume_end_ = base::TimeTicks::Now();
+    ProceedToWait();
+  } else {
+    // Normal path: resume completed, now execute the action.
+    profile_action_start_ = base::TimeTicks::Now();
+    ExecuteAction();
+  }
 }
 
 void AbpActionContext::CaptureBeforeScreenshot() {
@@ -440,9 +446,18 @@ void AbpActionContext::OnBeforeScreenshotCaptured(std::string history_path,
     return;
   }
 
-  // Now resume execution — the before screenshot is already captured
-  profile_resume_start_ = base::TimeTicks::Now();
-  ResumeExecutionIfNeeded();
+  if (options_.action_before_resume) {
+    // Navigation path: execute the action (LoadURL) BEFORE resuming JS.
+    // This queues the navigation IPC while the renderer is still frozen,
+    // so when JS resumes, the navigation teardown preempts pending
+    // microtasks/streams from the old page.
+    profile_action_start_ = base::TimeTicks::Now();
+    ExecuteAction();
+  } else {
+    // Normal path: resume execution first, then execute the action
+    profile_resume_start_ = base::TimeTicks::Now();
+    ResumeExecutionIfNeeded();
+  }
 }
 
 void AbpActionContext::ExecuteAction() {
@@ -473,6 +488,18 @@ void AbpActionContext::OnActionDispatched() {
     return;
   }
 
+  // Navigation path: action was executed before resume. Now resume
+  // (Debugger.resume + virtual time realtime) so the new page can load.
+  if (options_.action_before_resume) {
+    profile_resume_start_ = base::TimeTicks::Now();
+    ResumeExecutionIfNeeded();
+    return;  // OnExecutionResumed → ProceedToWait
+  }
+
+  ProceedToWait();
+}
+
+void AbpActionContext::ProceedToWait() {
   // Center cursor early (before wait) so it's visible during page load
   profile_wait_start_ = base::TimeTicks::Now();
   if (options_.center_cursor_after) {
