@@ -1676,6 +1676,23 @@ void AbpMcpHandler::OnControllerResponse(base::Value request_id,
     // Strip before screenshot entirely from MCP response (not useful to agents)
     response_dict.Remove("screenshot_before");
 
+    // Extract intermediate screenshots from result.intermediate_screenshots
+    // (multi-scroll actions). Strip data from JSON; emit as image blocks.
+    std::vector<std::pair<std::string, std::string>> intermediate_images;
+    if (base::Value::Dict* result_dict = response_dict.FindDict("result")) {
+      if (base::Value::List* intermed =
+              result_dict->FindList("intermediate_screenshots")) {
+        for (auto& item : *intermed) {
+          if (!item.is_dict()) continue;
+          std::string img_data, img_mime;
+          extract_image(&item.GetDict(), img_data, img_mime);
+          if (!img_data.empty()) {
+            intermediate_images.emplace_back(std::move(img_data), img_mime);
+          }
+        }
+      }
+    }
+
     // Check new after format and rename to "screenshot" for MCP output
     extract_image(response_dict.FindDict("screenshot_after"),
                   after_data, after_mime);
@@ -1709,7 +1726,17 @@ void AbpMcpHandler::OnControllerResponse(base::Value request_id,
     text_content.Set("text", pretty_json);
     content.Append(std::move(text_content));
 
-    // Add screenshot as image content block
+    // Add intermediate screenshots as image blocks (multi-scroll).
+    // These appear before the final screenshot_after image block.
+    for (auto& [img_data, img_mime] : intermediate_images) {
+      base::Value::Dict img;
+      img.Set("type", "image");
+      img.Set("data", std::move(img_data));
+      img.Set("mimeType", img_mime);
+      content.Append(std::move(img));
+    }
+
+    // Add final screenshot (screenshot_after or single).
     if (!after_data.empty()) {
       base::Value::Dict img;
       img.Set("type", "image");
