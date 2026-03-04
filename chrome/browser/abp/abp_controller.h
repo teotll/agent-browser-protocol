@@ -340,6 +340,15 @@ class AbpController : public TabStripModelObserver {
   // Pause execution after action (virtual time pause + Debugger.pause)
   void PauseExecution(const std::string& tab_id, base::OnceClosure then);
 
+  // Force the compositor to paint a frame for the given tab.
+  // Calls back when the frame is committed (or after 1500ms timeout).
+  // Virtual time must be running (not paused) for this to work.
+  void ForceRedrawForTab(const std::string& tab_id, base::OnceClosure then);
+
+  // Fire-and-forget cleanup of markup overlays left from a previous action.
+  // Reads and clears last_markup_tags from TabState.
+  void CleanupMarkupForTab(const std::string& tab_id);
+
   // Pause execution on all open tabs (used at startup)
   void PauseAllTabs();
 
@@ -893,6 +902,10 @@ class AbpController : public TabStripModelObserver {
     // Timer for pause confirmation timeout (safety net).
     // Wrapped in unique_ptr to keep TabState moveable.
     std::unique_ptr<base::OneShotTimer> pause_confirmation_timer;
+
+    // Markup tags left on screen from the previous action's after-screenshot.
+    // Read and cleared at the start of the next action's cleanup phase.
+    std::vector<std::string> last_markup_tags;
 
     // Check if tab has any active state
     bool IsIdle() const;

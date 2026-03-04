@@ -1318,6 +1318,30 @@ std::string AbpController::BuildMarkupCleanupScript(
   return script;
 }
 
+void AbpController::CleanupMarkupForTab(const std::string& tab_id) {
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end() || it->second.last_markup_tags.empty()) {
+    return;
+  }
+
+  std::vector<std::string> tags = std::move(it->second.last_markup_tags);
+  it->second.last_markup_tags.clear();
+
+  content::WebContents* wc = FindWebContents(tab_id);
+  if (!wc) return;
+
+  AbpCdpClient* client = GetOrCreateCdpClient(wc);
+  if (!client) return;
+
+  base::Value::Dict cleanup;
+  cleanup.Set("expression", BuildMarkupCleanupScript(tags));
+  cleanup.Set("returnByValue", true);
+  cleanup.Set("disableBreaks", true);
+  VLOG(1) << "ABP: CleanupMarkupForTab fire-and-forget tab=" << tab_id;
+  client->SendCommand("Runtime.evaluate", cleanup,
+                      base::BindOnce([](bool, const std::string&) {}));
+}
+
 void AbpController::CaptureActionScreenshot(
     const std::string& tab_id,
     int64_t timestamp,
@@ -3894,6 +3918,53 @@ void AbpController::ForceRedrawThenResumeVirtualTime(
   // are up. The after-screenshot path does its own ForceRedraw with virtual
   // time running, which works correctly.
   SwitchToRealtimeVirtualTime(tab_id, std::move(then));
+}
+
+void AbpController::ForceRedrawForTab(const std::string& tab_id,
+                                       base::OnceClosure then) {
+  content::WebContents* wc = FindWebContents(tab_id);
+  if (!wc) {
+    std::move(then).Run();
+    return;
+  }
+
+  content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
+  if (!view) {
+    std::move(then).Run();
+    return;
+  }
+
+  auto* rwhi = static_cast<content::RenderWidgetHostImpl*>(
+      view->GetRenderWidgetHost());
+
+  auto shared_cb = std::make_shared<base::OnceClosure>(std::move(then));
+  auto done = std::make_shared<bool>(false);
+
+  // Safety timeout
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](std::shared_ptr<bool> d,
+             std::shared_ptr<base::OnceClosure> cb) {
+            if (*d) return;
+            *d = true;
+            LOG(WARNING) << "ABP: ForceRedrawForTab timed out after 1500ms";
+            if (*cb) std::move(*cb).Run();
+          },
+          done, shared_cb),
+      base::Milliseconds(1500));
+
+  VLOG(1) << "ABP: ForceRedrawForTab SEND tab=" << tab_id;
+  rwhi->ForceRedrawWithCallback(base::BindOnce(
+      [](std::shared_ptr<bool> d,
+         std::shared_ptr<base::OnceClosure> cb,
+         std::string tid) {
+        if (*d) return;
+        *d = true;
+        VLOG(1) << "ABP: ForceRedrawForTab DONE tab=" << tid;
+        if (*cb) std::move(*cb).Run();
+      },
+      done, shared_cb, tab_id));
 }
 
 void AbpController::SwitchToRealtimeVirtualTime(
