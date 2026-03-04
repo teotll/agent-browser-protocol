@@ -306,10 +306,15 @@ base::Value::List GetToolDefinitions() {
   tools.Append(
       ToolBuilder("browser_screenshot")
           .Description(
-              "Take a screenshot. Also acts as a wait: resumes page "
-              "execution, waits for rendering to settle, captures the "
-              "viewport, then re-pauses execution. Use this when you need "
-              "to let the page load or update before your next action.")
+              "Take a screenshot. Also acts as a short wait: resumes page "
+              "execution, waits up to 1 second for any action-triggered "
+              "network requests to settle, captures the viewport, then "
+              "re-pauses execution. Use this when you want to observe the "
+              "current page state or give the page a brief moment to settle "
+              "after an action. Use browser_wait instead when the page is "
+              "actively loading (e.g. after navigation or form submission) "
+              "and you need to wait up to 5 seconds for all in-flight "
+              "network requests to complete.")
           .OptionalString("tab_id", "Target tab ID")
           .OptionalStringArrayEnum("disable_markup",
               "Markup overlays to disable. All overlays are enabled by "
@@ -329,11 +334,15 @@ base::Value::List GetToolDefinitions() {
   tools.Append(
       ToolBuilder("browser_wait")
           .Description(
-              "Wait for all in-flight network requests to settle (up to 5 "
-              "seconds). Resumes page execution, waits for the network to go "
-              "idle, captures a screenshot, then re-pauses execution. Use "
-              "this when the page is loading content after an action and you "
-              "need to wait for it to finish.")
+              "Wait for all in-flight same-site network requests to settle "
+              "(up to 5 seconds), then capture a screenshot. Resumes page "
+              "execution, tracks ALL currently in-flight requests (including "
+              "those that started before this call), waits for them to "
+              "complete, then re-pauses execution. Use this after navigation "
+              "or form submission when the page is actively loading and you "
+              "need to wait for network activity to finish. Use "
+              "browser_screenshot instead when the page is already settled "
+              "and you just want to observe its current state.")
           .OptionalString("tab_id", "Target tab ID")
           .OptionalStringArrayEnum("markup",
               "Markup overlays to enable (none by default). clickable "
