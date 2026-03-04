@@ -126,6 +126,15 @@ class AbpInputDispatcher {
                const base::Value::Dict& params,
                RawCallback callback);
 
+  // Forward a native mouse wheel event to the renderer (bypasses CDP entirely).
+  // Uses the same code path as real mouse wheel input.
+  // Public so that file-local helpers (e.g. DispatchMultiScroll) can call it.
+  void ForwardWheelEvent(content::WebContents* wc,
+                         double x,
+                         double y,
+                         double delta_x,
+                         double delta_y);
+
  private:
   // Forward a native keyboard event to the renderer (bypasses CDP entirely).
   // Uses the same code path as real keyboard input.
@@ -133,14 +142,6 @@ class AbpInputDispatcher {
                        blink::WebInputEvent::Type type,
                        const KeyInfo& info,
                        int web_modifiers);
-
-  // Forward a native mouse wheel event to the renderer (bypasses CDP entirely).
-  // Uses the same code path as real mouse wheel input.
-  void ForwardWheelEvent(content::WebContents* wc,
-                         double x,
-                         double y,
-                         double delta_x,
-                         double delta_y);
 
   // Type characters one-by-one with delays (recursive via PostDelayedTask)
   void TypeNextCharacter(scoped_refptr<AbpActionContext> ctx,

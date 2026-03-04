@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <vector>
 
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/abp/abp_action_context.h"
@@ -638,11 +639,101 @@ void AbpInputDispatcher::Move(const std::string& tab_id,
       std::move(callback));
 }
 
+// Forward declaration for recursive call
+static void DispatchMultiScroll(double x,
+                                double y,
+                                std::vector<std::pair<double, double>> scrolls,
+                                size_t index,
+                                base::Value::List intermediate_screenshots,
+                                std::string tab_id,
+                                AbpController* controller,
+                                AbpInputDispatcher* dispatcher,
+                                scoped_refptr<AbpActionContext> ctx);
+
+static void DispatchMultiScroll(double x,
+                                double y,
+                                std::vector<std::pair<double, double>> scrolls,
+                                size_t index,
+                                base::Value::List intermediate_screenshots,
+                                std::string tab_id,
+                                AbpController* controller,
+                                AbpInputDispatcher* dispatcher,
+                                scoped_refptr<AbpActionContext> ctx) {
+  content::WebContents* wc = ctx->web_contents();
+  if (!wc) {
+    ctx->OnActionError("TAB_ERROR", "WebContents lost");
+    return;
+  }
+
+  auto [dx, dy] = scrolls[index];
+  dispatcher->ForwardWheelEvent(wc, x, y, dx, dy);
+
+  bool is_last = (index == scrolls.size() - 1);
+  if (is_last) {
+    // Final scroll: let AbpActionContext handle screenshot_after normally.
+    base::Value::Dict res;
+    res.Set("status", "scrolled");
+    res.Set("scrolls_executed", static_cast<int>(scrolls.size()));
+    res.Set("x", x);
+    res.Set("y", y);
+    if (!intermediate_screenshots.empty()) {
+      res.Set("intermediate_screenshots", std::move(intermediate_screenshots));
+    }
+    ctx->SetResult(std::move(res));
+    ctx->OnActionDispatched();
+    return;
+  }
+
+  // Non-final scroll: wait 500ms for scroll to render, then capture.
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](double x, double y,
+             std::vector<std::pair<double, double>> scrolls, size_t next_index,
+             base::Value::List intermediate_screenshots, std::string tab_id,
+             AbpController* controller, AbpInputDispatcher* dispatcher,
+             scoped_refptr<AbpActionContext> ctx) {
+            AbpController::ScreenshotOptions opts;
+            // Use webp at quality 80 for intermediate screenshots.
+            opts.format = "webp";
+            opts.quality = 80;
+            controller->CaptureScreenshotFromBuffer(
+                tab_id, /*timestamp=*/0, /*is_before=*/false, opts,
+                base::BindOnce(
+                    [](double x, double y,
+                       std::vector<std::pair<double, double>> scrolls,
+                       size_t next_index,
+                       base::Value::List intermediate_screenshots,
+                       std::string tab_id, AbpController* controller,
+                       AbpInputDispatcher* dispatcher,
+                       scoped_refptr<AbpActionContext> ctx,
+                       AbpController::ActionScreenshotResult result) {
+                      if (!result.base64.empty()) {
+                        base::Value::Dict ss;
+                        ss.Set("data", std::move(result.base64));
+                        ss.Set("width", result.width);
+                        ss.Set("height", result.height);
+                        ss.Set("format", "webp");
+                        intermediate_screenshots.Append(std::move(ss));
+                      }
+                      DispatchMultiScroll(x, y, std::move(scrolls), next_index,
+                                         std::move(intermediate_screenshots),
+                                         std::move(tab_id), controller,
+                                         dispatcher, std::move(ctx));
+                    },
+                    x, y, std::move(scrolls), next_index,
+                    std::move(intermediate_screenshots), tab_id, controller,
+                    dispatcher, std::move(ctx)));
+          },
+          x, y, std::move(scrolls), index + 1,
+          std::move(intermediate_screenshots), std::move(tab_id), controller,
+          dispatcher, std::move(ctx)),
+      base::Milliseconds(500));
+}
+
 void AbpInputDispatcher::Scroll(const std::string& tab_id,
                                 const base::Value::Dict& params,
                                 ResponseCallback callback) {
-  // x, y specify the center of the element to scroll (where the scroll wheel
-  // event is dispatched). Required to simulate real mouse-over-element behavior.
   auto x_opt = params.FindDouble("x");
   auto y_opt = params.FindDouble("y");
   if (!x_opt || !y_opt) {
@@ -652,6 +743,60 @@ void AbpInputDispatcher::Scroll(const std::string& tab_id,
   }
   double x = *x_opt;
   double y = *y_opt;
+
+  // --- Multi-scroll path ---
+  const base::Value::List* scrolls_list = params.FindList("scrolls");
+  if (scrolls_list && !scrolls_list->empty()) {
+    if (scrolls_list->size() > 3) {
+      controller_->SendError(
+          400, "'scrolls' array must have at most 3 elements",
+          std::move(callback));
+      return;
+    }
+
+    // Validate and extract scroll deltas.
+    std::vector<std::pair<double, double>> scrolls;
+    scrolls.reserve(scrolls_list->size());
+    for (size_t i = 0; i < scrolls_list->size(); i++) {
+      const base::Value::Dict* item = (*scrolls_list)[i].GetIfDict();
+      if (!item) {
+        controller_->SendError(
+            400, "Each 'scrolls' item must be an object",
+            std::move(callback));
+        return;
+      }
+      double dx = item->FindDouble("delta_x").value_or(0);
+      double dy = item->FindDouble("delta_y").value_or(0);
+      if (dx == 0 && dy == 0) {
+        controller_->SendError(
+            400,
+            "Each 'scrolls' item must have at least one non-zero delta",
+            std::move(callback));
+        return;
+      }
+      scrolls.emplace_back(dx, dy);
+    }
+
+    auto options = controller_->GetDefaultActionOptions();
+    options.min_wait_time = base::Milliseconds(500);
+    AbpActionContext::RunWithOptions(
+        controller_, tab_id, "scroll", params, options,
+        base::BindOnce(
+            [](double scroll_x, double scroll_y,
+               std::vector<std::pair<double, double>> scrolls,
+               std::string tab_id, AbpController* controller,
+               AbpInputDispatcher* dispatcher, AbpActionContext* ctx) {
+              scoped_refptr<AbpActionContext> ctx_ref(ctx);
+              DispatchMultiScroll(scroll_x, scroll_y, std::move(scrolls), 0,
+                                  base::Value::List(), std::move(tab_id),
+                                  controller, dispatcher, std::move(ctx_ref));
+            },
+            x, y, std::move(scrolls), tab_id, controller_, this),
+        std::move(callback));
+    return;
+  }
+
+  // --- Single-scroll path (existing behavior, unchanged) ---
   double delta_x = params.FindDouble("delta_x").value_or(0);
   double delta_y = params.FindDouble("delta_y").value_or(0);
 
@@ -662,14 +807,10 @@ void AbpInputDispatcher::Scroll(const std::string& tab_id,
     return;
   }
 
-  // Use AbpActionContext for consistent resume/pause/screenshot flow.
-  // Use native mouse wheel events for both vertical and horizontal scrolling.
-  // This simulates real user behavior: moving mouse over element and scrolling.
   auto options = controller_->GetDefaultActionOptions();
   options.min_wait_time = base::Milliseconds(500);
   AbpActionContext::RunWithOptions(
       controller_, tab_id, "scroll", params, options,
-      // Action callback - performs the scroll via mouse wheel
       base::BindOnce(
           [](double scroll_x, double scroll_y, double dx, double dy,
              AbpInputDispatcher* dispatcher, AbpActionContext* ctx) {
@@ -678,11 +819,7 @@ void AbpInputDispatcher::Scroll(const std::string& tab_id,
               ctx->OnActionError("TAB_ERROR", "WebContents lost");
               return;
             }
-
-            // Dispatch mouse wheel event at the specified coordinates
-            // This simulates scrolling while the mouse is over the element
             dispatcher->ForwardWheelEvent(wc, scroll_x, scroll_y, dx, dy);
-
             base::Value::Dict res;
             res.Set("status", "scrolled");
             res.Set("x", scroll_x);
