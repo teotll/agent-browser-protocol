@@ -297,7 +297,10 @@ base::Value::List GetToolDefinitions() {
                 "Simulates moving mouse over element and scrolling. "
                 "Accepts a scrolls array of 1-3 {delta_px, direction} "
                 "objects — a screenshot is captured after each scroll "
-                "and returned as sequential image blocks.")
+                "and returned as sequential image blocks. "
+                "Use multiple scrolls (up to 3) when reading long pages "
+                "or exploring vertically oriented filter panels, so you "
+                "can gather several viewports of content in one action.")
             .OptionalString("tab_id", "Target tab ID")
             .RequiredNumber(
                 "x",
@@ -706,7 +709,7 @@ SELECT screenshot_before_path, screenshot_after_path FROM actions WHERE id = <id
 
 - `browser_javascript` uses `expression` as its parameter name (not `script`)
 - `browser_scroll` requires `x`, `y` coordinates where the mouse wheel fires — target the element center
-- Scroll direction: `delta_y` positive = scroll down, negative = scroll up
+- Scroll direction: `delta_px` positive = scroll down/right, negative = scroll up/left (direction: "y" for vertical, "x" for horizontal)
 - JS is paused between actions — timers and animations don't advance until your next tool call
 - Key names are ALL-CAPS: ENTER, TAB, ESCAPE, BACKSPACE, ARROWUP, ARROWDOWN, etc.
 - Modifier keys for keyboard_press: SHIFT, CONTROL, ALT, META (or abbreviations CTRL, CMD, OPT)
