@@ -97,6 +97,10 @@ class ToolBuilder {
                                    const std::string& description,
                                    base::Value::Dict item_properties,
                                    base::Value::List item_required);
+  ToolBuilder& RequiredObjectArray(const std::string& name,
+                                   const std::string& description,
+                                   base::Value::Dict item_properties,
+                                   base::Value::List item_required);
 
   // Build the final tool definition
   base::Value::Dict Build();

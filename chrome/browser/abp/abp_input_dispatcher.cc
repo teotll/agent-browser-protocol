@@ -738,67 +738,47 @@ void AbpInputDispatcher::Scroll(const std::string& tab_id,
   double x = *x_opt;
   double y = *y_opt;
 
-  // --- Multi-scroll path ---
+  // scrolls is required: 1-3 {delta_px, direction} items.
   const base::Value::List* scrolls_list = params.FindList("scrolls");
-  if (scrolls_list && !scrolls_list->empty()) {
-    if (scrolls_list->size() > 3) {
-      controller_->SendError(
-          400, "'scrolls' array must have at most 3 elements",
-          std::move(callback));
-      return;
-    }
-
-    // Validate and extract scroll deltas.
-    std::vector<std::pair<double, double>> scrolls;
-    scrolls.reserve(scrolls_list->size());
-    for (size_t i = 0; i < scrolls_list->size(); i++) {
-      const base::Value::Dict* item = (*scrolls_list)[i].GetIfDict();
-      if (!item) {
-        controller_->SendError(
-            400, "Each 'scrolls' item must be an object",
-            std::move(callback));
-        return;
-      }
-      double dx = item->FindDouble("delta_x").value_or(0);
-      double dy = item->FindDouble("delta_y").value_or(0);
-      if (dx == 0 && dy == 0) {
-        controller_->SendError(
-            400,
-            "Each 'scrolls' item must have at least one non-zero delta",
-            std::move(callback));
-        return;
-      }
-      scrolls.emplace_back(dx, dy);
-    }
-
-    auto options = controller_->GetDefaultActionOptions();
-    options.min_wait_time = base::Milliseconds(500);
-    AbpActionContext::RunWithOptions(
-        controller_, tab_id, "scroll", params, options,
-        base::BindOnce(
-            [](double scroll_x, double scroll_y,
-               std::vector<std::pair<double, double>> scrolls,
-               std::string tab_id, AbpController* controller,
-               AbpInputDispatcher* dispatcher, AbpActionContext* ctx) {
-              scoped_refptr<AbpActionContext> ctx_ref(ctx);
-              DispatchMultiScroll(scroll_x, scroll_y, std::move(scrolls), 0,
-                                  base::Value::List(), std::move(tab_id),
-                                  controller, dispatcher, std::move(ctx_ref));
-            },
-            x, y, std::move(scrolls), tab_id, controller_, this),
+  if (!scrolls_list || scrolls_list->empty()) {
+    controller_->SendError(
+        400, "'scrolls' is required and must not be empty",
+        std::move(callback));
+    return;
+  }
+  if (scrolls_list->size() > 3) {
+    controller_->SendError(
+        400, "'scrolls' array must have at most 3 elements",
         std::move(callback));
     return;
   }
 
-  // --- Single-scroll path (existing behavior, unchanged) ---
-  double delta_x = params.FindDouble("delta_x").value_or(0);
-  double delta_y = params.FindDouble("delta_y").value_or(0);
-
-  if (delta_x == 0 && delta_y == 0) {
-    controller_->SendError(
-        400, "At least one of 'delta_x' or 'delta_y' must be non-zero",
-        std::move(callback));
-    return;
+  // Validate and map {delta_px, direction} → {delta_x, delta_y} pairs.
+  std::vector<std::pair<double, double>> scrolls;
+  scrolls.reserve(scrolls_list->size());
+  for (size_t i = 0; i < scrolls_list->size(); i++) {
+    const base::Value::Dict* item = (*scrolls_list)[i].GetIfDict();
+    if (!item) {
+      controller_->SendError(400, "Each 'scrolls' item must be an object",
+                             std::move(callback));
+      return;
+    }
+    auto delta_px = item->FindDouble("delta_px");
+    const std::string* direction = item->FindString("direction");
+    if (!delta_px || !direction) {
+      controller_->SendError(
+          400, "Each 'scrolls' item must have 'delta_px' and 'direction'",
+          std::move(callback));
+      return;
+    }
+    if (*direction != "x" && *direction != "y") {
+      controller_->SendError(400, "'direction' must be 'x' or 'y'",
+                             std::move(callback));
+      return;
+    }
+    double dx = (*direction == "x") ? *delta_px : 0.0;
+    double dy = (*direction == "y") ? *delta_px : 0.0;
+    scrolls.emplace_back(dx, dy);
   }
 
   auto options = controller_->GetDefaultActionOptions();
@@ -806,24 +786,16 @@ void AbpInputDispatcher::Scroll(const std::string& tab_id,
   AbpActionContext::RunWithOptions(
       controller_, tab_id, "scroll", params, options,
       base::BindOnce(
-          [](double scroll_x, double scroll_y, double dx, double dy,
+          [](double scroll_x, double scroll_y,
+             std::vector<std::pair<double, double>> scrolls,
+             std::string tab_id, AbpController* controller,
              AbpInputDispatcher* dispatcher, AbpActionContext* ctx) {
-            content::WebContents* wc = ctx->web_contents();
-            if (!wc) {
-              ctx->OnActionError("TAB_ERROR", "WebContents lost");
-              return;
-            }
-            dispatcher->ForwardWheelEvent(wc, scroll_x, scroll_y, dx, dy);
-            base::Value::Dict res;
-            res.Set("status", "scrolled");
-            res.Set("x", scroll_x);
-            res.Set("y", scroll_y);
-            res.Set("delta_x", dx);
-            res.Set("delta_y", dy);
-            ctx->SetResult(std::move(res));
-            ctx->OnActionDispatched();
+            scoped_refptr<AbpActionContext> ctx_ref(ctx);
+            DispatchMultiScroll(scroll_x, scroll_y, std::move(scrolls), 0,
+                                base::Value::List(), std::move(tab_id),
+                                controller, dispatcher, std::move(ctx_ref));
           },
-          x, y, delta_x, delta_y, this),
+          x, y, std::move(scrolls), tab_id, controller_, this),
       std::move(callback));
 }
 

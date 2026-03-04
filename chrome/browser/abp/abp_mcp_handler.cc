@@ -267,33 +267,37 @@ base::Value::List GetToolDefinitions() {
     tools.Append(std::move(tool));
   }
 
-  // 2. browser_scroll — standalone scroll, optionally multi-scroll
+  // 2. browser_scroll — scroll 1-3 viewports with a screenshot after each
   {
     base::Value::Dict scroll_item_props;
     {
-      base::Value::Dict dx;
-      dx.Set("type", "number");
-      dx.Set("description",
-             "Horizontal scroll in pixels (positive=right, negative=left)");
-      scroll_item_props.Set("delta_x", std::move(dx));
+      base::Value::Dict dp;
+      dp.Set("type", "number");
+      dp.Set("description",
+             "Scroll amount in pixels (positive=down/right, negative=up/left)");
+      scroll_item_props.Set("delta_px", std::move(dp));
     }
     {
-      base::Value::Dict dy;
-      dy.Set("type", "number");
-      dy.Set("description",
-             "Vertical scroll in pixels (negative=up, positive=down)");
-      scroll_item_props.Set("delta_y", std::move(dy));
+      base::Value::Dict dir;
+      dir.Set("type", "string");
+      base::Value::List dir_enum;
+      dir_enum.Append("x");
+      dir_enum.Append("y");
+      dir.Set("enum", std::move(dir_enum));
+      dir.Set("description", "Scroll axis: 'x' for horizontal, 'y' for vertical");
+      scroll_item_props.Set("direction", std::move(dir));
     }
+    base::Value::List scroll_item_required;
+    scroll_item_required.Append("delta_px");
+    scroll_item_required.Append("direction");
     tools.Append(
         ToolBuilder("browser_scroll")
             .Description(
                 "Scroll using mouse wheel at element coordinates. "
-                "Simulates moving mouse over element and scrolling. At "
-                "least one of delta_x or delta_y must be non-zero. "
-                "Optionally accepts a scrolls array of up to 3 "
-                "{delta_x, delta_y} objects to scroll multiple viewport "
-                "heights in one action — a screenshot is captured after "
-                "each scroll and returned as sequential image blocks.")
+                "Simulates moving mouse over element and scrolling. "
+                "Accepts a scrolls array of 1-3 {delta_px, direction} "
+                "objects — a screenshot is captured after each scroll "
+                "and returned as sequential image blocks.")
             .OptionalString("tab_id", "Target tab ID")
             .RequiredNumber(
                 "x",
@@ -305,19 +309,13 @@ base::Value::List GetToolDefinitions() {
                 "Y pixel coordinate of element center where mouse wheel "
                 "fires. Read from the red grid on your screenshot. Must "
                 "be within viewport bounds.")
-            .OptionalNumber("delta_x",
-                            "Horizontal scroll in pixels (positive=right, "
-                            "negative=left, default=0)")
-            .OptionalNumber("delta_y",
-                            "Vertical scroll in pixels (negative=up, "
-                            "positive=down, default=0)")
-            .OptionalObjectArray(
+            .RequiredObjectArray(
                 "scrolls",
-                "Array of up to 3 scroll events. Each item scrolls from "
-                "the same x,y coordinates. Use instead of delta_x/delta_y "
-                "for multi-viewport scrolling.",
+                "Array of 1-3 scroll events. Each item scrolls from the "
+                "same x,y coordinates. Pass multiple items to scroll "
+                "multiple viewport heights in one action.",
                 std::move(scroll_item_props),
-                base::Value::List())
+                std::move(scroll_item_required))
             .Build());
   }
 
@@ -655,7 +653,7 @@ All `tab_id` parameters are optional and default to the active tab.
 
 **Input:**
 - `browser_action` — 1-3 actions: mouse_click (x, y), keyboard_type (text), keyboard_press (key, modifiers?), mouse_hover (x, y), mouse_drag (start_x, start_y, end_x, end_y). Keys are ALL-CAPS (ENTER, TAB, ESCAPE, CONTROL, META, etc.). Abbreviations accepted: CTRL, CMD, ESC, DEL.
-- `browser_scroll` — x, y (where wheel fires), delta_x?, delta_y? (positive=down/right). Or pass a `scrolls` array of up to 3 `{delta_x, delta_y}` objects to scroll multiple viewports in one action — returns a screenshot after each scroll as sequential image blocks.
+- `browser_scroll` — x, y (where wheel fires), scrolls: required array of 1-3 `{delta_px, direction}` objects (direction: "x" or "y", delta_px positive=down/right, negative=up/left). Returns a screenshot after each scroll as sequential image blocks.
 - `browser_slider` — orientation (horizontal/vertical), track bounds, current position, min, max, target_value. Calculates and executes drag automatically. Fallback chain if result is wrong: (1) `browser_action` with `mouse_drag`, (2) click the slider then use ARROWRIGHT/ARROWLEFT (or ARROWUP/ARROWDOWN) to nudge incrementally.
 - `browser_clear_text` — x, y (center of input). Clicks to focus, selects all text, then presses Backspace to delete.
 

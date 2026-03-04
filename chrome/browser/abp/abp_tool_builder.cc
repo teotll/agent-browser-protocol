@@ -122,6 +122,21 @@ ToolBuilder& ToolBuilder::OptionalObjectArray(
   return *this;
 }
 
+ToolBuilder& ToolBuilder::RequiredObjectArray(
+    const std::string& name,
+    const std::string& description,
+    base::Value::Dict item_properties,
+    base::Value::List item_required) {
+  base::Value::Dict items;
+  items.Set("type", "object");
+  items.Set("properties", std::move(item_properties));
+  if (!item_required.empty()) {
+    items.Set("required", std::move(item_required));
+  }
+  AddArrayProperty(name, description, std::move(items), true);
+  return *this;
+}
+
 base::Value::Dict ToolBuilder::Build() {
   base::Value::Dict tool;
   tool.Set("name", name_);
