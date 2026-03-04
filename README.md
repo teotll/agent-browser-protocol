@@ -4,7 +4,7 @@
 </p>
 <h1 align="center">Agent Browser Protocol</h1>
 
-**Browsers are async. Agents are synchronous. ABP turns continuous browsing into discrete, atomic steps so LLMs can reason about the web without racing against it.**
+**Web browsing is continuous and async. ABP reformats web navigation into the discrete, request-response chat format agents excel at.**
 
 <p align="center"><strong>90.53% on Online Mind2Web</strong> — <a href="https://github.com/theredsix/abp-online-mind2web-results">reproducible results</a></p>
 
