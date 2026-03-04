@@ -281,13 +281,20 @@ class TeeHelper final : public GarbageCollected<TeeHelper>,
 
    private:
     void Close() {
-      DCHECK_EQ(PublicState::kClosed, tee_->GetPublicState());
-      DCHECK(chunks_.empty());
       if (is_closed_ || is_cancelled_) {
         // It's possible to reach here because this function can be
         // called asynchronously.
         return;
       }
+      // This method is posted asynchronously from EndRead() when the source
+      // state was kClosed. Between posting and execution, script abortion
+      // (e.g., BFCache eviction via AbortScriptExecution) can transition the
+      // source to kErrored. Bail out rather than DCHECK — the destination
+      // will be cleaned up via Error() or garbage collection.
+      if (tee_->GetPublicState() != PublicState::kClosed) {
+        return;
+      }
+      DCHECK(chunks_.empty());
       DCHECK_EQ(PublicState::kReadableOrWaiting, GetPublicState());
       is_closed_ = true;
       if (client_) {

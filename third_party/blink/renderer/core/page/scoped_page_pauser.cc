@@ -65,7 +65,11 @@ void ScopedPagePauser::SetPaused(Page* primary_page, bool paused) {
   HeapVector<Member<Page>> pages(Page::OrdinaryPages());
 
   for (const auto& page : pages) {
-    page->SetShowPausedHudOverlay(primary_page && page != primary_page);
+    // ABP: Never show the "Debugger paused in another tab" compositor HUD
+    // overlay. ABP uses Debugger.pause for execution control, not for
+    // interactive debugging. The overlay confuses users and appears in
+    // screenshots.
+    page->SetShowPausedHudOverlay(false);
     page->SetPaused(paused);
   }
 }
