@@ -209,6 +209,9 @@ void AbpActionContext::Start() {
   start_time_ms_ = base::Time::Now().InMillisecondsSinceUnixEpoch();
   start_ticks_ = base::TimeTicks::Now();
 
+  // Remember original tab for deterministic slot release.
+  original_tab_id_ = tab_id_;
+
   // Parse screenshot options from action params.
   // No markup overlays by default; clients specify which ones to enable via "markup".
   // Legacy "disable_markup" is also supported (all tags minus disabled ones).
@@ -316,7 +319,9 @@ bool AbpActionContext::IsCurrentAction() const {
   if (!controller_) {
     return false;
   }
-  return controller_->IsDeterministicActionCurrent(tab_id_, action_epoch_);
+  // Always check against original_tab_id_ — the slot was acquired there.
+  return controller_->IsDeterministicActionCurrent(original_tab_id_,
+                                                   action_epoch_);
 }
 
 void AbpActionContext::ReleaseDeterministicSlot() {
@@ -325,7 +330,8 @@ void AbpActionContext::ReleaseDeterministicSlot() {
   }
   deterministic_slot_active_ = false;
   if (controller_) {
-    controller_->FinishDeterministicAction(tab_id_, action_epoch_);
+    // Release on the original tab where the slot was acquired.
+    controller_->FinishDeterministicAction(original_tab_id_, action_epoch_);
   }
 }
 
@@ -553,7 +559,8 @@ void AbpActionContext::DoWaitUntil() {
       options_.min_wait_time,
       options_.request_tracking_timeout,
       options_.post_tracking_settle_time,
-      page_was_loaded_before_action_);
+      page_was_loaded_before_action_,
+      options_.all_requests);
 }
 
 void AbpActionContext::OnWaitUntilComplete() {
@@ -601,7 +608,34 @@ void AbpActionContext::OnCompositorFrameFlushed() {
   PauseExecutionIfNeeded();
 }
 
+void AbpActionContext::CheckForTabSwitch() {
+  // Check if a tab switch happened during the action (e.g., click opened
+  // a new tab via window.open / target=_blank). If so, redirect the
+  // after-screenshot and pause to the new tab.
+  auto it = controller_->tab_states_.find(original_tab_id_);
+  if (it != controller_->tab_states_.end() &&
+      !it->second.tab_switched_to.empty()) {
+    std::string new_tab = it->second.tab_switched_to;
+    it->second.tab_switched_to.clear();
+    SwitchToNewTab(new_tab);
+  }
+}
+
+void AbpActionContext::SwitchToNewTab(const std::string& new_tab_id) {
+  VLOG(1) << "ABP ActionContext: Switching target tab from " << tab_id_
+          << " to " << new_tab_id << " action=" << action_type_;
+  tab_id_ = new_tab_id;
+  tab_switched_ = true;
+  web_contents_ = controller_->FindWebContents(new_tab_id);
+  client_ = web_contents_
+                ? controller_->GetOrCreateCdpClient(web_contents_)
+                : nullptr;
+}
+
 void AbpActionContext::EnsureVirtualCursorVisible() {
+  // Check for tab switch before capturing screenshots.
+  CheckForTabSwitch();
+
   // Re-enable and re-position the virtual cursor from last known state
   // so it appears in every screenshot regardless of action type.
   auto& tab_state = controller_->GetOrCreateTabState(tab_id_);
@@ -806,8 +840,17 @@ void AbpActionContext::SendResponse() {
   // Build full response envelope
   base::Value::Dict envelope;
 
-  // 0. Add action ID
+  // 0. Add action ID and tab ID
   envelope.Set("action_id", action_id_);
+  envelope.Set("tab_id", tab_id_);
+
+  // If the action caused a tab switch (e.g., click opened a new tab),
+  // include metadata so the client knows the after-screenshot is from
+  // a different tab than the one the action was dispatched on.
+  if (tab_switched_) {
+    envelope.Set("tab_changed", true);
+    envelope.Set("original_tab_id", original_tab_id_);
+  }
 
   // 1. Add action result
   envelope.Set("result", std::move(result_));

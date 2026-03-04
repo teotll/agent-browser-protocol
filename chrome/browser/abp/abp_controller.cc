@@ -4647,7 +4647,8 @@ void AbpController::WaitForActionComplete(
     base::TimeDelta min_wait_time,
     base::TimeDelta request_tracking_timeout,
     base::TimeDelta post_tracking_settle_time,
-    bool page_was_loaded_before_action) {
+    bool page_was_loaded_before_action,
+    bool all_requests) {
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
     // Tab not found, call callback immediately
@@ -4665,6 +4666,7 @@ void AbpController::WaitForActionComplete(
   waiter->min_wait_time = min_wait_time;
   waiter->request_tracking_timeout = request_tracking_timeout;
   waiter->post_tracking_settle_time = post_tracking_settle_time;
+  waiter->all_requests = all_requests;
 
   // Extract page's registrable domain (eTLD+1) for same-site request filtering.
   // Only requests to this domain or its subdomains will be tracked.
@@ -4960,7 +4962,16 @@ void AbpController::OnMinWaitTimeElapsed(const std::string& tab_id) {
   waiter->min_time_elapsed = true;
 
   // Phase 1 complete — take request tracking snapshot
-  waiter->tracked_requests = waiter->active_request_ids;
+  if (waiter->all_requests) {
+    // browser_wait mode: seed from persistent tracking (all in-flight same-site
+    // requests regardless of when they started, not just since wait began).
+    waiter->tracked_requests = it->second.persistent_active_request_ids;
+    // Also include any new requests seen during prewait
+    waiter->tracked_requests.insert(waiter->active_request_ids.begin(),
+                                    waiter->active_request_ids.end());
+  } else {
+    waiter->tracked_requests = waiter->active_request_ids;
+  }
   waiter->tracking_snapshot_taken = true;
 
   VLOG(1) << "ABP PROFILE [wait] min_wait ELAPSED"
