@@ -80,7 +80,7 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
 
     // Phase 1: JS hook window. Minimum time before snapshot + completion check.
     // 150ms default lets page JS fire event handlers and start requests.
-    base::TimeDelta min_wait_time = base::Milliseconds(250);
+    base::TimeDelta min_wait_time = base::Milliseconds(150);
 
     // Phase 2: How long to wait for snapshotted requests to complete.
     // 1s default for clicks/type/scroll. 60s for file uploads.
@@ -88,7 +88,7 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
 
     // Phase 3: Settle time after tracked requests complete.
     // Lets the page process network responses and update DOM.
-    base::TimeDelta post_tracking_settle_time = base::Milliseconds(750);
+    base::TimeDelta post_tracking_settle_time = base::Milliseconds(350);
   };
 
   // Factory method - creates context and starts the action flow
@@ -186,6 +186,8 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   void PauseExecutionIfNeeded();
   void OnExecutionPaused();
   void EnsureVirtualCursorVisible();
+  void CheckForTabSwitch();
+  void SwitchToNewTab(const std::string& new_tab_id);
   void CaptureAfterScreenshot();
   void OnAfterScreenshotCaptured(std::string history_path,
                                   std::string base64,
@@ -212,6 +214,11 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   // State
   base::WeakPtr<AbpController> controller_;
   std::string tab_id_;
+  // Original tab ID for deterministic slot release. May differ from tab_id_
+  // if a click opened a new tab and the action context followed it.
+  std::string original_tab_id_;
+  // True if the action context switched to a different tab during the action.
+  bool tab_switched_ = false;
   std::string action_type_;
   std::string action_id_;
   base::Value::Dict params_;

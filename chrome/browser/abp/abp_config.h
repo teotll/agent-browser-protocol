@@ -33,11 +33,11 @@ struct AbpConfig {
 
   struct TimingConfig {
     // Phase 1: JS hook window before network snapshot
-    base::TimeDelta min_wait = base::Milliseconds(250);
+    base::TimeDelta min_wait = base::Milliseconds(150);
     // Phase 2: How long to track in-flight requests
     base::TimeDelta tracking_timeout = base::Milliseconds(1000);
     // Phase 3: Settle after tracked requests complete
-    base::TimeDelta post_settle = base::Milliseconds(750);
+    base::TimeDelta post_settle = base::Milliseconds(350);
   };
   TimingConfig timing;
 
