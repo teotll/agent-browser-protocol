@@ -34,6 +34,7 @@ export type {
   ClickOptions,
   MoveOptions,
   ScrollOptions,
+  DragOptions,
   // Keyboard
   TypeOptions,
   KeyOptions,
@@ -53,11 +54,30 @@ export type {
   // Downloads
   Download,
   ListDownloadsOptions,
+  DownloadContentOptions,
   // File Chooser
   FileChooserOptions,
   FileChooserOpenOptions,
   FileChooserSaveOptions,
   FileChooserCancelOptions,
+  // Slider
+  SliderOptions,
+  SliderBaseOptions,
+  HorizontalSliderOptions,
+  VerticalSliderOptions,
+  // Clear Text
+  ClearTextOptions,
+  // Batch
+  BatchAction,
+  BatchOptions,
+  // Wait for Network
+  WaitForNetworkOptions,
+  // Permissions
+  PermissionRequest,
+  GrantPermissionOptions,
+  DenyPermissionOptions,
+  // Select Popup
+  SelectPopupOptions,
   // History
   Session,
   HistoryAction,
