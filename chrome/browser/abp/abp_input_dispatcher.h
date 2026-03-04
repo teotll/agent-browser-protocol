@@ -135,6 +135,11 @@ class AbpInputDispatcher {
                          double delta_x,
                          double delta_y);
 
+  // Forward a native mouse move event to the renderer (bypasses CDP entirely).
+  // Simulates real mouse positioning before scroll/wheel events.
+  // Public so that file-local helpers (e.g. DispatchMultiScroll) can call it.
+  void ForwardMouseMoveEvent(content::WebContents* wc, double x, double y);
+
  private:
   // Forward a native keyboard event to the renderer (bypasses CDP entirely).
   // Uses the same code path as real keyboard input.

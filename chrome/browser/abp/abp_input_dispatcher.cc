@@ -247,6 +247,27 @@ void AbpInputDispatcher::ForwardWheelEvent(content::WebContents* wc,
   rwhi->ForwardWheelEvent(end_event);
 }
 
+void AbpInputDispatcher::ForwardMouseMoveEvent(content::WebContents* wc,
+                                               double x,
+                                               double y) {
+  auto* rwhv = wc->GetRenderWidgetHostView();
+  if (!rwhv)
+    return;
+  auto* rwhi = static_cast<content::RenderWidgetHostImpl*>(
+      rwhv->GetRenderWidgetHost());
+  if (!rwhi)
+    return;
+
+  // Mark as kFromDebugger so ABP's input filter in RenderInputRouter allows
+  // the event through (ABP blocks non-debugger input by default).
+  int modifiers = blink::WebInputEvent::kFromDebugger;
+
+  blink::WebMouseEvent move_event = blink::SyntheticWebMouseEventBuilder::Build(
+      blink::WebInputEvent::Type::kMouseMove,
+      static_cast<float>(x), static_cast<float>(y), modifiers);
+  rwhi->ForwardMouseEvent(move_event);
+}
+
 void AbpInputDispatcher::Click(const std::string& tab_id,
                                const base::Value::Dict& params,
                                ResponseCallback callback) {
@@ -658,6 +679,14 @@ static void DispatchMultiScroll(double x,
     ctx->OnActionError("TAB_ERROR", "WebContents lost");
     return;
   }
+
+  // Move mouse to target coordinates first (like a real mouse would), then
+  // scroll. This order matches actual user behavior and ensures hover state
+  // is correct before the wheel event fires.
+  dispatcher->ForwardMouseMoveEvent(wc, x, y);
+  controller->UpdateVirtualCursorState(tab_id, x, y);
+  controller->SetVirtualCursorEnabledViaMojo(wc, true);
+  controller->SetVirtualCursorViaMojo(wc, x, y, true);
 
   auto [dx, dy] = scrolls[index];
   dispatcher->ForwardWheelEvent(wc, x, y, dx, dy);
