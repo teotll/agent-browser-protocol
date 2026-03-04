@@ -16,11 +16,11 @@ export interface LaunchOptions {
   windowSize?: [number, number];
   /** Pipe browser stdout/stderr to the parent process stderr. */
   verbose?: boolean;
-  /** Pre-network settlement wait in ms. Default: 250. */
+  /** Pre-network settlement wait in ms. Default: 150. */
   minWait?: number;
   /** Request tracking timeout in ms. Default: 1000. */
   trackingTimeout?: number;
-  /** Post-network settle time in ms. Default: 750. */
+  /** Post-network settle time in ms. Default: 350. */
   postSettle?: number;
   /** Chrome user data directory. */
   userDataDir?: string;
@@ -28,6 +28,14 @@ export interface LaunchOptions {
   profileDirectory?: string;
   /** Custom User-Agent string. */
   userAgent?: string;
+  /** Default zoom factor (e.g. 1.5). Default: 1.0. */
+  zoom?: number;
+  /** Path to ABP JSON config file. */
+  configFile?: string;
+  /** Disable execution control (Debugger.pause + virtual time). */
+  disablePause?: boolean;
+  /** Allow system inputs (disable input blocking). */
+  allowSystemInputs?: boolean;
   args?: string[];
 }
 
@@ -74,6 +82,10 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
     userDataDir,
     profileDirectory,
     userAgent,
+    zoom,
+    configFile,
+    disablePause = false,
+    allowSystemInputs = false,
     args = [],
   } = options;
 
@@ -118,6 +130,22 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
 
   if (userAgent) {
     launchArgs.push(`--user-agent=${userAgent}`);
+  }
+
+  if (zoom !== undefined) {
+    launchArgs.push(`--abp-zoom=${zoom}`);
+  }
+
+  if (configFile) {
+    launchArgs.push(`--abp-config=${configFile}`);
+  }
+
+  if (disablePause) {
+    launchArgs.push("--abp-disable-pause");
+  }
+
+  if (allowSystemInputs) {
+    launchArgs.push("--allow-system-inputs");
   }
 
   // Normalize any --headless args to --headless=new (old headless is not supported)
