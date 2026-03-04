@@ -6,6 +6,8 @@
 
 **Browsers are async. Agents are synchronous. ABP turns continuous browsing into discrete, atomic steps so LLMs can reason about the web without racing against it.**
 
+<p align="center"><strong>90.53% on Online Mind2Web</strong> — <a href="https://github.com/theredsix/abp-online-mind2web-results">reproducible results</a></p>
+
 ABP is a Chromium build with **MCP + REST** baked directly into the browser engine.
 
 - **One request = one completed step**: settled state + screenshot + event log
@@ -61,6 +63,8 @@ AI Agent                                 ABP Chromium
 ---
 
 ## Quick Start
+
+> **Note:** If you have a Playwright MCP server configured, disable it before using ABP to avoid tool name conflicts.
 
 ### Claude Code
 
@@ -408,26 +412,25 @@ ABP is under active development. Current implementation:
 - Tab management (list, create, close, activate, stop)
 - Navigation (URL, back, forward, reload)
 - Screenshots with element markup and virtual cursor
-- Mouse input (click, move, scroll via native wheel events)
+- Mouse input (click, move, drag, scroll via native wheel events)
 - Keyboard input (type, press, key down/up with modifiers)
 - JavaScript execution
 - Text extraction (full page or CSS selector)
-- Duration wait with action envelope
+- Input helpers (slider, clear-text)
+- Duration and network wait
 - Dialog handling (alert, confirm, prompt, beforeunload)
-- File chooser support
-- Download management
+- File chooser support (local files and base64 content)
+- Native select popup handling
+- Download management (list, status, cancel, content retrieval)
+- Permission prompt handling + geolocation spoofing
 - Execution control (JS pause/resume, virtual time)
 - History tracking with SQLite (sessions, actions, events)
 - Virtual cursor rendering (compositor layer)
 - Browser management (status, shutdown)
-- MCP server with 14 tools at `/mcp`
-- Location permissions + geo-spoofing
- 
+- Embedded MCP server with 18 tools at `/mcp`
+
 **Not yet implemented:**
-- Online mind2web benchmarks
 - Action success/failure tracking
-- Revert URL to last known success state
-- Revert browser to last known success state
 - Recording of human browsing sessions as training data for agent fine-tuning
 
 ---

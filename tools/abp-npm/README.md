@@ -15,7 +15,7 @@ Downloads the pre-built ABP browser binary for your platform (~130MB) on first i
 This package provides three things:
 
 1. **REST API client** — typed TypeScript SDK for the 40+ endpoint ABP REST API
-2. **MCP server** — 17 tools for AI-assisted browsing (Claude Code, Codex, or any MCP client)
+2. **MCP server** — 18 tools for AI-assisted browsing (Claude Code, Codex, or any MCP client)
 3. **Debug server** — web UI for inspecting session history, screenshots, and action logs
 
 ---
@@ -95,7 +95,7 @@ The SDK mirrors the REST API 1:1:
 | **Input** | |
 | `client.tabs.click(id, { x, y })` | `POST /tabs/{id}/click` |
 | `client.tabs.move(id, { x, y })` | `POST /tabs/{id}/move` |
-| `client.tabs.drag(id, { startX, startY, endX, endY })` | `POST /tabs/{id}/drag` |
+| `client.tabs.drag(id, { start_x, start_y, end_x, end_y })` | `POST /tabs/{id}/drag` |
 | `client.tabs.type(id, { text })` | `POST /tabs/{id}/type` |
 | `client.tabs.keyPress(id, { key })` | `POST /tabs/{id}/keyboard/press` |
 | `client.tabs.keyDown(id, { key })` | `POST /tabs/{id}/keyboard/down` |
@@ -138,7 +138,7 @@ The SDK mirrors the REST API 1:1:
 
 ## 2. MCP Server
 
-ABP exposes 17 MCP tools: `browser_action`, `browser_scroll`, `browser_navigate`, `browser_screenshot`, `browser_tabs`, `browser_javascript`, `browser_text`, `browser_wait`, `browser_dialog`, `browser_downloads`, `browser_files`, `browser_select_picker`, `browser_get_status`, `browser_shutdown`, `browser_slider`, `respond_to_permission`, `set_geolocation`.
+ABP exposes 18 MCP tools: `browser_action`, `browser_scroll`, `browser_navigate`, `browser_screenshot`, `browser_tabs`, `browser_javascript`, `browser_text`, `browser_wait`, `browser_dialog`, `browser_downloads`, `browser_files`, `browser_select_picker`, `browser_get_status`, `browser_shutdown`, `browser_slider`, `browser_clear_text`, `respond_to_permission`, `set_geolocation`.
 
 The browser launches automatically on first tool call at 1280x800 (optimized for LLM vision). Screenshots are served as WebP and scaled to fit context limits.
 

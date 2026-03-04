@@ -194,6 +194,10 @@ Events are collected during action execution and returned in the `events` array 
 | `scroll` | The page was scrolled |
 | `download_started` | A file download began |
 | `download_completed` | A file download finished |
+| `file_selected` | Files were chosen or saved in a file chooser |
+| `file_chooser_cancelled` | A file chooser was dismissed without selection |
+| `select_open` | A native `<select>` dropdown opened (includes option list) |
+| `permission_requested` | A permission prompt appeared (geolocation, camera, etc.) |
 
 Each event includes:
 - `type` — one of the types above
@@ -241,6 +245,7 @@ All endpoints are prefixed with `/api/v1`.
 | POST | `/tabs/{id}/click` | Click at coordinates |
 | POST | `/tabs/{id}/move` | Move mouse to coordinates |
 | POST | `/tabs/{id}/scroll` | Scroll via mouse wheel at coordinates |
+| POST | `/tabs/{id}/drag` | Drag from start to end coordinates |
 
 ### Keyboard
 
@@ -250,6 +255,13 @@ All endpoints are prefixed with `/api/v1`.
 | POST | `/tabs/{id}/keyboard/press` | Press a key combination |
 | POST | `/tabs/{id}/keyboard/down` | Key down event |
 | POST | `/tabs/{id}/keyboard/up` | Key up event |
+
+### Input Helpers
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/tabs/{id}/slider` | Move a slider to a target value |
+| POST | `/tabs/{id}/clear-text` | Clear an input field (click, select all, backspace) |
 
 ### Screenshots
 
@@ -293,12 +305,27 @@ All endpoints are prefixed with `/api/v1`.
 | GET | `/downloads` | List all downloads |
 | GET | `/downloads/{id}` | Get download status |
 | POST | `/downloads/{id}/cancel` | Cancel a download |
+| GET | `/downloads/{id}/content` | Get download content as base64 |
 
 ### File Chooser
 
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/file-chooser/{id}` | Provide files to a native file picker dialog |
+
+### Popups
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/select/{id}` | Respond to a native `<select>` dropdown |
+
+### Permissions
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/permissions` | List pending permission requests |
+| POST | `/permissions/{id}/grant` | Grant a permission (geolocation requires lat/lng) |
+| POST | `/permissions/{id}/deny` | Deny a permission |
 
 ### History
 
