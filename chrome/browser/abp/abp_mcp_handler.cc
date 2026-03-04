@@ -325,6 +325,24 @@ base::Value::List GetToolDefinitions() {
           .OptionalString("format", "Image format: png, webp, jpeg")
           .Build());
 
+  // 4b. browser_wait — wait for network to settle
+  tools.Append(
+      ToolBuilder("browser_wait")
+          .Description(
+              "Wait for all in-flight network requests to settle (up to 5 "
+              "seconds). Resumes page execution, waits for the network to go "
+              "idle, captures a screenshot, then re-pauses execution. Use "
+              "this when the page is loading content after an action and you "
+              "need to wait for it to finish.")
+          .OptionalString("tab_id", "Target tab ID")
+          .OptionalStringArrayEnum("markup",
+              "Markup overlays to enable (none by default). clickable "
+              "(green), typeable (orange), scrollable (purple dashed), "
+              "grid (red coordinate grid), selected (blue, focused element)",
+              {"clickable", "typeable", "scrollable", "grid", "selected"})
+          .OptionalString("format", "Image format: png, webp, jpeg")
+          .Build());
+
   // 5. browser_tabs — list/new/close/info/activate/stop
   tools.Append(ToolBuilder("browser_tabs")
                    .Description(
@@ -864,6 +882,8 @@ void AbpMcpHandler::HandleToolsCall(const base::Value::Dict& params,
     CallBrowserSlider(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_clear_text") {
     CallBrowserClearText(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_wait") {
+    CallBrowserWait(*args, std::move(request_id), std::move(callback));
   } else if (*name == "respond_to_permission") {
     CallRespondToPermission(*args, std::move(request_id), std::move(callback));
   } else {
@@ -1062,6 +1082,39 @@ void AbpMcpHandler::CallBrowserScreenshot(const base::Value::Dict& args,
 
   controller_->HandleRequest(
       "POST", "/api/v1/tabs/" + tab_id + "/screenshot", body,
+      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                     weak_factory_.GetWeakPtr(), std::move(request_id),
+                     std::move(callback)));
+}
+
+// --- 4b. browser_wait: wait for network to settle ---
+void AbpMcpHandler::CallBrowserWait(const base::Value::Dict& args,
+                                     base::Value request_id,
+                                     ResponseWithHeadersCallback callback) {
+  std::string tab_id = ResolveTabId(args);
+  if (tab_id.empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "No tab_id provided and no active tab available",
+                     std::move(callback));
+    return;
+  }
+
+  // Build body with screenshot options (same shape as /screenshot)
+  base::Value::Dict body_dict;
+  base::Value::Dict screenshot_opts;
+  if (const base::Value::List* markup = args.FindList("markup")) {
+    screenshot_opts.Set("markup", markup->Clone());
+  }
+  if (const std::string* format = args.FindString("format")) {
+    screenshot_opts.Set("format", *format);
+  }
+  body_dict.Set("screenshot", std::move(screenshot_opts));
+
+  std::string body;
+  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
+
+  controller_->HandleRequest(
+      "POST", "/api/v1/tabs/" + tab_id + "/wait_for_network", body,
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));

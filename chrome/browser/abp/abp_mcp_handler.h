@@ -100,6 +100,9 @@ class AbpMcpHandler {
   void CallBrowserClearText(const base::Value::Dict& args,
                             base::Value request_id,
                             ResponseWithHeadersCallback callback);
+  void CallBrowserWait(const base::Value::Dict& args,
+                       base::Value request_id,
+                       ResponseWithHeadersCallback callback);
   void CallRespondToPermission(const base::Value::Dict& args,
                                base::Value request_id,
                                ResponseWithHeadersCallback callback);
