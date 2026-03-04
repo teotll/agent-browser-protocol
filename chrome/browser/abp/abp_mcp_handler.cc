@@ -655,7 +655,7 @@ All `tab_id` parameters are optional and default to the active tab.
 
 **Input:**
 - `browser_action` — 1-3 actions: mouse_click (x, y), keyboard_type (text), keyboard_press (key, modifiers?), mouse_hover (x, y), mouse_drag (start_x, start_y, end_x, end_y). Keys are ALL-CAPS (ENTER, TAB, ESCAPE, CONTROL, META, etc.). Abbreviations accepted: CTRL, CMD, ESC, DEL.
-- `browser_scroll` — x, y (where wheel fires), delta_x?, delta_y? (positive=down/right)
+- `browser_scroll` — x, y (where wheel fires), delta_x?, delta_y? (positive=down/right). Or pass a `scrolls` array of up to 3 `{delta_x, delta_y}` objects to scroll multiple viewports in one action — returns a screenshot after each scroll as sequential image blocks.
 - `browser_slider` — orientation (horizontal/vertical), track bounds, current position, min, max, target_value. Calculates and executes drag automatically. Fallback chain if result is wrong: (1) `browser_action` with `mouse_drag`, (2) click the slider then use ARROWRIGHT/ARROWLEFT (or ARROWUP/ARROWDOWN) to nudge incrementally.
 - `browser_clear_text` — x, y (center of input). Clicks to focus, selects all text, then presses Backspace to delete.
 
