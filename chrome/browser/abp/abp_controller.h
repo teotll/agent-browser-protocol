@@ -786,6 +786,10 @@ class AbpController : public TabStripModelObserver {
     bool post_tracking_settled = false;
     base::TimeDelta post_tracking_settle_time = base::Milliseconds(150);
 
+    // If true, tracked_requests snapshot at prewait-end is seeded from the
+    // tab's persistent_active_request_ids (all in-flight, not just since wait start).
+    bool all_requests = false;
+
     // Text wait fields
     std::string wait_text;
     bool text_found = false;
@@ -860,6 +864,18 @@ class AbpController : public TabStripModelObserver {
     // released on backgrounded tabs. CDP callbacks in the execution control
     // chain check this flag and no-op if set.
     bool backgrounded = false;
+
+    // Set when a tab switch happens during an action_in_flight (e.g., click
+    // opened a new tab via window.open / target=_blank). The action context
+    // reads and clears this in OnWaitUntilComplete to redirect its
+    // after-screenshot and pause to the new tab.
+    std::string tab_switched_to;
+
+    // Persistent same-site network tracking (always-on, updated by CDP events).
+    // Tracks in-flight request IDs regardless of whether a waiter is active.
+    // Cleared on main-frame navigation. Used to seed browser_wait's snapshot.
+    std::set<std::string> persistent_active_request_ids;
+    std::string persistent_page_domain;  // eTLD+1 of current page for filtering
 
     // Pending callback for deterministic pause confirmation.
     // Set during PauseExecution, fired when Debugger.paused event arrives.
