@@ -32,6 +32,15 @@ import type {
   Download,
   ListDownloadsOptions,
   FileChooserOptions,
+  SliderOptions,
+  ClearTextOptions,
+  BatchOptions,
+  WaitForNetworkOptions,
+  PermissionRequest,
+  GrantPermissionOptions,
+  DenyPermissionOptions,
+  SelectPopupOptions,
+  DownloadContentOptions,
   Session,
   HistoryAction,
   HistoryEvent,
@@ -204,9 +213,9 @@ class TabsAPI {
     return res.data;
   }
 
-  async screenshotBinary(tabId: string, options?: { disable_markup?: string[] }): Promise<Buffer> {
-    const query = options?.disable_markup?.length
-      ? `?disable_markup=${options.disable_markup.join(",")}`
+  async screenshotBinary(tabId: string, options?: { markup?: string[] }): Promise<Buffer> {
+    const query = options?.markup?.length
+      ? `?markup=${options.markup.join(",")}`
       : "";
     const res = await request<Buffer>(
       `${this.baseUrl}/tabs/${tabId}/screenshot${query}`,
@@ -275,6 +284,38 @@ class TabsAPI {
     );
     return res.data;
   }
+
+  async slider(tabId: string, options: SliderOptions): Promise<ActionResponse> {
+    const res = await request<ActionResponse>(
+      `${this.baseUrl}/tabs/${tabId}/slider`,
+      { method: "POST", body: options },
+    );
+    return res.data;
+  }
+
+  async clearText(tabId: string, options: ClearTextOptions): Promise<ActionResponse> {
+    const res = await request<ActionResponse>(
+      `${this.baseUrl}/tabs/${tabId}/clear_text`,
+      { method: "POST", body: options },
+    );
+    return res.data;
+  }
+
+  async batch(tabId: string, options: BatchOptions): Promise<ActionResponse> {
+    const res = await request<ActionResponse>(
+      `${this.baseUrl}/tabs/${tabId}/batch`,
+      { method: "POST", body: options },
+    );
+    return res.data;
+  }
+
+  async waitForNetwork(tabId: string, options?: WaitForNetworkOptions): Promise<ActionResponse> {
+    const res = await request<ActionResponse>(
+      `${this.baseUrl}/tabs/${tabId}/wait_for_network`,
+      { method: "POST", body: options || {} },
+    );
+    return res.data;
+  }
 }
 
 class DownloadsAPI {
@@ -305,6 +346,16 @@ class DownloadsAPI {
     );
     return res.data;
   }
+
+  async content(downloadId: string, options?: DownloadContentOptions): Promise<Buffer> {
+    const params = new URLSearchParams();
+    if (options?.max_size) params.set("max_size", String(options.max_size));
+    const query = params.toString() ? `?${params.toString()}` : "";
+    const res = await request<Buffer>(
+      `${this.baseUrl}/downloads/${downloadId}/content${query}`,
+    );
+    return res.data;
+  }
 }
 
 class FileChooserAPI {
@@ -313,6 +364,45 @@ class FileChooserAPI {
   async provide(chooserId: string, options: FileChooserOptions): Promise<{ success: boolean; cancelled?: boolean }> {
     const res = await request<{ success: boolean; cancelled?: boolean }>(
       `${this.baseUrl}/file-chooser/${chooserId}`,
+      { method: "POST", body: options },
+    );
+    return res.data;
+  }
+}
+
+class PermissionsAPI {
+  constructor(private baseUrl: string) {}
+
+  async list(): Promise<PermissionRequest[]> {
+    const res = await request<PermissionRequest[]>(
+      `${this.baseUrl}/permissions`,
+    );
+    return res.data;
+  }
+
+  async grant(permissionId: string, options: GrantPermissionOptions): Promise<{ success: boolean }> {
+    const res = await request<{ success: boolean }>(
+      `${this.baseUrl}/permissions/${permissionId}/grant`,
+      { method: "POST", body: options },
+    );
+    return res.data;
+  }
+
+  async deny(permissionId: string, options: DenyPermissionOptions): Promise<{ success: boolean }> {
+    const res = await request<{ success: boolean }>(
+      `${this.baseUrl}/permissions/${permissionId}/deny`,
+      { method: "POST", body: options },
+    );
+    return res.data;
+  }
+}
+
+class SelectPopupAPI {
+  constructor(private baseUrl: string) {}
+
+  async respond(popupId: string, options: SelectPopupOptions): Promise<{ success: boolean }> {
+    const res = await request<{ success: boolean }>(
+      `${this.baseUrl}/select/${popupId}`,
       { method: "POST", body: options },
     );
     return res.data;
@@ -385,6 +475,8 @@ export class ABPClient {
   readonly tabs: TabsAPI;
   readonly downloads: DownloadsAPI;
   readonly fileChooser: FileChooserAPI;
+  readonly permissions: PermissionsAPI;
+  readonly selectPopup: SelectPopupAPI;
   readonly history: HistoryAPI;
 
   constructor(baseUrl: string = "http://localhost:8222/api/v1") {
@@ -393,6 +485,8 @@ export class ABPClient {
     this.tabs = new TabsAPI(url);
     this.downloads = new DownloadsAPI(url);
     this.fileChooser = new FileChooserAPI(url);
+    this.permissions = new PermissionsAPI(url);
+    this.selectPopup = new SelectPopupAPI(url);
     this.history = new HistoryAPI(url);
   }
 }
