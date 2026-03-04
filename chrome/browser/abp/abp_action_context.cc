@@ -387,6 +387,10 @@ void AbpActionContext::OnExecutionResumed() {
     return;
   }
 
+  // Clean up markup overlays from previous action (fire-and-forget).
+  // Must happen after resume since Runtime.evaluate needs the page running.
+  controller_->CleanupMarkupForTab(tab_id_);
+
   if (options_.action_before_resume) {
     // Navigation path: action already executed, resume just completed.
     // Proceed to wait phase (new page is loading).
@@ -593,19 +597,10 @@ void AbpActionContext::OnWaitUntilComplete() {
         AbpController::LifecycleStep::kScrollPositionReceived);
   }
 
-  // Capture screenshots BEFORE pausing execution.  The compositor only
-  // produces frames while virtual time is running; pausing virtual time
-  // freezes the compositor surface so any screenshot taken afterward
-  // reflects the state at the moment of the pause, not the action's result.
+  // Inject markup, ForceRedraw, then pause. The compositor must produce the
+  // frame with markup while virtual time is still running. After pause, the
+  // frozen GPU surface is captured without ForceRedraw.
   EnsureVirtualCursorVisible();
-}
-
-void AbpActionContext::FlushCompositorFrame() {
-  OnCompositorFrameFlushed();
-}
-
-void AbpActionContext::OnCompositorFrameFlushed() {
-  PauseExecutionIfNeeded();
 }
 
 void AbpActionContext::CheckForTabSwitch() {
@@ -644,10 +639,67 @@ void AbpActionContext::EnsureVirtualCursorVisible() {
     controller_->SetVirtualCursorViaMojo(web_contents_, tab_state.cursor.x,
                                           tab_state.cursor.y, true);
   }
-  // ForceRedraw in CaptureActionScreenshot is on the associated Mojo pipe,
+  // ForceRedraw in ForceRedrawFinalFrame is on the associated Mojo pipe,
   // guaranteed to be processed AFTER SetPosition. No InsertVisualStateCallback
-  // needed — CopyFromSurface reads the compositor surface directly.
-  CaptureAfterScreenshot();
+  // needed — GrabViewSnapshot reads the compositor surface directly.
+  InjectMarkupIfNeeded();
+}
+
+void AbpActionContext::InjectMarkupIfNeeded() {
+  if (screenshot_markup_tags_.empty()) {
+    ForceRedrawFinalFrame();
+    return;
+  }
+
+  VLOG(1) << "ABP ActionContext: InjectMarkupIfNeeded() action=" << action_type_
+          << " tags=" << screenshot_markup_tags_.size();
+
+  std::string script =
+      AbpController::BuildMarkupInjectionScript(screenshot_markup_tags_);
+
+  base::Value::Dict js_params;
+  js_params.Set("expression", script);
+  js_params.Set("returnByValue", true);
+  js_params.Set("disableBreaks", true);
+
+  client_->SendCommand(
+      "Runtime.evaluate", js_params,
+      base::BindOnce(
+          [](base::WeakPtr<AbpActionContext> ctx,
+             bool success, const std::string& result) {
+            if (!ctx) return;
+            ctx->OnMarkupInjected();
+          },
+          weak_factory_.GetWeakPtr()));
+}
+
+void AbpActionContext::OnMarkupInjected() {
+  if (!IsCurrentAction()) return;
+  VLOG(1) << "ABP ActionContext: OnMarkupInjected() action=" << action_type_;
+
+  // Store markup tags in tab state so the next action can clean them up.
+  auto& tab_state = controller_->GetOrCreateTabState(tab_id_);
+  tab_state.last_markup_tags = screenshot_markup_tags_;
+
+  ForceRedrawFinalFrame();
+}
+
+void AbpActionContext::ForceRedrawFinalFrame() {
+  VLOG(1) << "ABP ActionContext: ForceRedrawFinalFrame() action=" << action_type_;
+  controller_->ForceRedrawForTab(
+      tab_id_,
+      base::BindOnce(&AbpActionContext::OnFinalFrameDrawn,
+                     weak_factory_.GetWeakPtr()));
+}
+
+void AbpActionContext::OnFinalFrameDrawn() {
+  if (!IsCurrentAction()) return;
+  VLOG(1) << "ABP ActionContext: OnFinalFrameDrawn() action=" << action_type_;
+
+  // Frame with markup is now committed to the GPU surface.
+  // Pause execution — the frozen screen will have markup visible.
+  profile_pause_start_ = base::TimeTicks::Now();
+  PauseExecutionIfNeeded();
 }
 
 void AbpActionContext::CaptureAfterScreenshot() {
@@ -658,19 +710,19 @@ void AbpActionContext::CaptureAfterScreenshot() {
         tab_id_, action_type_,
         AbpController::LifecycleStep::kAfterScreenshotStarted);
   }
+
   AbpController::ScreenshotOptions opts;
   opts.format = screenshot_format_;
   opts.quality = screenshot_quality_;
-  opts.markup_tags = screenshot_markup_tags_;
+  // No markup_tags in opts — markup is already in the DOM.
+  // CaptureScreenshotFromBuffer will NOT inject or cleanup markup.
 
-  controller_->CaptureActionScreenshot(
+  controller_->CaptureScreenshotFromBuffer(
       tab_id_, start_time_ms_, false, opts,
       base::BindOnce(
           [](base::WeakPtr<AbpActionContext> ctx,
              AbpController::ActionScreenshotResult r) {
             if (!ctx) return;
-            // Extract scroll info from compositor metadata (populated after
-            // ForceRedraw in OnActionScreenshotCaptured).
             ctx->scroll_info_ = std::move(r.scroll_info);
             ctx->OnAfterScreenshotCaptured(
                 std::move(r.history_path), std::move(r.base64),
@@ -704,14 +756,12 @@ void AbpActionContext::OnAfterScreenshotCaptured(std::string history_path,
   // Capture virtual time at end
   virtual_time_at_end_ = controller_->GetVirtualTimeMs(tab_id_);
 
-  // Send the response immediately — don't wait for pause.
-  // The deterministic slot is held until pause completes, so the next action
-  // still waits for the page to be frozen before starting.
+  // Execution is already paused. Send response and release slot.
   FinalizeResponse();
 
-  // Pause in background while the client already has the response.
-  profile_pause_start_ = base::TimeTicks::Now();
-  PauseExecutionIfNeeded();
+  // Release deterministic slot and allow destruction.
+  ReleaseDeterministicSlot();
+  prevent_destroy_ = nullptr;
 }
 
 void AbpActionContext::PauseExecutionIfNeeded() {
@@ -760,10 +810,9 @@ void AbpActionContext::OnExecutionPaused() {
           << " pause_ms="
           << (profile_pause_end_ - profile_pause_start_).InMilliseconds();
 
-  // Response was already sent in OnAfterScreenshotCaptured.
-  // Just release the deterministic slot so the next action can start.
-  ReleaseDeterministicSlot();
-  prevent_destroy_ = nullptr;
+  // Page is now frozen. Capture the after-screenshot from the frozen buffer.
+  // The markup CSS is in the DOM and visible on the frozen screen.
+  CaptureAfterScreenshot();
 }
 
 void AbpActionContext::LogProfilingSummary() {
@@ -905,9 +954,7 @@ void AbpActionContext::SendResponse() {
   envelope.Set("timing", std::move(timing));
 
   // 7. Add virtual time info if execution control is enabled
-  // Note: response is sent before pause completes (pause runs in background),
-  // so we report paused=true since the pause will happen before the next
-  // action can start (deterministic slot is held until pause completes).
+  // Pause already completed before screenshot capture, so paused state is accurate.
   if (controller_->IsExecutionControlEnabled()) {
     auto it = controller_->tab_states_.find(tab_id_);
     if (it != controller_->tab_states_.end()) {
@@ -957,9 +1004,8 @@ void AbpActionContext::SendResponse() {
   controller_->SendJson(200, base::Value(std::move(envelope)),
                         std::move(response_callback_));
 
-  // Don't release slot or clear self-ref here — OnExecutionPaused does that
-  // after the background pause completes, ensuring the next action waits
-  // for the page to be frozen.
+  // Slot release and self-ref cleanup happen in OnAfterScreenshotCaptured
+  // after the frozen-buffer capture completes.
 }
 
 void AbpActionContext::SendErrorResponse(int status,

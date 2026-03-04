@@ -45,17 +45,22 @@ using ActionCallback = base::OnceCallback<void(AbpActionContext* ctx)>;
 //     -> CaptureBeforeScreenshot()         // GrabViewSnapshot from frozen buffer (no ForceRedraw, no markup)
 //     -> OnBeforeScreenshotCaptured()      // store path + base64
 //     -> ResumeExecutionIfNeeded()
-//     -> OnExecutionResumed()
+//     -> OnExecutionResumed()              // also cleans up markup from previous action
 //     -> ExecuteAction() (calls user-provided ActionCallback)
 //     -> [action calls OnActionDispatched()]
 //     -> WaitUntil() (handles wait_until from params)
 //     -> OnWaitUntilComplete()
 //     -> EnsureVirtualCursorVisible()
-//     -> CaptureAfterScreenshot()          // markup inject → ForceRedraw → capture → cleanup → history save
-//     -> OnAfterScreenshotCaptured()       // store path + base64
-//     -> FinalizeResponse()                 // RecordHistory() + SendResponse() — client gets response here
-//     -> PauseExecutionIfNeeded()           // runs in background, slot still held
-//     -> OnExecutionPaused()                // release slot + allow next action
+//     -> InjectMarkupIfNeeded()            // inject markup CSS while page is still running
+//     -> OnMarkupInjected()                // store tags in tab state for next action cleanup
+//     -> ForceRedrawFinalFrame()           // ForceRedraw to commit markup to GPU surface
+//     -> OnFinalFrameDrawn()               // frame committed
+//     -> PauseExecutionIfNeeded()           // freeze page — markup visible on frozen screen
+//     -> OnExecutionPaused()                // page frozen
+//     -> CaptureAfterScreenshot()           // capture from frozen buffer (no ForceRedraw)
+//     -> OnAfterScreenshotCaptured()        // store path + base64
+//     -> FinalizeResponse()                 // RecordHistory() + SendResponse() — client gets response
+//     -> ReleaseDeterministicSlot()         // release slot + allow next action
 //
 class AbpActionContext : public base::RefCounted<AbpActionContext> {
  public:
@@ -186,13 +191,15 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   void ProceedToWait();
   void DoWaitUntil();
   void OnWaitUntilComplete();
-  void FlushCompositorFrame();
-  void OnCompositorFrameFlushed();
   void PauseExecutionIfNeeded();
   void OnExecutionPaused();
   void EnsureVirtualCursorVisible();
   void CheckForTabSwitch();
   void SwitchToNewTab(const std::string& new_tab_id);
+  void InjectMarkupIfNeeded();
+  void OnMarkupInjected();
+  void ForceRedrawFinalFrame();
+  void OnFinalFrameDrawn();
   void CaptureAfterScreenshot();
   void OnAfterScreenshotCaptured(std::string history_path,
                                   std::string base64,
