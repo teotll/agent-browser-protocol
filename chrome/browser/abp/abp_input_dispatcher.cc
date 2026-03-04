@@ -639,17 +639,11 @@ void AbpInputDispatcher::Move(const std::string& tab_id,
       std::move(callback));
 }
 
-// Forward declaration for recursive call
-static void DispatchMultiScroll(double x,
-                                double y,
-                                std::vector<std::pair<double, double>> scrolls,
-                                size_t index,
-                                base::Value::List intermediate_screenshots,
-                                std::string tab_id,
-                                AbpController* controller,
-                                AbpInputDispatcher* dispatcher,
-                                scoped_refptr<AbpActionContext> ctx);
-
+// DispatchMultiScroll dispatches up to 3 scrolls with 500ms delays between
+// them (up to ~1000ms total). Both |controller| and |dispatcher| are raw
+// pointers to objects owned by AbpController, which lives for the browser
+// session lifetime — safe to hold across the PostDelayedTask chain.
+// |ctx| is held via scoped_refptr so the action context stays alive.
 static void DispatchMultiScroll(double x,
                                 double y,
                                 std::vector<std::pair<double, double>> scrolls,
