@@ -609,7 +609,7 @@ When the screenshot shows incomplete content, **call `browser_screenshot`** to w
 
 Pass `markup: ["clickable", "typeable", "grid"]` to `browser_screenshot` to see labeled overlays on interactive elements. Each label shows the element's coordinates for targeting clicks and typing.
 
-## Tool Reference (17 tools)
+## Tool Reference (18 tools)
 
 All `tab_id` parameters are optional and default to the active tab.
 

@@ -20,7 +20,7 @@ A Chromium fork implementing the Agent Browser Protocol (ABP) - a REST-based API
 - **Wait**: Duration-based wait with action envelope
 - **History**: Session, action, and event history with SQLite storage
 - **Browser Management**: Status check, graceful shutdown
-- **MCP Server**: Embedded MCP (JSON-RPC over HTTP) with 16 tools at `/mcp`
+- **MCP Server**: Embedded MCP (JSON-RPC over HTTP) with 18 tools at `/mcp`
 
 ### Architecture
 
@@ -319,7 +319,7 @@ See `plans/API.md` for the complete REST API specification. All endpoints:
 | DELETE | `/api/v1/history/events` | Delete events |
 | DELETE | `/api/v1/history` | Delete all history |
 | **MCP** | | |
-| POST | `/mcp` | MCP JSON-RPC endpoint (17 tools) |
+| POST | `/mcp` | MCP JSON-RPC endpoint (18 tools) |
 
 ## Development Notes
 
