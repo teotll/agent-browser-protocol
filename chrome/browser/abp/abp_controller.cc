@@ -2000,6 +2000,8 @@ void AbpController::HandleRequest(const std::string& method,
         Move(tab_id, params, std::move(callback));
       } else if (action == "wait") {
         Wait(tab_id, params, std::move(callback));
+      } else if (action == "wait_for_network") {
+        WaitForNetwork(tab_id, params, std::move(callback));
       } else if (action == "scroll") {
         Scroll(tab_id, params, std::move(callback));
       } else if (action == "drag") {
@@ -2855,6 +2857,22 @@ void AbpController::Wait(const std::string& tab_id,
                 base::Milliseconds(ms));
           },
           wait_ms),
+      std::move(callback));
+}
+
+void AbpController::WaitForNetwork(const std::string& tab_id,
+                                    const base::Value::Dict& params,
+                                    ResponseCallback callback) {
+  AbpActionContext::Options options;
+  options.min_wait_time = base::Milliseconds(250);
+  options.request_tracking_timeout = base::Seconds(5);
+  options.post_tracking_settle_time = base::Milliseconds(750);
+  options.all_requests = true;
+
+  AbpActionContext::RunWithOptions(
+      this, tab_id, "wait_for_network", params, options,
+      // No action — goes directly to wait phase
+      ActionCallback(),
       std::move(callback));
 }
 

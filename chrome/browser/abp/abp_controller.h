@@ -522,6 +522,13 @@ class AbpController : public TabStripModelObserver {
             const base::Value::Dict& params,
             ResponseCallback callback);
 
+  // Wait for all in-flight same-site network requests to settle.
+  // Uses all_requests=true so requests from before wait started are tracked.
+  // Timing: prewait=250ms, tracking_timeout=5s, post_settle=750ms.
+  void WaitForNetwork(const std::string& tab_id,
+                      const base::Value::Dict& params,
+                      ResponseCallback callback);
+
   // Batch input actions (1-3 actions in a single action context)
   void HandleBatchRequest(const std::string& tab_id,
                           const base::Value::Dict& params,
