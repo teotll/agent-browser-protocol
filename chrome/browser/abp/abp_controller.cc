@@ -3349,6 +3349,8 @@ AbpCdpClient* AbpController::GetOrCreateCdpClient(content::WebContents* wc) {
         } else if (method == "Page.javascriptDialogClosed") {
           controller->OnDialogClosed(tab);
         }
+        // Update persistent network tracking (always-on, before waiter check)
+        controller->OnPersistentNetworkEvent(tab, method, params);
         // Forward to action-complete wait logic if a waiter is active
         controller->OnCdpEventForWait(tab, method, params);
       },
@@ -4447,11 +4449,13 @@ void AbpController::ForegroundTab(const std::string& tab_id) {
 
   VLOG(1) << "ABP: Foregrounding tab " << tab_id;
 
-  // Re-establish execution control if global flag is set.
-  // EnableExecutionControl starts in kPaused state (debugger paused + vtime frozen).
-  if (IsExecutionControlEnabled()) {
-    EnableExecutionControl(tab_id, std::nullopt, base::DoNothing());
-  }
+  // Don't immediately pause the tab here. When a click opens a new tab
+  // (window.open / target=_blank), pausing it immediately causes
+  // "debugger paused in another tab" because both tabs share the same
+  // renderer process and ScopedPagePauser affects all pages in the
+  // renderer. Instead, let the tab load freely — execution control will
+  // be established when the next action targets this tab (PauseExecution
+  // at end of action lifecycle).
 }
 
 void AbpController::OnTabStripModelChanged(
@@ -4472,6 +4476,14 @@ void AbpController::OnTabStripModelChanged(
     return;
   }
 
+  // Resolve new tab ID early — needed for both background and foreground logic.
+  std::string new_tab_id;
+  if (selection.new_contents) {
+    auto new_host = content::DevToolsAgentHost::GetOrCreateFor(
+        selection.new_contents);
+    new_tab_id = new_host->GetId();
+  }
+
   // Background the old active tab
   if (selection.old_contents) {
     auto old_host = content::DevToolsAgentHost::GetOrCreateFor(
@@ -4480,16 +4492,19 @@ void AbpController::OnTabStripModelChanged(
 
     auto it = tab_states_.find(old_tab_id);
     if (it != tab_states_.end() && !it->second.backgrounded) {
+      // If an action is in flight on the old tab, record the tab switch
+      // so the action context can redirect screenshot/pause to the new tab.
+      if (it->second.action_in_flight && !new_tab_id.empty()) {
+        it->second.tab_switched_to = new_tab_id;
+        VLOG(1) << "ABP: Tab switch during action — old=" << old_tab_id
+                << " new=" << new_tab_id;
+      }
       BackgroundTab(old_tab_id);
     }
   }
 
   // Foreground the new active tab
-  if (selection.new_contents) {
-    auto new_host = content::DevToolsAgentHost::GetOrCreateFor(
-        selection.new_contents);
-    std::string new_tab_id = new_host->GetId();
-
+  if (!new_tab_id.empty()) {
     auto it = tab_states_.find(new_tab_id);
     // Only foreground if not already foregrounded (avoid duplicate work
     // when ActivateTab already called ForegroundTab).
@@ -5090,6 +5105,69 @@ void AbpController::OnWaitTimeout(const std::string& tab_id,
 
   if (waiter->on_complete) {
     std::move(waiter->on_complete).Run();
+  }
+}
+
+void AbpController::OnPersistentNetworkEvent(const std::string& tab_id,
+                                              const std::string& method,
+                                              const base::Value::Dict& params) {
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end()) return;
+  TabState& tab_state = it->second;
+
+  // On main-frame navigation: update domain and clear stale requests.
+  if (method == "Page.frameNavigated") {
+    const base::Value::Dict* frame = params.FindDict("frame");
+    if (frame && !frame->FindString("parentId")) {  // main frame only
+      const std::string* url_str = frame->FindString("url");
+      if (url_str) {
+        GURL url(*url_str);
+        tab_state.persistent_page_domain =
+            net::registry_controlled_domains::GetDomainAndRegistry(
+                url,
+                net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
+      }
+      tab_state.persistent_active_request_ids.clear();
+    }
+    return;
+  }
+
+  if (method == "Network.requestWillBeSent") {
+    const std::string* request_id = params.FindString("requestId");
+    if (!request_id) return;
+
+    // Skip long-running connection types
+    const std::string* type = params.FindStringByDottedPath("type");
+    if (type && (*type == "WebSocket" || *type == "EventSource" ||
+                 *type == "Ping" || *type == "Prefetch" ||
+                 *type == "CSPViolationReport")) {
+      return;
+    }
+
+    // Apply same-site domain filter
+    if (!tab_state.persistent_page_domain.empty()) {
+      const std::string* url_str = params.FindStringByDottedPath("request.url");
+      if (url_str) {
+        GURL url(*url_str);
+        const std::string& domain = tab_state.persistent_page_domain;
+        std::string host(url.host());
+        bool same_site =
+            (host == domain ||
+             (host.size() > domain.size() &&
+              host.compare(host.size() - domain.size(), domain.size(),
+                           domain) == 0 &&
+              host[host.size() - domain.size() - 1] == '.'));
+        if (!same_site) return;
+      }
+    }
+    tab_state.persistent_active_request_ids.insert(*request_id);
+
+  } else if (method == "Network.loadingFinished" ||
+             method == "Network.loadingFailed") {
+    const std::string* request_id = params.FindString("requestId");
+    if (request_id) {
+      tab_state.persistent_active_request_ids.erase(*request_id);
+    }
   }
 }
 

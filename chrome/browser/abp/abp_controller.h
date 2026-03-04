@@ -990,6 +990,12 @@ class AbpController : public TabStripModelObserver {
   void OnPageLifecycleEvent(const std::string& tab_id,
                             const std::string& event);
 
+  // Update persistent per-tab same-site network tracking.
+  // Called on every CDP event regardless of waiter state.
+  void OnPersistentNetworkEvent(const std::string& tab_id,
+                                const std::string& method,
+                                const base::Value::Dict& params);
+
   // Start the min_wait timer once all base conditions are met
   void MaybeStartMinWaitTimer(const std::string& tab_id);
 
