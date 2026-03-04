@@ -267,28 +267,59 @@ base::Value::List GetToolDefinitions() {
     tools.Append(std::move(tool));
   }
 
-  // 2. browser_scroll — standalone scroll
-  tools.Append(ToolBuilder("browser_scroll")
-                   .Description(
-                       "Scroll using mouse wheel at element coordinates. "
-                       "Simulates moving mouse over element and scrolling. At "
-                       "least one of delta_x or delta_y must be non-zero.")
-                   .OptionalString("tab_id", "Target tab ID")
-                   .RequiredNumber("x",
-                       "X pixel coordinate of element center where mouse wheel "
-                       "fires. Read from the red grid on your screenshot. Must "
-                       "be within viewport bounds.")
-                   .RequiredNumber("y",
-                       "Y pixel coordinate of element center where mouse wheel "
-                       "fires. Read from the red grid on your screenshot. Must "
-                       "be within viewport bounds.")
-                   .OptionalNumber("delta_x",
-                       "Horizontal scroll in pixels (positive=right, "
-                       "negative=left, default=0)")
-                   .OptionalNumber("delta_y",
-                       "Vertical scroll in pixels (negative=up, positive=down, "
-                       "default=0)")
-                   .Build());
+  // 2. browser_scroll — standalone scroll, optionally multi-scroll
+  {
+    base::Value::Dict scroll_item_props;
+    {
+      base::Value::Dict dx;
+      dx.Set("type", "number");
+      dx.Set("description",
+             "Horizontal scroll in pixels (positive=right, negative=left)");
+      scroll_item_props.Set("delta_x", std::move(dx));
+    }
+    {
+      base::Value::Dict dy;
+      dy.Set("type", "number");
+      dy.Set("description",
+             "Vertical scroll in pixels (negative=up, positive=down)");
+      scroll_item_props.Set("delta_y", std::move(dy));
+    }
+    tools.Append(
+        ToolBuilder("browser_scroll")
+            .Description(
+                "Scroll using mouse wheel at element coordinates. "
+                "Simulates moving mouse over element and scrolling. At "
+                "least one of delta_x or delta_y must be non-zero. "
+                "Optionally accepts a scrolls array of up to 3 "
+                "{delta_x, delta_y} objects to scroll multiple viewport "
+                "heights in one action — a screenshot is captured after "
+                "each scroll and returned as sequential image blocks.")
+            .OptionalString("tab_id", "Target tab ID")
+            .RequiredNumber(
+                "x",
+                "X pixel coordinate of element center where mouse wheel "
+                "fires. Read from the red grid on your screenshot. Must "
+                "be within viewport bounds.")
+            .RequiredNumber(
+                "y",
+                "Y pixel coordinate of element center where mouse wheel "
+                "fires. Read from the red grid on your screenshot. Must "
+                "be within viewport bounds.")
+            .OptionalNumber("delta_x",
+                            "Horizontal scroll in pixels (positive=right, "
+                            "negative=left, default=0)")
+            .OptionalNumber("delta_y",
+                            "Vertical scroll in pixels (negative=up, "
+                            "positive=down, default=0)")
+            .OptionalObjectArray(
+                "scrolls",
+                "Array of up to 3 scroll events. Each item scrolls from "
+                "the same x,y coordinates. Use instead of delta_x/delta_y "
+                "for multi-viewport scrolling.",
+                std::move(scroll_item_props),
+                base::Value::List())
+            .Build());
+  }
 
   // 3. browser_navigate — url or back/forward/reload
   tools.Append(ToolBuilder("browser_navigate")
