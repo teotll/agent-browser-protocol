@@ -1691,6 +1691,7 @@ void AbpMcpHandler::OnControllerResponse(base::Value request_id,
           }
         }
       }
+      result_dict->Remove("intermediate_screenshots");
     }
 
     // Check new after format and rename to "screenshot" for MCP output
