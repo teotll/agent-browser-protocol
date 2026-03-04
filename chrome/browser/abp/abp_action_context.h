@@ -299,6 +299,8 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   base::TimeTicks profile_wait_end_;
   base::TimeTicks profile_scroll_start_;
   base::TimeTicks profile_scroll_end_;
+  base::TimeTicks profile_force_redraw_start_;
+  base::TimeTicks profile_force_redraw_end_;
   base::TimeTicks profile_after_ss_start_;
   base::TimeTicks profile_after_ss_end_;
   base::TimeTicks profile_pause_start_;

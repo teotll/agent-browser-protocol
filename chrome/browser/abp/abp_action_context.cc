@@ -685,6 +685,7 @@ void AbpActionContext::OnMarkupInjected() {
 }
 
 void AbpActionContext::ForceRedrawFinalFrame() {
+  profile_force_redraw_start_ = base::TimeTicks::Now();
   VLOG(1) << "ABP ActionContext: ForceRedrawFinalFrame() action=" << action_type_;
   controller_->ForceRedrawForTab(
       tab_id_,
@@ -694,6 +695,7 @@ void AbpActionContext::ForceRedrawFinalFrame() {
 
 void AbpActionContext::OnFinalFrameDrawn() {
   if (!IsCurrentAction()) return;
+  profile_force_redraw_end_ = base::TimeTicks::Now();
   VLOG(1) << "ABP ActionContext: OnFinalFrameDrawn() action=" << action_type_;
 
   // Frame with markup is now committed to the GPU surface.
@@ -830,8 +832,9 @@ void AbpActionContext::LogProfilingSummary() {
             << " | action=" << ms(profile_action_start_, profile_action_end_) << "ms"
             << " | wait=" << ms(profile_wait_start_, profile_wait_end_) << "ms"
             << " | scroll_pos=" << ms(profile_scroll_start_, profile_scroll_end_) << "ms"
-            << " | after_ss=" << ms(profile_after_ss_start_, profile_after_ss_end_) << "ms"
-            << " | pause=" << ms(profile_pause_start_, profile_pause_end_) << "ms";
+            << " | force_redraw=" << ms(profile_force_redraw_start_, profile_force_redraw_end_) << "ms"
+            << " | pause=" << ms(profile_pause_start_, profile_pause_end_) << "ms"
+            << " | after_ss=" << ms(profile_after_ss_start_, profile_after_ss_end_) << "ms";
 }
 
 void AbpActionContext::FinalizeResponse() {
@@ -978,6 +981,8 @@ void AbpActionContext::SendResponse() {
     profiling.Set("resume_ms", ms(profile_resume_start_, profile_resume_end_));
     profiling.Set("action_ms", ms(profile_action_start_, profile_action_end_));
     profiling.Set("wait_ms", ms(profile_wait_start_, profile_wait_end_));
+    profiling.Set("force_redraw_ms", ms(profile_force_redraw_start_, profile_force_redraw_end_));
+    profiling.Set("pause_ms", ms(profile_pause_start_, profile_pause_end_));
     profiling.Set("after_screenshot_ms", ms(profile_after_ss_start_, profile_after_ss_end_));
     profiling.Set("total_ms", ms(profile_queued_at_, profile_after_ss_end_));
     envelope.Set("profiling", std::move(profiling));
