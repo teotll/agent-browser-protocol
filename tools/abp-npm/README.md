@@ -67,6 +67,10 @@ npx agent-browser-protocol --session-dir ./session   # persist session data
 npx agent-browser-protocol --min-wait 500           # pre-network settlement wait (ms)
 npx agent-browser-protocol --tracking-timeout 2000  # request tracking timeout (ms)
 npx agent-browser-protocol --post-settle 1000       # post-network settle time (ms)
+npx agent-browser-protocol --zoom 1.5              # zoom factor
+npx agent-browser-protocol --config-file ./abp.json # config file path
+npx agent-browser-protocol --disable-pause          # disable execution control
+npx agent-browser-protocol --allow-system-inputs    # allow system inputs
 npx agent-browser-protocol -- --disable-gpu          # pass Chrome flags
 ```
 
@@ -101,6 +105,10 @@ The SDK mirrors the REST API 1:1:
 | `client.tabs.keyDown(id, { key })` | `POST /tabs/{id}/keyboard/down` |
 | `client.tabs.keyUp(id, { key })` | `POST /tabs/{id}/keyboard/up` |
 | `client.tabs.scroll(id, { x, y, delta_y })` | `POST /tabs/{id}/scroll` |
+| `client.tabs.slider(id, opts)` | `POST /tabs/{id}/slider` |
+| `client.tabs.clearText(id, { x, y })` | `POST /tabs/{id}/clear_text` |
+| `client.tabs.batch(id, { actions })` | `POST /tabs/{id}/batch` |
+| `client.tabs.waitForNetwork(id)` | `POST /tabs/{id}/wait_for_network` |
 | **Observation** | |
 | `client.tabs.screenshot(id)` | `POST /tabs/{id}/screenshot` |
 | `client.tabs.screenshotBinary(id)` | `GET /tabs/{id}/screenshot` |
@@ -118,8 +126,15 @@ The SDK mirrors the REST API 1:1:
 | `client.downloads.list()` | `GET /downloads` |
 | `client.downloads.get(id)` | `GET /downloads/{id}` |
 | `client.downloads.cancel(id)` | `POST /downloads/{id}/cancel` |
+| `client.downloads.content(id)` | `GET /downloads/{id}/content` |
 | **File Chooser** | |
 | `client.fileChooser.provide(id, opts)` | `POST /file-chooser/{id}` |
+| **Permissions** | |
+| `client.permissions.list()` | `GET /permissions` |
+| `client.permissions.grant(id, opts)` | `POST /permissions/{id}/grant` |
+| `client.permissions.deny(id, opts)` | `POST /permissions/{id}/deny` |
+| **Select Popup** | |
+| `client.selectPopup.respond(id, opts)` | `POST /select/{id}` |
 | **History** | |
 | `client.history.sessions()` | `GET /history/sessions` |
 | `client.history.currentSession()` | `GET /history/sessions/current` |
@@ -138,7 +153,7 @@ The SDK mirrors the REST API 1:1:
 
 ## 2. MCP Server
 
-ABP exposes 18 MCP tools: `browser_action`, `browser_scroll`, `browser_navigate`, `browser_screenshot`, `browser_tabs`, `browser_javascript`, `browser_text`, `browser_wait`, `browser_dialog`, `browser_downloads`, `browser_files`, `browser_select_picker`, `browser_get_status`, `browser_shutdown`, `browser_slider`, `browser_clear_text`, `respond_to_permission`, `set_geolocation`.
+ABP exposes 18 MCP tools: `browser_action`, `browser_scroll`, `browser_navigate`, `browser_screenshot`, `browser_tabs`, `browser_javascript`, `browser_text`, `browser_wait`, `browser_dialog`, `browser_downloads`, `browser_files`, `browser_select_picker`, `browser_get_status`, `browser_shutdown`, `browser_slider`, `browser_clear_text`, `respond_to_permission`.
 
 The browser launches automatically on first tool call at 1280x800 (optimized for LLM vision). Screenshots are served as WebP and scaled to fit context limits.
 
@@ -187,9 +202,13 @@ For example, in Claude Desktop (`claude_desktop_config.json`):
 | `ABP_BROWSER_PATH` | Custom binary path | auto-detected |
 | `ABP_HEADLESS` | Run headless (`1`/`0`) | `0` |
 | `ABP_VERBOSE` | Pipe browser output to stderr (`1`/`0`) | `0` |
-| `ABP_MIN_WAIT` | Pre-network settlement wait (ms) | `250` |
+| `ABP_MIN_WAIT` | Pre-network settlement wait (ms) | `150` |
 | `ABP_TRACKING_TIMEOUT` | Request tracking timeout (ms) | `1000` |
-| `ABP_POST_SETTLE` | Post-network settle time (ms) | `750` |
+| `ABP_POST_SETTLE` | Post-network settle time (ms) | `350` |
+| `ABP_ZOOM` | Default zoom factor | `1.0` |
+| `ABP_CONFIG` | Path to ABP JSON config file | none |
+| `ABP_DISABLE_PAUSE` | Disable execution control (`1`/`0`) | `0` |
+| `ABP_ALLOW_SYSTEM_INPUTS` | Allow system inputs (`1`/`0`) | `0` |
 | `ABP_ARGS` | Extra Chrome args (comma-separated) | none |
 
 ---
@@ -233,9 +252,13 @@ The debug server reads ABP's SQLite session database directly (read-only) and wa
 | `ABP_VERBOSE=1` | Pipe browser output to stderr |
 | `ABP_BROWSER_PATH` | Path to a custom ABP binary |
 | `ABP_SKIP_DOWNLOAD=1` | Skip binary download during install |
-| `ABP_MIN_WAIT` | Pre-network settlement wait in ms (default: `250`) |
+| `ABP_MIN_WAIT` | Pre-network settlement wait in ms (default: `150`) |
 | `ABP_TRACKING_TIMEOUT` | Request tracking timeout in ms (default: `1000`) |
-| `ABP_POST_SETTLE` | Post-network settle time in ms (default: `750`) |
+| `ABP_POST_SETTLE` | Post-network settle time in ms (default: `350`) |
+| `ABP_ZOOM` | Default zoom factor (default: `1.0`) |
+| `ABP_CONFIG` | Path to ABP JSON config file |
+| `ABP_DISABLE_PAUSE=1` | Disable execution control |
+| `ABP_ALLOW_SYSTEM_INPUTS=1` | Allow system inputs |
 | `ABP_ARGS` | Extra Chrome args, comma-separated (plugin only) |
 
 ## Platforms
