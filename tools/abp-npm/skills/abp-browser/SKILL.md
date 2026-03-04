@@ -41,14 +41,15 @@ When the screenshot shows incomplete content, **call `browser_screenshot`** to w
 
 Pass `markup: ["clickable", "typeable", "grid"]` to `browser_screenshot` to see labeled overlays on interactive elements. Each label shows the element's coordinates for targeting clicks and typing.
 
-## Tool Reference (16 tools)
+## Tool Reference (18 tools)
 
 All `tab_id` parameters are optional and default to the active tab.
 
 **Input:**
 - `browser_action` — 1-3 actions: mouse_click (x, y), keyboard_type (text), keyboard_press (key, modifiers?), mouse_hover (x, y), mouse_drag (start_x, start_y, end_x, end_y). Keys are ALL-CAPS (ENTER, TAB, ESCAPE, CONTROL, META, etc.). Abbreviations accepted: CTRL, CMD, ESC, DEL.
-- `browser_scroll` — x, y (where wheel fires), delta_x?, delta_y? (positive=down/right)
+- `browser_scroll` — x, y (where wheel fires), scrolls: required array of 1-3 `{delta_px, direction}` objects (direction: "x" or "y", delta_px positive=down/right, negative=up/left). Returns a screenshot after each scroll as sequential image blocks.
 - `browser_slider` — orientation (horizontal/vertical), track bounds, current position, min, max, target_value. Calculates and executes drag automatically. Fallback chain if result is wrong: (1) `browser_action` with `mouse_drag`, (2) click the slider then use ARROWRIGHT/ARROWLEFT (or ARROWUP/ARROWDOWN) to nudge incrementally.
+- `browser_clear_text` — x, y (center of input). Clicks to focus, selects all text, then presses Backspace to delete.
 
 **Navigation:**
 - `browser_navigate` — url? OR action? (back, forward, reload)
@@ -99,7 +100,7 @@ SELECT screenshot_before_path, screenshot_after_path FROM actions WHERE id = <id
 
 - `browser_javascript` uses `expression` as its parameter name (not `script`)
 - `browser_scroll` requires `x`, `y` coordinates where the mouse wheel fires — target the element center
-- Scroll direction: `delta_y` positive = scroll down, negative = scroll up
+- Scroll direction: `delta_px` positive = scroll down/right, negative = scroll up/left (direction: "y" for vertical, "x" for horizontal)
 - JS is paused between actions — timers and animations don't advance until your next tool call
 - Key names are ALL-CAPS: ENTER, TAB, ESCAPE, BACKSPACE, ARROWUP, ARROWDOWN, etc.
 - Modifier keys for keyboard_press: SHIFT, CONTROL, ALT, META (or abbreviations CTRL, CMD, OPT)
