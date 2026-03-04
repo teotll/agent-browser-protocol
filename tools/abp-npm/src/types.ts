@@ -12,7 +12,7 @@ export interface WaitUntil {
 
 export interface ScreenshotOptions {
   area?: "none" | "viewport";
-  disable_markup?: ("clickable" | "typeable" | "scrollable" | "grid" | "selected")[];
+  markup?: ("clickable" | "typeable" | "scrollable" | "grid" | "selected")[];
   cursor?: boolean;
   format?: string;
 }
@@ -55,6 +55,7 @@ export interface ActionEvent {
 }
 
 export interface ActionResponse<T = Record<string, unknown>> {
+  action_id?: string;
   result: T;
   screenshot_before?: ScreenshotData;
   screenshot_after?: ScreenshotData;
@@ -284,4 +285,98 @@ export interface HistoryEvent {
 
 export interface ShutdownOptions {
   timeout_ms?: number;
+}
+
+// === Slider ===
+
+export interface SliderBaseOptions extends ActionRequest {
+  min: number;
+  max: number;
+  target_value: number;
+}
+
+export interface HorizontalSliderOptions extends SliderBaseOptions {
+  orientation: "horizontal";
+  y: number;
+  x_start: number;
+  x_end: number;
+  current_x: number;
+}
+
+export interface VerticalSliderOptions extends SliderBaseOptions {
+  orientation: "vertical";
+  x: number;
+  y_start: number;
+  y_end: number;
+  current_y: number;
+}
+
+export type SliderOptions = HorizontalSliderOptions | VerticalSliderOptions;
+
+// === Clear Text ===
+
+export interface ClearTextOptions extends ActionRequest {
+  x: number;
+  y: number;
+}
+
+// === Batch ===
+
+export interface BatchAction {
+  type: "mouse_click" | "keyboard_type" | "keyboard_press" | "mouse_hover" | "mouse_drag";
+  x?: number;
+  y?: number;
+  button?: "left" | "right" | "middle";
+  click_count?: number;
+  modifiers?: Modifier[];
+  text?: string;
+  key?: string;
+  action?: "press" | "down" | "up";
+  start_x?: number;
+  start_y?: number;
+  end_x?: number;
+  end_y?: number;
+  steps?: number;
+}
+
+export interface BatchOptions extends ActionRequest {
+  actions: BatchAction[];
+}
+
+// === Wait for Network ===
+
+export interface WaitForNetworkOptions extends ActionRequest {
+  timeout_ms?: number;
+}
+
+// === Permissions ===
+
+export interface PermissionRequest {
+  id: string;
+  permission_type: string;
+  origin: string;
+}
+
+export interface GrantPermissionOptions {
+  permission_type: string;
+  latitude?: number;
+  longitude?: number;
+  accuracy?: number;
+}
+
+export interface DenyPermissionOptions {
+  permission_type: string;
+}
+
+// === Select Popup ===
+
+export interface SelectPopupOptions {
+  indices?: number[];
+  cancel?: boolean;
+}
+
+// === Download Content ===
+
+export interface DownloadContentOptions {
+  max_size?: number;
 }
