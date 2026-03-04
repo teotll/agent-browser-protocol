@@ -374,10 +374,10 @@ class PermissionsAPI {
   constructor(private baseUrl: string) {}
 
   async list(): Promise<PermissionRequest[]> {
-    const res = await request<PermissionRequest[]>(
+    const res = await request<{ permissions: PermissionRequest[] }>(
       `${this.baseUrl}/permissions`,
     );
-    return res.data;
+    return res.data.permissions;
   }
 
   async grant(permissionId: string, options: GrantPermissionOptions): Promise<{ success: boolean }> {
