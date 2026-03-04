@@ -4,7 +4,7 @@
 </p>
 <h1 align="center">Agent Browser Protocol</h1>
 
-**Web browsing is continuous and async. ABP reformats web navigation into the discrete, request-response chat format agents excel at.**
+**Web browsing is continuous and async. Agents think in tools and steps. ABP reformats web navigation into the discrete, request-response chat format agents know and love.**
 
 <p align="center"><strong>90.53% on Online Mind2Web</strong> — <a href="https://github.com/theredsix/abp-online-mind2web-results">reproducible results</a></p>
 
