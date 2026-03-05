@@ -4,7 +4,7 @@
 </p>
 <h1 align="center">Agent Browser Protocol</h1>
 
-![GitHub License](https://img.shields.io/github/license/theredsix/agent-browser-protocol)
+
 
 **Web browsing is continuous and async. Agents think in tools and steps. ABP reformats web navigation into the discrete, request-response chat format agents know and love.**
 
