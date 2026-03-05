@@ -150,6 +150,8 @@ See [docs/REST-API.md](docs/REST-API.md) for curl examples and the full API refe
 > **Manual binary download?** See [MANUAL_INSTALL.md](MANUAL_INSTALL.md) for direct download and launch instructions.
 >
 > **Building from source?** See [COMPILE.md](COMPILE.md) for macOS, Linux, and Windows.
+>
+> **Uninstalling?** See [Uninstall](#uninstall).
 
 ---
 
@@ -447,6 +449,20 @@ ABP also exposes a full REST API for direct HTTP integration. See [docs/REST-API
 
 ## Maintainers
 * Han Wang ([@theredsix](https://github.com/theredsix))
+
+## Uninstall
+
+Remove the MCP server from your client:
+
+```bash
+# Claude Code
+claude mcp remove browser
+
+# Codex CLI
+codex mcp remove browser
+```
+
+For other clients, delete the `browser` entry from your MCP configuration file.
 
 ## Contributing
 
