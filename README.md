@@ -1,10 +1,4 @@
-
-<p align="center">
-  <img width="256" height="256" alt="Gemini_Generated_Image_gc6jkxgc6jkxgc6j" src="https://github.com/user-attachments/assets/56c118ca-df5a-4ab6-9c8d-c45adhttps://github.com/theredsix/agent-browser-protocol/tree/devfeb52af" />
-</p>
 <h1 align="center">Agent Browser Protocol</h1>
-
-
 
 **Web browsing is continuous and async. Agents think in tools and steps. ABP reformats web navigation into the discrete, request-response chat format agents know and love.**
 
