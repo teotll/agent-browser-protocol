@@ -34,10 +34,13 @@
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
+#include "chrome/browser/abp/abp_curl_handler.h"
 #include "chrome/browser/abp/abp_download_observer.h"
 #include "chrome/browser/abp/abp_event_collector.h"
 #include "chrome/browser/abp/abp_event_observer.h"
 #include "chrome/browser/abp/abp_history_controller.h"
+#include "chrome/browser/abp/abp_network_capture.h"
+#include "chrome/browser/abp/abp_network_database.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
@@ -45,10 +48,12 @@
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/render_process_host.h"
+#include "content/public/browser/storage_partition.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
@@ -318,7 +323,11 @@ void AbpController::TabState::Reset() {
 
 AbpController::TabState& AbpController::GetOrCreateTabState(
     const std::string& tab_id) {
-  return tab_states_[tab_id];
+  TabState& tab_state = tab_states_[tab_id];
+  if (!tab_state.network_capture) {
+    tab_state.network_capture = std::make_unique<AbpNetworkCapture>();
+  }
+  return tab_state;
 }
 
 void AbpController::CleanupTabState(const std::string& tab_id) {
@@ -2053,6 +2062,12 @@ void AbpController::HandleRequest(const std::string& method,
         } else {
           SendError(405, "Method not allowed", std::move(callback));
         }
+      } else if (action == "curl") {
+        if (method == "POST") {
+          HandleCurl(tab_id, body, std::move(callback));
+        } else {
+          SendError(405, "Method not allowed", std::move(callback));
+        }
       } else if (action == "batch") {
         if (method != "POST") {
           SendError(405, "Method not allowed", std::move(callback));
@@ -2266,6 +2281,24 @@ void AbpController::HandleRequest(const std::string& method,
       }
       return;
     }
+  }
+
+  // Route: /api/v1/network
+  if (resource == "network") {
+    if (segments.size() == 3) {
+      if (method == "GET") {
+        HandleNetworkQuery(query_string, std::move(callback));
+      } else if (method == "POST") {
+        HandleNetworkSave(body, std::move(callback));
+      } else if (method == "DELETE") {
+        HandleNetworkClear(query_string, std::move(callback));
+      } else {
+        SendError(405, "Method not allowed", std::move(callback));
+      }
+      return;
+    }
+    SendError(404, "Not found", std::move(callback));
+    return;
   }
 
   SendError(404, "Not found", std::move(callback));
@@ -3402,6 +3435,12 @@ AbpCdpClient* AbpController::GetOrCreateCdpClient(content::WebContents* wc) {
         controller->OnCdpEventForWait(tab, method, params);
       },
       weak_factory_.GetWeakPtr(), tab_id));
+
+  // Enable Network domain with post body capture (50MB max)
+  base::Value::Dict network_params;
+  network_params.Set("maxPostDataSize", 52428800);  // 50MB
+  raw_ptr->SendCommand("Network.enable", std::move(network_params),
+                       base::BindOnce([](bool, const std::string&) {}));
 
   // Enable Page domain for navigation and dialog events
   base::Value::Dict empty_params;
@@ -5274,6 +5313,12 @@ void AbpController::OnPersistentNetworkEvent(const std::string& tab_id,
       tab_state.persistent_active_request_ids.erase(*request_id);
     }
   }
+
+  // Forward to per-tab network capture buffer (always-on).
+  if (tab_state.network_capture) {
+    tab_state.network_capture->OnNetworkEvent(method, params,
+                                              tab_state.cdp_client.get());
+  }
 }
 
 void AbpController::CheckActionCompleteConditions(const std::string& tab_id) {
@@ -6653,6 +6698,8 @@ AbpActionContext::Options AbpController::GetDefaultActionOptions() const {
 
 void AbpController::SetSessionDir(const base::FilePath& session_dir) {
   session_dir_ = session_dir;
+  network_db_ = std::make_unique<AbpNetworkDatabase>(session_dir_);
+  curl_handler_ = std::make_unique<AbpCurlHandler>();
 }
 
 void AbpController::ListDownloads(const std::string& query,
@@ -7007,6 +7054,237 @@ void AbpController::DenyPermission(const std::string& perm_id,
           },
           std::move(permission_type)),
       std::move(callback));
+}
+
+// ---------------------------------------------------------------------------
+// Network capture REST endpoints
+// ---------------------------------------------------------------------------
+
+// Helper: extract a single query param value from a query string.
+// Returns empty string if the param is not found.
+static std::string GetQueryParam(const std::string& query,
+                                  const std::string& name) {
+  std::string search = name + "=";
+  size_t pos = query.find(search);
+  if (pos == std::string::npos) return {};
+  size_t start = pos + search.size();
+  size_t end = query.find('&', start);
+  return query.substr(start, end == std::string::npos ? end : end - start);
+}
+
+void AbpController::HandleNetworkQuery(const std::string& query_string,
+                                       ResponseCallback callback) {
+  if (!network_db_) {
+    SendError(503, "Network database not available", std::move(callback));
+    return;
+  }
+
+  AbpNetworkDatabase::QueryFilter filter;
+  filter.tag = GetQueryParam(query_string, "tag");
+  filter.tab_id = GetQueryParam(query_string, "tab_id");
+  filter.action_id = GetQueryParam(query_string, "action_id");
+  filter.url_regex = GetQueryParam(query_string, "url");
+  filter.hostname_regex = GetQueryParam(query_string, "hostname");
+  filter.path_regex = GetQueryParam(query_string, "path");
+  filter.query_regex = GetQueryParam(query_string, "query");
+  filter.method_regex = GetQueryParam(query_string, "method");
+  filter.status_regex = GetQueryParam(query_string, "status");
+  filter.type = GetQueryParam(query_string, "type");
+  std::string include_body_str = GetQueryParam(query_string, "include_body");
+  filter.include_body = (include_body_str == "true" || include_body_str == "1");
+
+  network_db_->QueryRequests(
+      filter,
+      base::BindOnce(
+          [](ResponseCallback cb, base::Value::List results) {
+            base::Value::Dict response;
+            response.Set("requests", std::move(results));
+            std::string json;
+            base::JSONWriter::Write(response, &json);
+            std::move(cb).Run(200, "application/json", std::move(json));
+          },
+          std::move(callback)));
+}
+
+void AbpController::HandleNetworkSave(const std::string& body,
+                                      ResponseCallback callback) {
+  if (!network_db_) {
+    SendError(503, "Network database not available", std::move(callback));
+    return;
+  }
+
+  auto parsed = base::JSONReader::Read(body, base::JSON_PARSE_RFC);
+  if (!parsed || !parsed->is_dict()) {
+    SendError(400, "Invalid JSON body", std::move(callback));
+    return;
+  }
+  const base::Value::Dict& params = parsed->GetDict();
+
+  const std::string* tag = params.FindString("tag");
+  if (!tag || tag->empty()) {
+    SendError(400, "Missing required field: tag", std::move(callback));
+    return;
+  }
+  const std::string* tab_id = params.FindString("tab_id");
+  if (!tab_id || tab_id->empty()) {
+    SendError(400, "Missing required field: tab_id", std::move(callback));
+    return;
+  }
+
+  // Find the tab's network capture buffer.
+  auto it = tab_states_.find(*tab_id);
+  if (it == tab_states_.end() || !it->second.network_capture) {
+    SendError(404, "Tab not found or no capture buffer", std::move(callback));
+    return;
+  }
+
+  const std::vector<abp::CapturedRequest>& requests =
+      it->second.network_capture->GetRequests();
+
+  int saved_count = static_cast<int>(requests.size());
+  network_db_->SaveRequests(*tag, *tab_id, requests,
+                            base::BindOnce(
+                                [](ResponseCallback cb, int count,
+                                   const std::string& t) {
+                                  base::Value::Dict response;
+                                  response.Set("saved", count);
+                                  response.Set("tag", t);
+                                  std::string json;
+                                  base::JSONWriter::Write(response, &json);
+                                  std::move(cb).Run(200, "application/json",
+                                                    std::move(json));
+                                },
+                                std::move(callback), saved_count, *tag));
+}
+
+void AbpController::HandleNetworkClear(const std::string& query_string,
+                                       ResponseCallback callback) {
+  if (!network_db_) {
+    SendError(503, "Network database not available", std::move(callback));
+    return;
+  }
+
+  std::string tag = GetQueryParam(query_string, "tag");
+
+  network_db_->ClearRequests(
+      tag, base::BindOnce(
+               [](ResponseCallback cb) {
+                 base::Value::Dict response;
+                 response.Set("status", "cleared");
+                 std::string json;
+                 base::JSONWriter::Write(response, &json);
+                 std::move(cb).Run(200, "application/json", std::move(json));
+               },
+               std::move(callback)));
+}
+
+void AbpController::HandleCurl(const std::string& tab_id,
+                               const std::string& body,
+                               ResponseCallback callback) {
+  if (!curl_handler_) {
+    SendError(503, "Curl handler not available", std::move(callback));
+    return;
+  }
+
+  auto parsed = base::JSONReader::Read(body, base::JSON_PARSE_RFC);
+  if (!parsed || !parsed->is_dict()) {
+    SendError(400, "Invalid JSON body", std::move(callback));
+    return;
+  }
+  const base::Value::Dict& params = parsed->GetDict();
+
+  const std::string* url = params.FindString("url");
+  if (!url || url->empty()) {
+    SendError(400, "Missing required field: url", std::move(callback));
+    return;
+  }
+
+  content::WebContents* wc = FindWebContents(tab_id);
+  if (!wc) {
+    SendError(404, "Tab not found", std::move(callback));
+    return;
+  }
+
+  AbpCurlHandler::Request req;
+  req.url = *url;
+
+  const std::string* method = params.FindString("method");
+  if (method) {
+    req.method = *method;
+  }
+
+  const std::string* req_body = params.FindString("body");
+  if (req_body) {
+    req.body = *req_body;
+  }
+
+  const base::Value::Dict* headers = params.FindDict("headers");
+  if (headers) {
+    for (auto it_hdr = headers->begin(); it_hdr != headers->end(); ++it_hdr) {
+      if (it_hdr->second.is_string()) {
+        req.headers[it_hdr->first] = it_hdr->second.GetString();
+      }
+    }
+  }
+
+  // Auto-populate origin and referer from the tab's current URL.
+  GURL current_url = wc->GetLastCommittedURL();
+  if (current_url.is_valid()) {
+    req.origin = current_url.DeprecatedGetOriginAsURL().spec();
+    req.referer = current_url.spec();
+  }
+
+  // Get the StoragePartition for this tab (for session/cookie sharing).
+  content::StoragePartition* storage_partition =
+      wc->GetBrowserContext()->GetDefaultStoragePartition();
+
+  // Parse optional save config.
+  const std::string* save_tag = params.FindString("save_tag");
+
+  curl_handler_->Execute(
+      req, storage_partition,
+      base::BindOnce(
+          [](ResponseCallback cb,
+             base::WeakPtr<AbpController> controller,
+             std::string stab_id, std::string tag,
+             AbpCurlHandler::Response response) {
+            // Optionally save to network_db_.
+            if (!tag.empty() && controller && controller->network_db_) {
+              abp::CapturedRequest captured;
+              captured.url = response.final_url.empty()
+                                 ? std::string()
+                                 : response.final_url;
+              captured.method = "GET";
+              captured.status_code = response.status_code;
+              captured.response_body = response.body;
+              captured.response_body_is_base64 = response.body_is_base64;
+              for (const auto& [k, v] : response.headers) {
+                captured.response_headers.Set(k, v);
+              }
+              captured.completed = true;
+              std::vector<abp::CapturedRequest> reqs;
+              reqs.push_back(std::move(captured));
+              controller->network_db_->SaveRequests(tag, stab_id, reqs,
+                                                    base::DoNothing());
+            }
+
+            base::Value::Dict result;
+            result.Set("status_code", response.status_code);
+            result.Set("body", response.body);
+            result.Set("body_is_base64", response.body_is_base64);
+            result.Set("final_url", response.final_url);
+            result.Set("redirected", response.redirected);
+            base::Value::Dict resp_headers;
+            for (const auto& [k, v] : response.headers) {
+              resp_headers.Set(k, v);
+            }
+            result.Set("headers", std::move(resp_headers));
+            std::string json;
+            base::JSONWriter::Write(result, &json);
+            std::move(cb).Run(200, "application/json", std::move(json));
+          },
+          std::move(callback), weak_factory_.GetWeakPtr(), tab_id,
+          save_tag ? *save_tag : std::string()));
 }
 
 }  // namespace abp

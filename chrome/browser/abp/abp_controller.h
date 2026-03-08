@@ -26,7 +26,10 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "url/gurl.h"
+#include "chrome/browser/abp/abp_curl_handler.h"
 #include "chrome/browser/abp/abp_location_provider.h"
+#include "chrome/browser/abp/abp_network_capture.h"
+#include "chrome/browser/abp/abp_network_database.h"
 #include "chrome/browser/abp/abp_permission_observer.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/abp/abp_action_context.h"
@@ -585,6 +588,16 @@ class AbpController : public TabStripModelObserver {
                              int64_t max_size,
                              ResponseCallback callback);
 
+  // Network capture endpoints
+  void HandleNetworkQuery(const std::string& query_string,
+                          ResponseCallback callback);
+  void HandleNetworkSave(const std::string& body, ResponseCallback callback);
+  void HandleNetworkClear(const std::string& query_string,
+                          ResponseCallback callback);
+  void HandleCurl(const std::string& tab_id,
+                  const std::string& body,
+                  ResponseCallback callback);
+
 
   // Internal: capture step of CaptureActionScreenshot (after markup inject)
   // Uses GetSnapshotFromBrowser(from_surface=false) for ForceRedraw + capture.
@@ -903,6 +916,9 @@ class AbpController : public TabStripModelObserver {
     // Read and cleared at the start of the next action's cleanup phase.
     std::vector<std::string> last_markup_tags;
 
+    // Per-tab network capture buffer. Created lazily on first use.
+    std::unique_ptr<AbpNetworkCapture> network_capture;
+
     // Check if tab has any active state
     bool IsIdle() const;
 
@@ -1068,6 +1084,12 @@ class AbpController : public TabStripModelObserver {
 
   // Session directory for temp file storage
   base::FilePath session_dir_;
+
+  // Network capture database (persists tagged requests to SQLite)
+  std::unique_ptr<AbpNetworkDatabase> network_db_;
+
+  // Curl handler (session-aware HTTP client)
+  std::unique_ptr<AbpCurlHandler> curl_handler_;
 
   // Event collector for capturing events during actions (owned)
   std::unique_ptr<AbpEventCollector> event_collector_;
