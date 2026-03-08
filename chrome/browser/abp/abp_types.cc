@@ -8,6 +8,57 @@ namespace abp {
 
 CapturedRequest::CapturedRequest() = default;
 CapturedRequest::~CapturedRequest() = default;
+
+CapturedRequest::CapturedRequest(const CapturedRequest& other)
+    : request_id(other.request_id),
+      action_id(other.action_id),
+      url(other.url),
+      url_hostname(other.url_hostname),
+      url_path(other.url_path),
+      url_query(other.url_query),
+      method(other.method),
+      request_headers(other.request_headers.Clone()),
+      request_body(other.request_body),
+      resource_type(other.resource_type),
+      cors_preflight(other.cors_preflight),
+      status_code(other.status_code),
+      response_headers(other.response_headers.Clone()),
+      response_body(other.response_body),
+      response_body_is_base64(other.response_body_is_base64),
+      redirect_chain(other.redirect_chain.Clone()),
+      started_at_ms(other.started_at_ms),
+      completed_at_ms(other.completed_at_ms),
+      virtual_time_ms(other.virtual_time_ms),
+      completed(other.completed),
+      served_from_service_worker(other.served_from_service_worker) {}
+
+CapturedRequest& CapturedRequest::operator=(const CapturedRequest& other) {
+  if (this != &other) {
+    request_id = other.request_id;
+    action_id = other.action_id;
+    url = other.url;
+    url_hostname = other.url_hostname;
+    url_path = other.url_path;
+    url_query = other.url_query;
+    method = other.method;
+    request_headers = other.request_headers.Clone();
+    request_body = other.request_body;
+    resource_type = other.resource_type;
+    cors_preflight = other.cors_preflight;
+    status_code = other.status_code;
+    response_headers = other.response_headers.Clone();
+    response_body = other.response_body;
+    response_body_is_base64 = other.response_body_is_base64;
+    redirect_chain = other.redirect_chain.Clone();
+    started_at_ms = other.started_at_ms;
+    completed_at_ms = other.completed_at_ms;
+    virtual_time_ms = other.virtual_time_ms;
+    completed = other.completed;
+    served_from_service_worker = other.served_from_service_worker;
+  }
+  return *this;
+}
+
 CapturedRequest::CapturedRequest(CapturedRequest&&) = default;
 CapturedRequest& CapturedRequest::operator=(CapturedRequest&&) = default;
 

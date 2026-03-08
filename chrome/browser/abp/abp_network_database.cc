@@ -114,34 +114,9 @@ void AbpNetworkDatabase::SaveRequests(
     const std::string& tab_id,
     const std::vector<abp::CapturedRequest>& requests,
     base::OnceClosure callback) {
-  // Clone the requests so they can be moved to the DB thread.
-  std::vector<abp::CapturedRequest> requests_copy;
-  requests_copy.reserve(requests.size());
-  for (const auto& req : requests) {
-    abp::CapturedRequest copy;
-    copy.request_id = req.request_id;
-    copy.action_id = req.action_id;
-    copy.url = req.url;
-    copy.url_hostname = req.url_hostname;
-    copy.url_path = req.url_path;
-    copy.url_query = req.url_query;
-    copy.method = req.method;
-    copy.request_headers = req.request_headers.Clone();
-    copy.request_body = req.request_body;
-    copy.resource_type = req.resource_type;
-    copy.cors_preflight = req.cors_preflight;
-    copy.status_code = req.status_code;
-    copy.response_headers = req.response_headers.Clone();
-    copy.response_body = req.response_body;
-    copy.response_body_is_base64 = req.response_body_is_base64;
-    copy.redirect_chain = req.redirect_chain.Clone();
-    copy.started_at_ms = req.started_at_ms;
-    copy.completed_at_ms = req.completed_at_ms;
-    copy.virtual_time_ms = req.virtual_time_ms;
-    copy.completed = req.completed;
-    copy.served_from_service_worker = req.served_from_service_worker;
-    requests_copy.push_back(std::move(copy));
-  }
+  // Copy the requests so they can be moved to the DB thread.
+  std::vector<abp::CapturedRequest> requests_copy(requests.begin(),
+                                                   requests.end());
 
   db_task_runner_->PostTaskAndReply(
       FROM_HERE,

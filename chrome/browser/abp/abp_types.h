@@ -43,6 +43,8 @@ using ResponseWithHeadersCallback = base::OnceCallback<void(
 struct CapturedRequest {
   CapturedRequest();
   ~CapturedRequest();
+  CapturedRequest(const CapturedRequest&);
+  CapturedRequest& operator=(const CapturedRequest&);
   CapturedRequest(CapturedRequest&&);
   CapturedRequest& operator=(CapturedRequest&&);
 
