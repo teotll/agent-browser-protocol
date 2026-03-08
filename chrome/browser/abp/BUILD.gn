@@ -44,6 +44,8 @@ source_set("abp") {
     "abp_http_server.h",
     "abp_mcp_handler.cc",
     "abp_mcp_handler.h",
+    "abp_network_capture.cc",
+    "abp_network_capture.h",
     "abp_network_database.cc",
     "abp_network_database.h",
     "abp_permission_observer.cc",
