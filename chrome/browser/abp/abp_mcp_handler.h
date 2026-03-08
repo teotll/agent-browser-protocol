@@ -106,6 +106,19 @@ class AbpMcpHandler {
   void CallRespondToPermission(const base::Value::Dict& args,
                                base::Value request_id,
                                ResponseWithHeadersCallback callback);
+  void CallBrowserNetwork(const base::Value::Dict& args,
+                          base::Value request_id,
+                          ResponseWithHeadersCallback callback);
+  void CallBrowserCurl(const base::Value::Dict& args,
+                       base::Value request_id,
+                       ResponseWithHeadersCallback callback);
+
+  // Callback for browser_curl binary (image) responses.
+  void OnCurlControllerResponse(base::Value request_id,
+                                ResponseWithHeadersCallback callback,
+                                int status,
+                                const std::string& content_type,
+                                std::string body);
 
   // Resolve tab_id from args, falling back to active tab
   std::string ResolveTabId(const base::Value::Dict& args);

@@ -217,6 +217,13 @@ base::Value::List GetToolDefinitions() {
     base::Value::Dict properties;
     properties.Set("actions", std::move(actions_prop));
     properties.Set("tab_id", str_prop.Clone());
+    {
+      base::Value::Dict ntag;
+      ntag.Set("type", "string");
+      ntag.Set("description",
+               "Tag name to save captured network requests to the DB");
+      properties.Set("network_tag", std::move(ntag));
+    }
 
     // screenshot config
     base::Value::Dict ss_prop;
@@ -319,6 +326,8 @@ base::Value::List GetToolDefinitions() {
                 "multiple viewport heights in one action.",
                 std::move(scroll_item_props),
                 std::move(scroll_item_required))
+            .OptionalString("network_tag",
+                "Tag name to save captured network requests to the DB")
             .Build());
   }
 
@@ -332,6 +341,8 @@ base::Value::List GetToolDefinitions() {
                    .OptionalString("url", "URL to navigate to")
                    .OptionalStringEnum("action", "Navigation action",
                                        {"back", "forward", "reload"})
+                   .OptionalString("network_tag",
+                       "Tag name to save captured network requests to the DB")
                    .Build());
 
   // 4. browser_screenshot
@@ -360,6 +371,8 @@ base::Value::List GetToolDefinitions() {
               "grid (red coordinate grid), selected (blue, focused element)",
               {"clickable", "typeable", "scrollable", "grid", "selected"})
           .OptionalString("format", "Image format: png, webp, jpeg")
+          .OptionalString("network_tag",
+              "Tag name to save captured network requests to the DB")
           .Build());
 
   // 4b. browser_wait — wait for network to settle
@@ -382,6 +395,8 @@ base::Value::List GetToolDefinitions() {
               "grid (red coordinate grid), selected (blue, focused element)",
               {"clickable", "typeable", "scrollable", "grid", "selected"})
           .OptionalString("format", "Image format: png, webp, jpeg")
+          .OptionalString("network_tag",
+              "Tag name to save captured network requests to the DB")
           .Build());
 
   // 5. browser_tabs — list/new/close/info/activate/stop
@@ -412,6 +427,8 @@ base::Value::List GetToolDefinitions() {
               "to understand why.")
           .OptionalString("tab_id", "Target tab ID")
           .RequiredString("expression", "JavaScript expression to evaluate")
+          .OptionalString("network_tag",
+              "Tag name to save captured network requests to the DB")
           .Build());
 
   // 7. browser_text
@@ -420,6 +437,8 @@ base::Value::List GetToolDefinitions() {
                    .OptionalString("tab_id", "Target tab ID")
                    .OptionalString("selector",
                        "CSS selector to scope text extraction")
+                   .OptionalString("network_tag",
+                       "Tag name to save captured network requests to the DB")
                    .Build());
 
   // 8. browser_dialog — check/accept/dismiss
@@ -563,6 +582,8 @@ base::Value::List GetToolDefinitions() {
           .RequiredNumber("max", "Maximum logical value of the slider")
           .RequiredNumber("target_value",
               "Desired logical value to set the slider to")
+          .OptionalString("network_tag",
+              "Tag name to save captured network requests to the DB")
           .Build());
 
   // 16. browser_clear_text — clear focused input via backspace
@@ -578,6 +599,8 @@ base::Value::List GetToolDefinitions() {
               "X coordinate of the center of the input field")
           .RequiredNumber("y",
               "Y coordinate of the center of the input field")
+          .OptionalString("network_tag",
+              "Tag name to save captured network requests to the DB")
           .Build());
 
   // 17. respond_to_permission — handle permission prompts
@@ -606,6 +629,70 @@ base::Value::List GetToolDefinitions() {
           .OptionalNumber("accuracy",
                           "Accuracy radius in meters (default: 100). Only "
                           "used when granting geolocation.")
+          .Build());
+
+  // 18. browser_network — query/save/clear saved network requests
+  tools.Append(
+      ToolBuilder("browser_network")
+          .Description(
+              "Query, save, or clear captured network requests stored in the "
+              "session database.\n\n"
+              "action=\"query\": Filter and retrieve saved requests. Supports "
+              "regex filters on url, hostname, path, query, method, status, "
+              "and resource type. Use include_body=true to include request/"
+              "response bodies.\n\n"
+              "action=\"save\": Snapshot the current in-memory network buffer "
+              "to the database with an optional tag. Use tab_id to scope to a "
+              "specific tab.\n\n"
+              "action=\"clear\": Remove saved requests from the database, "
+              "optionally filtered by tag.")
+          .RequiredStringEnum("action", "Operation: query, save, or clear",
+                              {"query", "save", "clear"})
+          .OptionalString("tag",
+              "Tag name. For save: label this snapshot. For query/clear: "
+              "filter by tag.")
+          .OptionalString("tab_id",
+              "Scope to a specific tab (query and save)")
+          .OptionalString("url", "Regex filter on full URL (query only)")
+          .OptionalString("hostname",
+              "Regex filter on hostname (query only)")
+          .OptionalString("path", "Regex filter on URL path (query only)")
+          .OptionalString("query",
+              "Regex filter on query string (query only)")
+          .OptionalString("method",
+              "Regex filter on HTTP method (query only)")
+          .OptionalString("status",
+              "Regex filter on HTTP status code (query only)")
+          .OptionalString("type",
+              "Resource type filter: document, stylesheet, script, image, "
+              "font, xhr, fetch, websocket, other (query only)")
+          .OptionalString("action_id",
+              "Filter by action ID (query only)")
+          .OptionalBoolean("include_body",
+              "Include request/response bodies in results (default: false, "
+              "query only)")
+          .Build());
+
+  // 19. browser_curl — session-aware HTTP client using tab cookies
+  tools.Append(
+      ToolBuilder("browser_curl")
+          .Description(
+              "Execute an HTTP request using the tab's current session "
+              "(cookies, auth tokens). Useful for calling APIs on the same "
+              "site the tab is authenticated to.\n\n"
+              "Returns text responses as text content, and image responses "
+              "(image/* content types) as native MCP image content blocks "
+              "so the model can view them directly.\n\n"
+              "Use tag to persist the captured request/response to the "
+              "network database.")
+          .RequiredString("tab_id",
+              "Tab whose cookies and session to use for the request")
+          .RequiredString("url", "Request URL")
+          .OptionalString("method",
+              "HTTP method (default: GET)")
+          .OptionalString("body", "Request body")
+          .OptionalString("tag",
+              "Tag name to persist this request to the network database")
           .Build());
 
   return tools;
@@ -927,6 +1014,10 @@ void AbpMcpHandler::HandleToolsCall(const base::Value::Dict& params,
     CallBrowserWait(*args, std::move(request_id), std::move(callback));
   } else if (*name == "respond_to_permission") {
     CallRespondToPermission(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_network") {
+    CallBrowserNetwork(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_curl") {
+    CallBrowserCurl(*args, std::move(request_id), std::move(callback));
   } else {
     SendJsonRpcError(std::move(request_id), kMethodNotFound,
                      "Unknown tool: " + *name, std::move(callback));
@@ -1000,6 +1091,14 @@ void AbpMcpHandler::CallBrowserAction(const base::Value::Dict& args,
   base::Value::Dict body_dict = args.Clone();
   body_dict.Remove("tab_id");
 
+  // Inject network_tag as {"network": {"tag": "..."}} if present.
+  if (const std::string* network_tag = args.FindString("network_tag")) {
+    body_dict.Remove("network_tag");
+    base::Value::Dict network_dict;
+    network_dict.Set("tag", *network_tag);
+    body_dict.Set("network", std::move(network_dict));
+  }
+
   std::string body;
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
@@ -1025,6 +1124,13 @@ void AbpMcpHandler::CallBrowserScroll(const base::Value::Dict& args,
   base::Value::Dict body_dict = args.Clone();
   body_dict.Remove("tab_id");
 
+  if (const std::string* network_tag = args.FindString("network_tag")) {
+    body_dict.Remove("network_tag");
+    base::Value::Dict network_dict;
+    network_dict.Set("tag", *network_tag);
+    body_dict.Set("network", std::move(network_dict));
+  }
+
   std::string body;
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
@@ -1049,10 +1155,16 @@ void AbpMcpHandler::CallBrowserNavigate(const base::Value::Dict& args,
 
   const std::string* url = args.FindString("url");
   const std::string* action = args.FindString("action");
+  const std::string* network_tag = args.FindString("network_tag");
 
   if (url) {
     base::Value::Dict body_dict;
     body_dict.Set("url", *url);
+    if (network_tag) {
+      base::Value::Dict network_dict;
+      network_dict.Set("tag", *network_tag);
+      body_dict.Set("network", std::move(network_dict));
+    }
     std::string body;
     base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
     controller_->HandleRequest(
@@ -1061,21 +1173,32 @@ void AbpMcpHandler::CallBrowserNavigate(const base::Value::Dict& args,
                        weak_factory_.GetWeakPtr(), std::move(request_id),
                        std::move(callback)));
   } else if (action) {
+    // Build optional network body for back/forward/reload
+    std::string nav_action_body;
+    if (network_tag) {
+      base::Value::Dict nav_body;
+      base::Value::Dict network_dict;
+      network_dict.Set("tag", *network_tag);
+      nav_body.Set("network", std::move(network_dict));
+      base::JSONWriter::Write(base::Value(std::move(nav_body)),
+                              &nav_action_body);
+    }
+
     if (*action == "back") {
       controller_->HandleRequest(
-          "POST", "/api/v1/tabs/" + tab_id + "/back", "",
+          "POST", "/api/v1/tabs/" + tab_id + "/back", nav_action_body,
           base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                          weak_factory_.GetWeakPtr(), std::move(request_id),
                          std::move(callback)));
     } else if (*action == "forward") {
       controller_->HandleRequest(
-          "POST", "/api/v1/tabs/" + tab_id + "/forward", "",
+          "POST", "/api/v1/tabs/" + tab_id + "/forward", nav_action_body,
           base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                          weak_factory_.GetWeakPtr(), std::move(request_id),
                          std::move(callback)));
     } else if (*action == "reload") {
       controller_->HandleRequest(
-          "POST", "/api/v1/tabs/" + tab_id + "/reload", "",
+          "POST", "/api/v1/tabs/" + tab_id + "/reload", nav_action_body,
           base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                          weak_factory_.GetWeakPtr(), std::move(request_id),
                          std::move(callback)));
@@ -1118,6 +1241,12 @@ void AbpMcpHandler::CallBrowserScreenshot(const base::Value::Dict& args,
   }
   body_dict.Set("screenshot", std::move(screenshot_opts));
 
+  if (const std::string* network_tag = args.FindString("network_tag")) {
+    base::Value::Dict network_dict;
+    network_dict.Set("tag", *network_tag);
+    body_dict.Set("network", std::move(network_dict));
+  }
+
   std::string body;
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
@@ -1150,6 +1279,12 @@ void AbpMcpHandler::CallBrowserWait(const base::Value::Dict& args,
     screenshot_opts.Set("format", *format);
   }
   body_dict.Set("screenshot", std::move(screenshot_opts));
+
+  if (const std::string* network_tag = args.FindString("network_tag")) {
+    base::Value::Dict network_dict;
+    network_dict.Set("tag", *network_tag);
+    body_dict.Set("network", std::move(network_dict));
+  }
 
   std::string body;
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
@@ -1305,6 +1440,11 @@ void AbpMcpHandler::CallBrowserJavascript(const base::Value::Dict& args,
   if (const std::string* expression = args.FindString("expression")) {
     body_dict.Set("script", *expression);
   }
+  if (const std::string* network_tag = args.FindString("network_tag")) {
+    base::Value::Dict network_dict;
+    network_dict.Set("tag", *network_tag);
+    body_dict.Set("network", std::move(network_dict));
+  }
 
   std::string body;
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
@@ -1331,6 +1471,11 @@ void AbpMcpHandler::CallBrowserText(const base::Value::Dict& args,
   base::Value::Dict body_dict;
   if (const std::string* selector = args.FindString("selector")) {
     body_dict.Set("selector", *selector);
+  }
+  if (const std::string* network_tag = args.FindString("network_tag")) {
+    base::Value::Dict network_dict;
+    network_dict.Set("tag", *network_tag);
+    body_dict.Set("network", std::move(network_dict));
   }
 
   std::string body;
@@ -1597,6 +1742,13 @@ void AbpMcpHandler::CallBrowserSlider(const base::Value::Dict& args,
   base::Value::Dict body_dict = args.Clone();
   body_dict.Remove("tab_id");
 
+  if (const std::string* network_tag = args.FindString("network_tag")) {
+    body_dict.Remove("network_tag");
+    base::Value::Dict network_dict;
+    network_dict.Set("tag", *network_tag);
+    body_dict.Set("network", std::move(network_dict));
+  }
+
   std::string body;
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
@@ -1623,6 +1775,13 @@ void AbpMcpHandler::CallBrowserClearText(
   base::Value::Dict body_dict = args.Clone();
   body_dict.Remove("tab_id");
 
+  if (const std::string* network_tag = args.FindString("network_tag")) {
+    body_dict.Remove("network_tag");
+    base::Value::Dict network_dict;
+    network_dict.Set("tag", *network_tag);
+    body_dict.Set("network", std::move(network_dict));
+  }
+
   std::string body;
   base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
 
@@ -1631,6 +1790,214 @@ void AbpMcpHandler::CallBrowserClearText(
       base::BindOnce(&AbpMcpHandler::OnControllerResponse,
                      weak_factory_.GetWeakPtr(), std::move(request_id),
                      std::move(callback)));
+}
+
+// --- 18. browser_network: query/save/clear network captures ---
+void AbpMcpHandler::CallBrowserNetwork(const base::Value::Dict& args,
+                                       base::Value request_id,
+                                       ResponseWithHeadersCallback callback) {
+  const std::string* action = args.FindString("action");
+  if (!action) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "Missing action (query, save, or clear)",
+                     std::move(callback));
+    return;
+  }
+
+  if (*action == "query") {
+    // Build query string from optional filter params
+    std::string path = "/api/v1/network";
+    std::vector<std::string> qp;
+
+    auto add_str = [&](const char* param_name) {
+      if (const std::string* v = args.FindString(param_name)) {
+        qp.push_back(std::string(param_name) + "=" + *v);
+      }
+    };
+
+    add_str("tag");
+    add_str("tab_id");
+    add_str("url");
+    add_str("hostname");
+    add_str("path");
+    add_str("query");
+    add_str("method");
+    add_str("status");
+    add_str("type");
+    add_str("action_id");
+
+    if (auto include_body = args.FindBool("include_body")) {
+      if (*include_body) {
+        qp.push_back("include_body=true");
+      }
+    }
+
+    if (!qp.empty()) {
+      path += "?";
+      for (size_t i = 0; i < qp.size(); ++i) {
+        if (i > 0)
+          path += "&";
+        path += qp[i];
+      }
+    }
+
+    controller_->HandleRequest(
+        "GET", path, "",
+        base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                       weak_factory_.GetWeakPtr(), std::move(request_id),
+                       std::move(callback)));
+
+  } else if (*action == "save") {
+    // POST /api/v1/network/save with optional tag + tab_id
+    base::Value::Dict body_dict;
+    if (const std::string* tag = args.FindString("tag")) {
+      body_dict.Set("tag", *tag);
+    }
+    if (const std::string* tab_id = args.FindString("tab_id")) {
+      body_dict.Set("tab_id", *tab_id);
+    }
+    std::string body;
+    base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
+
+    controller_->HandleRequest(
+        "POST", "/api/v1/network/save", body,
+        base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                       weak_factory_.GetWeakPtr(), std::move(request_id),
+                       std::move(callback)));
+
+  } else if (*action == "clear") {
+    // DELETE /api/v1/network?tag=...
+    std::string path = "/api/v1/network";
+    if (const std::string* tag = args.FindString("tag")) {
+      path += "?tag=" + *tag;
+    }
+
+    controller_->HandleRequest(
+        "DELETE", path, "",
+        base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                       weak_factory_.GetWeakPtr(), std::move(request_id),
+                       std::move(callback)));
+
+  } else {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "Invalid action: " + *action +
+                         " (expected query, save, or clear)",
+                     std::move(callback));
+  }
+}
+
+// --- 19. browser_curl: session-aware HTTP client ---
+void AbpMcpHandler::CallBrowserCurl(const base::Value::Dict& args,
+                                    base::Value request_id,
+                                    ResponseWithHeadersCallback callback) {
+  const std::string* tab_id = args.FindString("tab_id");
+  if (!tab_id || tab_id->empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "Missing required tab_id", std::move(callback));
+    return;
+  }
+
+  const std::string* url = args.FindString("url");
+  if (!url || url->empty()) {
+    SendJsonRpcError(std::move(request_id), kInvalidParams,
+                     "Missing required url", std::move(callback));
+    return;
+  }
+
+  base::Value::Dict body_dict;
+  body_dict.Set("url", *url);
+
+  if (const std::string* method = args.FindString("method")) {
+    body_dict.Set("method", *method);
+  }
+  if (const std::string* body_str = args.FindString("body")) {
+    body_dict.Set("body", *body_str);
+  }
+  if (const std::string* tag = args.FindString("tag")) {
+    body_dict.Set("tag", *tag);
+  }
+
+  std::string body;
+  base::JSONWriter::Write(base::Value(std::move(body_dict)), &body);
+
+  controller_->HandleRequest(
+      "POST", "/api/v1/tabs/" + *tab_id + "/curl", body,
+      base::BindOnce(&AbpMcpHandler::OnCurlControllerResponse,
+                     weak_factory_.GetWeakPtr(), std::move(request_id),
+                     std::move(callback)));
+}
+
+void AbpMcpHandler::OnCurlControllerResponse(base::Value request_id,
+                                             ResponseWithHeadersCallback callback,
+                                             int status,
+                                             const std::string& content_type,
+                                             std::string body) {
+  // Parse the JSON response from the curl REST endpoint.
+  // Expected shape:
+  //   { "status": 200, "headers": {...}, "body": "...",
+  //     "body_encoding": "text"|"base64", "content_type": "..." }
+  //
+  // For image responses (body_encoding == "base64" and content_type image/*),
+  // emit a native MCP image content block so the model can view it directly.
+  // For all other responses, forward through the normal text path.
+
+  auto parsed = base::JSONReader::Read(body, base::JSON_PARSE_RFC);
+  if (!parsed || !parsed->is_dict()) {
+    // Not JSON — forward as plain text
+    OnControllerResponse(std::move(request_id), std::move(callback), status,
+                         content_type, std::move(body));
+    return;
+  }
+
+  base::Value::Dict& resp = parsed->GetDict();
+
+  const std::string* body_encoding = resp.FindString("body_encoding");
+  const std::string* resp_content_type = resp.FindString("content_type");
+  const std::string* resp_body_ptr = resp.FindString("body");
+
+  bool is_base64 = body_encoding && *body_encoding == "base64";
+  bool is_image = resp_content_type &&
+                  resp_content_type->find("image/") == 0;
+
+  if (is_base64 && is_image && resp_body_ptr && !resp_body_ptr->empty()) {
+    // Return as an MCP image content block so the model can view it directly.
+
+    // Capture body data and content type before mutating resp.
+    std::string img_data = *resp_body_ptr;
+    std::string img_mime = *resp_content_type;
+
+    base::Value::List content;
+
+    // Text block with metadata (status, headers, content_type) — strip body.
+    resp.Remove("body");
+    std::string meta_json;
+    base::JSONWriter::WriteWithOptions(
+        *parsed, base::JSONWriter::OPTIONS_PRETTY_PRINT, &meta_json);
+    base::Value::Dict text_block;
+    text_block.Set("type", "text");
+    text_block.Set("text", meta_json);
+    content.Append(std::move(text_block));
+
+    // Image content block
+    base::Value::Dict img_block;
+    img_block.Set("type", "image");
+    img_block.Set("data", std::move(img_data));
+    img_block.Set("mimeType", std::move(img_mime));
+    content.Append(std::move(img_block));
+
+    base::Value::Dict result;
+    result.Set("content", std::move(content));
+    if (status >= 400) {
+      result.Set("isError", true);
+    }
+
+    SendJsonRpcResult(std::move(request_id), base::Value(std::move(result)),
+                      std::move(callback));
+  } else {
+    // Text or other binary — use the normal response handler
+    OnControllerResponse(std::move(request_id), std::move(callback), status,
+                         content_type, std::move(body));
+  }
 }
 
 void AbpMcpHandler::OnControllerResponse(base::Value request_id,
