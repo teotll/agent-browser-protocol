@@ -72,6 +72,10 @@ class ToolBuilder {
   ToolBuilder& OptionalBoolean(const std::string& name,
                                const std::string& description);
 
+  // Optional object with string-valued additional properties (string map)
+  ToolBuilder& OptionalObject(const std::string& name,
+                              const std::string& description);
+
   // Optional with enum constraint
   ToolBuilder& OptionalStringEnum(const std::string& name,
                                   const std::string& description,

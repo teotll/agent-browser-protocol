@@ -12,6 +12,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/abp/abp_controller.h"
 #include "chrome/browser/abp/abp_tool_builder.h"
+#include "net/base/escape.h"
 
 namespace abp {
 
@@ -691,6 +692,9 @@ base::Value::List GetToolDefinitions() {
           .OptionalString("method",
               "HTTP method (default: GET)")
           .OptionalString("body", "Request body")
+          .OptionalObject("headers",
+              "Additional HTTP request headers as key-value string pairs "
+              "(e.g. {\"Content-Type\": \"application/json\"})")
           .OptionalString("tag",
               "Tag name to persist this request to the network database")
           .Build());
@@ -1227,7 +1231,9 @@ void AbpMcpHandler::CallBrowserScreenshot(const base::Value::Dict& args,
     return;
   }
 
-  // Build screenshot options from flat args
+  // Build screenshot options from flat args.
+  // network_tag is explicitly extracted below and converted to {"network":
+  // {"tag": "..."}} — it is never cloned into body_dict, so no Remove() needed.
   base::Value::Dict body_dict;
   base::Value::Dict screenshot_opts;
   if (const base::Value::List* markup = args.FindList("markup")) {
@@ -1269,7 +1275,9 @@ void AbpMcpHandler::CallBrowserWait(const base::Value::Dict& args,
     return;
   }
 
-  // Build body with screenshot options (same shape as /screenshot)
+  // Build body with screenshot options (same shape as /screenshot).
+  // network_tag is explicitly extracted below and converted to {"network":
+  // {"tag": "..."}} — it is never cloned into body_dict, so no Remove() needed.
   base::Value::Dict body_dict;
   base::Value::Dict screenshot_opts;
   if (const base::Value::List* markup = args.FindList("markup")) {
@@ -1435,7 +1443,9 @@ void AbpMcpHandler::CallBrowserJavascript(const base::Value::Dict& args,
     return;
   }
 
-  // Map MCP "expression" to REST "script"
+  // Map MCP "expression" to REST "script".
+  // network_tag is explicitly extracted below and converted to {"network":
+  // {"tag": "..."}} — it is never cloned into body_dict, so no Remove() needed.
   base::Value::Dict body_dict;
   if (const std::string* expression = args.FindString("expression")) {
     body_dict.Set("script", *expression);
@@ -1468,6 +1478,8 @@ void AbpMcpHandler::CallBrowserText(const base::Value::Dict& args,
     return;
   }
 
+  // network_tag is explicitly extracted below and converted to {"network":
+  // {"tag": "..."}} — it is never cloned into body_dict, so no Remove() needed.
   base::Value::Dict body_dict;
   if (const std::string* selector = args.FindString("selector")) {
     body_dict.Set("selector", *selector);
@@ -1809,9 +1821,11 @@ void AbpMcpHandler::CallBrowserNetwork(const base::Value::Dict& args,
     std::string path = "/api/v1/network";
     std::vector<std::string> qp;
 
+    // URL-encode param values: regex filters may contain +, ?, (, ), |, & etc.
     auto add_str = [&](const char* param_name) {
       if (const std::string* v = args.FindString(param_name)) {
-        qp.push_back(std::string(param_name) + "=" + *v);
+        qp.push_back(std::string(param_name) + "=" +
+                     net::EscapeQueryParamValue(*v, /*use_plus=*/false));
       }
     };
 
@@ -1912,6 +1926,9 @@ void AbpMcpHandler::CallBrowserCurl(const base::Value::Dict& args,
   }
   if (const std::string* body_str = args.FindString("body")) {
     body_dict.Set("body", *body_str);
+  }
+  if (const base::Value::Dict* headers_dict = args.FindDict("headers")) {
+    body_dict.Set("headers", headers_dict->Clone());
   }
   if (const std::string* tag = args.FindString("tag")) {
     body_dict.Set("tag", *tag);

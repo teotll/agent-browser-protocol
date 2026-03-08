@@ -61,6 +61,18 @@ ToolBuilder& ToolBuilder::OptionalBoolean(const std::string& name,
   return *this;
 }
 
+ToolBuilder& ToolBuilder::OptionalObject(const std::string& name,
+                                         const std::string& description) {
+  base::Value::Dict prop;
+  prop.Set("type", "object");
+  prop.Set("description", description);
+  base::Value::Dict additional_props;
+  additional_props.Set("type", "string");
+  prop.Set("additionalProperties", std::move(additional_props));
+  properties_.Set(name, std::move(prop));
+  return *this;
+}
+
 ToolBuilder& ToolBuilder::OptionalStringEnum(const std::string& name,
                                              const std::string& description,
                                              std::vector<std::string> values) {
