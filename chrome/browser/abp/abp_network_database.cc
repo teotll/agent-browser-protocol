@@ -26,6 +26,14 @@ AbpNetworkDatabase::QueryFilter& AbpNetworkDatabase::QueryFilter::operator=(
 
 namespace {
 
+constexpr char kCreateUrlIndex[] =
+    "CREATE INDEX IF NOT EXISTS idx_nr_url ON network_requests(url)";
+constexpr char kCreateHostnameIndex[] =
+    "CREATE INDEX IF NOT EXISTS idx_nr_hostname ON "
+    "network_requests(url_hostname)";
+constexpr char kCreatePathIndex[] =
+    "CREATE INDEX IF NOT EXISTS idx_nr_path ON network_requests(url_path)";
+
 constexpr char kCreateNetworkRequestsTable[] = R"(
   CREATE TABLE IF NOT EXISTS network_requests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -218,6 +226,9 @@ void AbpNetworkDatabase::CreateTables() {
   std::ignore = db_->Execute(
       "CREATE INDEX IF NOT EXISTS idx_nr_tag_tab ON "
       "network_requests(tag, tab_id)");
+  std::ignore = db_->Execute(kCreateUrlIndex);
+  std::ignore = db_->Execute(kCreateHostnameIndex);
+  std::ignore = db_->Execute(kCreatePathIndex);
 
   if (!transaction.Commit()) {
     LOG(ERROR) << "ABP: Failed to commit network table creation transaction";
@@ -427,12 +438,11 @@ base::Value::List AbpNetworkDatabase::QueryRequestsOnDB(
     }
     row.Set("method", stmt.ColumnString(8));
 
-    // request_headers (col 9) — only include if non-empty.
-    if (stmt.GetColumnType(9) != sql::ColumnType::kNull) {
-      row.Set("request_headers", stmt.ColumnString(9));
-    }
-
     if (filter.include_body) {
+      // request_headers (col 9) — only include when include_body is set.
+      if (stmt.GetColumnType(9) != sql::ColumnType::kNull) {
+        row.Set("request_headers", stmt.ColumnString(9));
+      }
       if (stmt.GetColumnType(10) != sql::ColumnType::kNull) {
         row.Set("request_body", stmt.ColumnString(10));
       }
@@ -448,11 +458,11 @@ base::Value::List AbpNetworkDatabase::QueryRequestsOnDB(
       row.Set("status", stmt.ColumnInt(13));
     }
 
-    if (stmt.GetColumnType(14) != sql::ColumnType::kNull) {
-      row.Set("response_headers", stmt.ColumnString(14));
-    }
-
     if (filter.include_body) {
+      // response_headers (col 14) — only include when include_body is set.
+      if (stmt.GetColumnType(14) != sql::ColumnType::kNull) {
+        row.Set("response_headers", stmt.ColumnString(14));
+      }
       if (stmt.GetColumnType(15) != sql::ColumnType::kNull) {
         row.Set("response_body", stmt.ColumnString(15));
       }
