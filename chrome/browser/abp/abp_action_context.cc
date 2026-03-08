@@ -6,11 +6,14 @@
 
 #include <set>
 
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 #include "chrome/browser/abp/abp_controller.h"
+#include "chrome/browser/abp/abp_network_capture.h"
+#include "chrome/browser/abp/abp_network_database.h"
 #include "ui/base/cursor/mojom/cursor_type.mojom.h"
 #include "chrome/browser/abp/abp_event_collector.h"
 #include "chrome/browser/abp/abp_history_controller.h"
@@ -295,6 +298,59 @@ void AbpActionContext::Start() {
         web_contents_->IsDocumentOnLoadCompletedInPrimaryMainFrame() ||
         !web_contents_->IsLoading() ||
         exec_paused;
+  }
+
+  // Parse "network" parameter and configure per-tab network capture buffer.
+  // The "network" key is optional; when absent, the buffer runs but is not
+  // explicitly cleared, typed, or tagged (existing capture continues).
+  {
+    const base::Value::Dict* net_params = params_.FindDict("network");
+    if (net_params) {
+      has_network_param_ = true;
+
+      // Parse optional tag for DB persistence.
+      const std::string* tag = net_params->FindString("tag");
+      if (tag) {
+        network_tag_ = *tag;
+      }
+
+      // Parse optional types filter.
+      const base::Value::List* types_list = net_params->FindList("types");
+      if (types_list) {
+        for (const auto& t : *types_list) {
+          if (t.is_string()) {
+            network_types_.push_back(t.GetString());
+          }
+        }
+      }
+    }
+
+    // Configure the tab's network capture buffer.
+    auto tab_it = controller_->tab_states_.find(tab_id_);
+    if (tab_it != controller_->tab_states_.end() &&
+        tab_it->second.network_capture) {
+      AbpNetworkCapture* nc = tab_it->second.network_capture.get();
+
+      // For non-wait actions, clear the buffer so this action captures only
+      // its own network traffic. For browser_wait, accumulate on top.
+      if (!options_.is_wait) {
+        nc->ClearBuffer();
+      }
+
+      // Apply types filter. Use defaults (XHR + Fetch) when types not specified.
+      std::set<std::string> types_set;
+      if (!network_types_.empty()) {
+        for (const auto& t : network_types_) {
+          types_set.insert(t);
+        }
+      } else {
+        types_set = {"XHR", "Fetch"};
+      }
+      nc->SetCaptureTypes(types_set);
+
+      // Tag subsequent requests with this action's ID.
+      nc->SetCurrentActionId(action_id_);
+    }
   }
 
   // Start event capture
@@ -988,7 +1044,31 @@ void AbpActionContext::SendResponse() {
     envelope.Set("profiling", std::move(profiling));
   }
 
-  // 9. Add virtual cursor position
+  // 9. Add network capture counts (always present when network capture is active)
+  {
+    auto tab_it = controller_->tab_states_.find(tab_id_);
+    if (tab_it != controller_->tab_states_.end() &&
+        tab_it->second.network_capture) {
+      AbpNetworkCapture* nc = tab_it->second.network_capture.get();
+      base::Value::Dict net_dict;
+      net_dict.Set("total", nc->GetTotalCount());
+      net_dict.Set("completed", nc->GetCompletedCount());
+      net_dict.Set("pending", nc->GetPendingCount());
+      if (!network_tag_.empty()) {
+        net_dict.Set("tag", network_tag_);
+      }
+      envelope.Set("network", std::move(net_dict));
+
+      // Persist to DB if a tag was provided (fire-and-forget).
+      if (!network_tag_.empty() && controller_->network_db_) {
+        const std::vector<abp::CapturedRequest>& requests = nc->GetRequests();
+        controller_->network_db_->SaveRequests(
+            network_tag_, tab_id_, requests, base::DoNothing());
+      }
+    }
+  }
+
+  // 10. Add virtual cursor position
   {
     auto it = controller_->tab_states_.find(tab_id_);
     if (it != controller_->tab_states_.end()) {

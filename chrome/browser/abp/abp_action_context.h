@@ -99,6 +99,10 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
     // persistent network tracker (all in-flight requests, not just new ones).
     // Used by browser_wait to catch requests started before the wait began.
     bool all_requests = false;
+
+    // If true, this is a browser_wait action: do NOT clear the network capture
+    // buffer at action start (accumulate on top of existing captures).
+    bool is_wait = false;
   };
 
   // Factory method - creates context and starts the action flow
@@ -276,6 +280,11 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
   // Used to skip waiting for load/dcl/first_paint events when the page was
   // already loaded before the action was dispatched.
   bool page_was_loaded_before_action_ = false;
+
+  // Network capture config (parsed from params_["network"] in Start())
+  bool has_network_param_ = false;     // true if "network" key present in params
+  std::string network_tag_;            // tag for DB persistence (may be empty)
+  std::vector<std::string> network_types_;  // capture types filter (empty = default)
 
   // Error state
   bool has_error_ = false;

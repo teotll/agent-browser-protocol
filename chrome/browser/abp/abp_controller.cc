@@ -2902,8 +2902,10 @@ void AbpController::Wait(const std::string& tab_id,
   // Use AbpActionContext with default options (resume + pause enabled)
   // This allows JavaScript to run during the wait period (for animations, etc.)
   // Flow: Resume V8 -> Wait -> Pause V8 -> Screenshot
+  auto wait_options = GetDefaultActionOptions();
+  wait_options.is_wait = true;  // Do NOT clear network buffer — accumulate.
   AbpActionContext::RunWithOptions(
-      this, tab_id, "wait", params, GetDefaultActionOptions(),
+      this, tab_id, "wait", params, wait_options,
       // Action callback - performs the wait
       base::BindOnce(
           [](int ms, AbpActionContext* ctx) {
