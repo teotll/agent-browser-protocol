@@ -12,13 +12,13 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 #include "chrome/browser/abp/abp_controller.h"
-#include "chrome/browser/abp/abp_network_capture.h"
-#include "chrome/browser/abp/abp_network_database.h"
-#include "ui/base/cursor/mojom/cursor_type.mojom.h"
 #include "chrome/browser/abp/abp_event_collector.h"
 #include "chrome/browser/abp/abp_history_controller.h"
+#include "chrome/browser/abp/abp_network_capture.h"
+#include "chrome/browser/abp/abp_network_database.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
+#include "ui/base/cursor/mojom/cursor_type.mojom.h"
 
 namespace {
 
@@ -337,19 +337,24 @@ void AbpActionContext::Start() {
         nc->ClearBuffer();
       }
 
-      // Apply types filter. Use defaults (XHR + Fetch) when types not specified.
-      std::set<std::string> types_set;
-      if (!network_types_.empty()) {
-        for (const auto& t : network_types_) {
-          types_set.insert(t);
+      // Only configure types and action_id when the caller explicitly provided
+      // a "network" param. Without it the buffer keeps running with its
+      // previously configured state (existing capture continues).
+      if (has_network_param_) {
+        // Apply types filter. Use defaults (XHR + Fetch) when not specified.
+        std::set<std::string> types_set;
+        if (!network_types_.empty()) {
+          for (const auto& t : network_types_) {
+            types_set.insert(t);
+          }
+        } else {
+          types_set = {"XHR", "Fetch"};
         }
-      } else {
-        types_set = {"XHR", "Fetch"};
-      }
-      nc->SetCaptureTypes(types_set);
+        nc->SetCaptureTypes(types_set);
 
-      // Tag subsequent requests with this action's ID.
-      nc->SetCurrentActionId(action_id_);
+        // Tag subsequent requests with this action's ID.
+        nc->SetCurrentActionId(action_id_);
+      }
     }
   }
 
