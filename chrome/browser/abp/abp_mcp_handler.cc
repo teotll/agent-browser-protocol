@@ -1883,7 +1883,7 @@ void AbpMcpHandler::CallBrowserNetwork(const base::Value::Dict& args,
     // DELETE /api/v1/network?tag=...
     std::string path = "/api/v1/network";
     if (const std::string* tag = args.FindString("tag")) {
-      path += "?tag=" + *tag;
+      path += "?tag=" + net::EscapeQueryParamValue(*tag, /*use_plus=*/false);
     }
 
     controller_->HandleRequest(
