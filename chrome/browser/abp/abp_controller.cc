@@ -2283,15 +2283,21 @@ void AbpController::HandleRequest(const std::string& method,
     }
   }
 
-  // Route: /api/v1/network
+  // Route: /api/v1/network[/save]
   if (resource == "network") {
     if (segments.size() == 3) {
       if (method == "GET") {
         HandleNetworkQuery(query_string, std::move(callback));
-      } else if (method == "POST") {
-        HandleNetworkSave(body, std::move(callback));
       } else if (method == "DELETE") {
         HandleNetworkClear(query_string, std::move(callback));
+      } else {
+        SendError(405, "Method not allowed", std::move(callback));
+      }
+      return;
+    }
+    if (segments.size() == 4 && segments[3] == "save") {
+      if (method == "POST") {
+        HandleNetworkSave(body, std::move(callback));
       } else {
         SendError(405, "Method not allowed", std::move(callback));
       }
@@ -7126,13 +7132,14 @@ void AbpController::HandleNetworkSave(const std::string& body,
     return;
   }
   const std::string* tab_id = params.FindString("tab_id");
-  if (!tab_id || tab_id->empty()) {
-    SendError(400, "Missing required field: tab_id", std::move(callback));
+  std::string resolved_tab_id = (tab_id && !tab_id->empty()) ? *tab_id : GetActiveTabId();
+  if (resolved_tab_id.empty()) {
+    SendError(400, "No active tab", std::move(callback));
     return;
   }
 
   // Find the tab's network capture buffer.
-  auto it = tab_states_.find(*tab_id);
+  auto it = tab_states_.find(resolved_tab_id);
   if (it == tab_states_.end() || !it->second.network_capture) {
     SendError(404, "Tab not found or no capture buffer", std::move(callback));
     return;
@@ -7142,7 +7149,7 @@ void AbpController::HandleNetworkSave(const std::string& body,
       it->second.network_capture->GetRequests();
 
   int saved_count = static_cast<int>(requests.size());
-  network_db_->SaveRequests(*tag, *tab_id, requests,
+  network_db_->SaveRequests(*tag, resolved_tab_id, requests,
                             base::BindOnce(
                                 [](ResponseCallback cb, int count,
                                    const std::string& t) {
