@@ -20,7 +20,7 @@ This document specifies the complete ABP REST API. The following table shows cur
 | Browser | status, shutdown | get info |
 | Execution Control | get/set state | - |
 | History | sessions, actions, events, export | - |
-| Network | - | intercept, requests |
+| Network | query, save, clear, browser_curl | intercept |
 | Window | - | bounds, state |
 | Cookies | - | get, set, clear |
 | Wait | duration wait | navigation, network idle |
@@ -63,6 +63,10 @@ All action endpoints (POST/DELETE that modify state) accept standard parameters:
     "area": "viewport",
     "disable_markup": ["grid"],
     "cursor": true
+  },
+  "network": {
+    "tag": "login-flow",
+    "types": ["XHR", "Fetch"]
   }
 }
 ```
@@ -199,9 +203,26 @@ All action responses include before and after screenshots, scroll position, and 
     "action_completed_ms": 1699999999050,
     "wait_completed_ms": 1699999999500,
     "duration_ms": 500
+  },
+  "network": {
+    "total": 12,
+    "completed": 10,
+    "pending": 2,
+    "tag": "login-flow"
   }
 }
 ```
+
+### Network Summary
+
+The `network` field is included in the response when a `network` object was present in the request.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `total` | number | Total network requests observed during the action |
+| `completed` | number | Requests that received a response |
+| `pending` | number | Requests still in-flight at action completion |
+| `tag` | string | The tag under which calls were saved, or `""` if not saved |
 
 ### Screenshot Objects
 
@@ -479,6 +500,24 @@ Control screenshot capture via the `screenshot` object in the request body:
 | `cursor` | boolean | `true` | Include virtual cursor in screenshot |
 
 **Format:** All screenshots are returned as WebP at quality 80. This is not configurable to ensure consistent bandwidth usage and simplify caching.
+
+### Network Capture Options
+
+Optionally capture network traffic that occurs during an action. Captured calls are returned in the `network` summary field of the response and, when a `tag` is provided, are saved to the SQLite history database.
+
+```json
+{
+  "network": {
+    "tag": "login-flow",
+    "types": ["XHR", "Fetch"]
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `tag` | string | `""` | Tag used to save captured calls to the database. If omitted, calls are counted but not persisted. |
+| `types` | string[] | all types | Network request types to capture. Values: `XHR`, `Fetch`, `Document`, `Stylesheet`, `Image`, `Media`, `Font`, `Script`, `TextTrack`, `EventSource`, `WebSocket`, `Manifest`, `SignedExchange`, `Ping`, `CSPViolationReport`, `Preflight`, `Other` |
 
 ---
 
@@ -1525,6 +1564,173 @@ For `<select multiple>`, provide multiple indices:
 {
   "error": "Select popup sp_abc123 not found or already closed"
 }
+```
+
+---
+
+## Network Capture
+
+Network capture records HTTP requests and responses made by the tab during agent actions. Calls are buffered in memory per-tab and can be queried or saved to the SQLite history database with a tag for later retrieval.
+
+### Query Network Calls
+
+```
+GET /network
+```
+
+Returns saved network calls matching the given filters. All filter parameters (except `include_body`) are treated as substring regex patterns.
+
+**Query parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `tag` | string | Filter by save tag (regex) |
+| `tab_id` | string | Filter by tab ID (regex) |
+| `url` | string | Filter by full URL (regex) |
+| `hostname` | string | Filter by hostname (regex) |
+| `path` | string | Filter by URL path (regex) |
+| `query` | string | Filter by URL query string (regex) |
+| `method` | string | Filter by HTTP method, e.g. `GET`, `POST` (regex) |
+| `status` | string | Filter by HTTP status code, e.g. `200`, `4\d\d` (regex) |
+| `type` | string | Filter by request type, e.g. `XHR`, `Fetch` (regex) |
+| `action_id` | string | Filter by action ID (regex) |
+| `include_body` | boolean | Include request/response bodies in results (default: `false`) |
+
+**Response:**
+```json
+{
+  "calls": [
+    {
+      "id": "net_abc123",
+      "tag": "login-flow",
+      "tab_id": "tab_abc123",
+      "action_id": "act_xyz789",
+      "url": "https://api.example.com/login",
+      "method": "POST",
+      "status": 200,
+      "type": "Fetch",
+      "request_headers": {"content-type": "application/json"},
+      "response_headers": {"content-type": "application/json"},
+      "request_body": "{\"user\":\"alice\"}",
+      "response_body": "{\"token\":\"...\"}",
+      "timing_ms": 124,
+      "timestamp_ms": 1699999999200
+    }
+  ],
+  "total": 1
+}
+```
+
+When `include_body` is `false`, `request_body` and `response_body` are omitted from each call object.
+
+### Save Network Calls
+
+```
+POST /network/save
+```
+
+Retroactively tags and persists the current in-memory network buffer to the SQLite database. Useful when you did not specify a `tag` in the action request and want to save the captured calls after the fact.
+
+**Request:**
+```json
+{
+  "tag": "login-flow",
+  "tab_id": "tab_abc123"
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `tag` | string | Yes | Tag to assign to the saved calls |
+| `tab_id` | string | No | Tab whose buffer to save. Defaults to the currently active tab. |
+
+**Response:**
+```json
+{
+  "saved": 12,
+  "tag": "login-flow"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `saved` | number | Number of network calls written to the database |
+| `tag` | string | The tag assigned to the saved calls |
+
+### Clear Network Calls
+
+```
+DELETE /network
+```
+
+Clears saved network calls from the database. Pass `tag` to clear only calls with that tag, or omit to clear all saved calls.
+
+**Query parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `tag` | string | Tag to clear (omit to clear all) |
+
+**Response:**
+```json
+{
+  "deleted": 42
+}
+```
+
+### Execute HTTP Request (browser_curl)
+
+```
+POST /tabs/{tab_id}/curl
+```
+
+Executes an HTTP request from within the tab's session context, using its current cookies and credentials. Works even while JavaScript execution is paused. Useful for calling APIs that require authenticated sessions without needing to extract cookies manually.
+
+**Request:**
+```json
+{
+  "url": "https://api.example.com/users",
+  "method": "GET",
+  "headers": {"Authorization": "Bearer eyJ..."},
+  "body": "",
+  "tag": "api-call"
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `url` | string | Yes | URL to request |
+| `method` | string | No | HTTP method (default: `GET`) |
+| `headers` | object | No | Additional request headers (key/value strings) |
+| `body` | string | No | Request body |
+| `tag` | string | No | Tag under which to save this call in the database |
+
+**Response:**
+```json
+{
+  "status": 200,
+  "headers": {"content-type": "application/json"},
+  "body": "{\"users\":[...]}",
+  "body_encoding": "text",
+  "url": "https://api.example.com/users",
+  "redirected": false
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | number | HTTP response status code |
+| `headers` | object | Response headers (key/value strings) |
+| `body` | string | Response body. Text responses are returned as-is; binary responses are base64-encoded. |
+| `body_encoding` | string | `"text"` for UTF-8 text, `"base64"` for binary responses |
+| `url` | string | Final URL after any redirects |
+| `redirected` | boolean | `true` if the request was redirected |
+
+**Example — fetch user profile using tab session:**
+```bash
+curl -X POST http://localhost:8222/api/v1/tabs/tab_abc123/curl \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/api/profile", "method": "GET"}'
 ```
 
 ---

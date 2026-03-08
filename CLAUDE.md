@@ -305,6 +305,11 @@ See `plans/API.md` for the complete REST API specification. All endpoints:
 | GET | `/api/v1/permissions` | List pending permission requests |
 | POST | `/api/v1/permissions/{id}/grant` | Grant permission (requires permission_type; geolocation requires lat/lng) |
 | POST | `/api/v1/permissions/{id}/deny` | Deny permission (requires permission_type) |
+| **Network** | | |
+| GET | `/api/v1/network` | Query saved network calls with regex filters |
+| POST | `/api/v1/network/save` | Retroactively tag & persist in-memory buffer |
+| DELETE | `/api/v1/network` | Clear saved calls (by tag or all) |
+| POST | `/api/v1/tabs/{id}/curl` | Execute HTTP request using tab's session |
 | **History** | | |
 | GET | `/api/v1/history/sessions` | List sessions |
 | GET | `/api/v1/history/sessions/current` | Get current session |
