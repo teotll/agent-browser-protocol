@@ -28,6 +28,7 @@ source_set("abp") {
     "abp_location_provider.h",
     "abp_login_delegate.cc",
     "abp_login_delegate.h",
+    "abp_types.cc",
     "abp_types.h",
     "abp_download_observer.cc",
     "abp_download_observer.h",

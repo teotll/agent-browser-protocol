@@ -6,9 +6,11 @@
 #define CHROME_BROWSER_ABP_ABP_TYPES_H_
 
 #include <map>
+#include <set>
 #include <string>
 
 #include "base/functional/callback.h"
+#include "base/values.h"
 
 namespace abp {
 
@@ -36,6 +38,48 @@ using ResponseWithHeadersCallback = base::OnceCallback<void(
     const std::string& content_type,
     std::map<std::string, std::string> headers,
     std::string body)>;
+
+// Network capture types
+struct CapturedRequest {
+  CapturedRequest();
+  ~CapturedRequest();
+  CapturedRequest(CapturedRequest&&);
+  CapturedRequest& operator=(CapturedRequest&&);
+
+  std::string request_id;      // CDP request ID
+  std::string action_id;       // ABP action that captured this
+  std::string url;             // Final URL (after redirects)
+  std::string url_hostname;
+  std::string url_path;
+  std::string url_query;
+  std::string method;
+  base::Value::Dict request_headers;
+  std::string request_body;
+  std::string resource_type;   // xhr, fetch, document, etc.
+  bool cors_preflight = false;
+
+  int status_code = 0;
+  base::Value::Dict response_headers;
+  std::string response_body;
+  bool response_body_is_base64 = false;  // true for binary responses
+
+  base::Value::List redirect_chain;  // [{url, status}, ...]
+
+  int64_t started_at_ms = 0;
+  int64_t completed_at_ms = 0;
+  int64_t virtual_time_ms = 0;
+
+  bool completed = false;
+  bool served_from_service_worker = false;
+};
+
+struct NetworkConfig {
+  NetworkConfig();
+  ~NetworkConfig();
+
+  std::string tag;  // Empty = don't persist
+  std::set<std::string> types = {"XHR", "Fetch"};  // CDP resource types
+};
 
 }  // namespace abp
 
