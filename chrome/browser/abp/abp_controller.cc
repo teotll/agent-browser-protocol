@@ -2663,71 +2663,76 @@ void AbpController::Screenshot(const std::string& tab_id,
 void AbpController::ExecuteScript(const std::string& tab_id,
                                   const base::Value::Dict& params,
                                   ResponseCallback callback) {
-  content::WebContents* wc = FindWebContents(tab_id);
-  if (!wc) {
-    SendError(404, "Tab not found", std::move(callback));
-    return;
-  }
-
   const std::string* script = params.FindString("script");
   if (!script) {
     SendError(400, "Missing 'script' parameter", std::move(callback));
     return;
   }
 
-  AbpCdpClient* client = GetOrCreateCdpClient(wc);
-  if (!client) {
-    SendError(500, "Failed to create CDP client", std::move(callback));
-    return;
-  }
+  AbpActionContext::RunWithOptions(
+      this, tab_id, "execute", params, GetDefaultActionOptions(),
+      base::BindOnce(
+          [](std::string expression, AbpActionContext* ctx) {
+            AbpCdpClient* client = ctx->client();
+            if (!client) {
+              ctx->OnActionError("CDP_ERROR", "Failed to create CDP client");
+              return;
+            }
 
-  // CDP: Runtime.evaluate
-  base::Value::Dict cdp_params;
-  cdp_params.Set("expression", *script);
-  cdp_params.Set("returnByValue", true);
+            scoped_refptr<AbpActionContext> ctx_ref(ctx);
 
-  client->SendCommand(
-      "Runtime.evaluate", cdp_params,
-      base::BindOnce(&AbpController::OnExecuteScriptResult,
-                     weak_factory_.GetWeakPtr(), std::move(callback)));
+            base::Value::Dict cdp_params;
+            cdp_params.Set("expression", expression);
+            cdp_params.Set("returnByValue", true);
+
+            client->SendCommand(
+                "Runtime.evaluate", cdp_params,
+                base::BindOnce(
+                    [](scoped_refptr<AbpActionContext> action_ctx, bool success,
+                       const std::string& result) {
+                      if (!success) {
+                        action_ctx->OnActionError("EXECUTE_ERROR", result);
+                        return;
+                      }
+
+                      auto parsed = base::JSONReader::Read(
+                          result, base::JSON_PARSE_RFC);
+                      if (!parsed || !parsed->is_dict()) {
+                        action_ctx->OnActionError("EXECUTE_ERROR",
+                                                  "Invalid CDP response");
+                        return;
+                      }
+
+                      const base::Value::Dict& dict = parsed->GetDict();
+
+                      const base::Value::Dict* exception =
+                          dict.FindDict("exceptionDetails");
+                      if (exception) {
+                        const base::Value::Dict* exc =
+                            exception->FindDict("exception");
+                        const std::string* desc =
+                            exc ? exc->FindString("description") : nullptr;
+                        action_ctx->OnActionError(
+                            "SCRIPT_EXCEPTION",
+                            desc ? *desc : "Script exception");
+                        return;
+                      }
+
+                      const base::Value::Dict* cdp_result =
+                          dict.FindDict("result");
+                      if (cdp_result) {
+                        action_ctx->SetResult(cdp_result->Clone());
+                      } else {
+                        action_ctx->SetResult(base::Value::Dict());
+                      }
+                      action_ctx->OnActionDispatched();
+                    },
+                    ctx_ref));
+          },
+          std::string(*script)),
+      std::move(callback));
 }
 
-void AbpController::OnExecuteScriptResult(ResponseCallback callback,
-                                          bool success,
-                                          const std::string& result) {
-  if (!success) {
-    SendError(500, result, std::move(callback));
-    return;
-  }
-
-  // Parse the result
-  auto parsed = base::JSONReader::Read(result, base::JSON_PARSE_RFC);
-  if (!parsed || !parsed->is_dict()) {
-    SendError(500, "Invalid CDP response", std::move(callback));
-    return;
-  }
-
-  const base::Value::Dict& dict = parsed->GetDict();
-
-  // Check for exception
-  const base::Value::Dict* exception = dict.FindDict("exceptionDetails");
-  if (exception) {
-    const base::Value::Dict* exc = exception->FindDict("exception");
-    const std::string* desc = exc ? exc->FindString("description") : nullptr;
-    SendError(400, desc ? *desc : "Script exception", std::move(callback));
-    return;
-  }
-
-  // Get result value
-  const base::Value::Dict* cdp_result = dict.FindDict("result");
-  if (cdp_result) {
-    base::Value::Dict response;
-    response.Set("result", cdp_result->Clone());
-    SendJson(200, base::Value(std::move(response)), std::move(callback));
-  } else {
-    SendJson(200, base::Value(base::Value::Dict()), std::move(callback));
-  }
-}
 
 void AbpController::GetText(const std::string& tab_id,
                             const base::Value::Dict& params,

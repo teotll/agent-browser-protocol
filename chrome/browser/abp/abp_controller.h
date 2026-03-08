@@ -585,10 +585,6 @@ class AbpController : public TabStripModelObserver {
                              int64_t max_size,
                              ResponseCallback callback);
 
-  // CDP callbacks
-  void OnExecuteScriptResult(ResponseCallback callback,
-                             bool success,
-                             const std::string& result);
 
   // Internal: capture step of CaptureActionScreenshot (after markup inject)
   // Uses GetSnapshotFromBrowser(from_surface=false) for ForceRedraw + capture.
