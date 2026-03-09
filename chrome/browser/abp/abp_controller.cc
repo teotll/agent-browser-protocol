@@ -7367,36 +7367,123 @@ static std::string GetQueryParam(const std::string& query,
 
 void AbpController::HandleNetworkQuery(const std::string& query_string,
                                        ResponseCallback callback) {
+  // Parse common filter params from query string.
+  std::string tag = GetQueryParam(query_string, "tag");
+  std::string tab_id_param = GetQueryParam(query_string, "tab_id");
+  std::string action_id = GetQueryParam(query_string, "action_id");
+  std::string url_regex = GetQueryParam(query_string, "url");
+  std::string hostname_regex = GetQueryParam(query_string, "hostname");
+  std::string path_regex = GetQueryParam(query_string, "path");
+  std::string query_regex = GetQueryParam(query_string, "query");
+  std::string method_regex = GetQueryParam(query_string, "method");
+  std::string status_regex = GetQueryParam(query_string, "status");
+  std::string type = GetQueryParam(query_string, "type");
+  std::string include_body_str = GetQueryParam(query_string, "include_body");
+  bool include_body = (include_body_str == "true" || include_body_str == "1");
+
+  // Query the in-memory buffer first.
+  base::Value::List buffer_results;
+  {
+    abp::NetworkQueryFilter buf_filter;
+    buf_filter.tag = tag;
+    buf_filter.tab_id = tab_id_param;
+    buf_filter.action_id = action_id;
+    buf_filter.url_regex = url_regex;
+    buf_filter.hostname_regex = hostname_regex;
+    buf_filter.path_regex = path_regex;
+    buf_filter.query_regex = query_regex;
+    buf_filter.method_regex = method_regex;
+    buf_filter.status_regex = status_regex;
+    buf_filter.type = type;
+    buf_filter.include_body = include_body;
+
+    if (!tab_id_param.empty()) {
+      // Query a specific tab's buffer.
+      auto it = tab_states_.find(tab_id_param);
+      if (it != tab_states_.end() && it->second.network_capture) {
+        buffer_results =
+            it->second.network_capture->QueryBuffer(buf_filter, tab_id_param);
+      }
+    } else {
+      // Query the active tab's buffer.
+      std::string active_id = GetActiveTabId();
+      if (!active_id.empty()) {
+        auto it = tab_states_.find(active_id);
+        if (it != tab_states_.end() && it->second.network_capture) {
+          buffer_results =
+              it->second.network_capture->QueryBuffer(buf_filter, active_id);
+        }
+      }
+    }
+  }
+
+  // Build dedup set from buffer results: (tab_id, request_id) pairs.
+  std::set<std::pair<std::string, std::string>> seen_keys;
+  for (const auto& val : buffer_results) {
+    if (val.is_dict()) {
+      const std::string* tid = val.GetDict().FindString("tab_id");
+      const std::string* rid = val.GetDict().FindString("request_id");
+      if (tid && rid) {
+        seen_keys.emplace(*tid, *rid);
+      }
+    }
+  }
+
+  // If no database, return buffer results only.
   if (!network_db_) {
-    SendError(503, "Network database not available", std::move(callback));
+    base::Value::Dict response;
+    response.Set("requests", std::move(buffer_results));
+    std::string json;
+    base::JSONWriter::Write(response, &json);
+    std::move(callback).Run(200, "application/json", std::move(json));
     return;
   }
 
-  AbpNetworkDatabase::QueryFilter filter;
-  filter.tag = GetQueryParam(query_string, "tag");
-  filter.tab_id = GetQueryParam(query_string, "tab_id");
-  filter.action_id = GetQueryParam(query_string, "action_id");
-  filter.url_regex = GetQueryParam(query_string, "url");
-  filter.hostname_regex = GetQueryParam(query_string, "hostname");
-  filter.path_regex = GetQueryParam(query_string, "path");
-  filter.query_regex = GetQueryParam(query_string, "query");
-  filter.method_regex = GetQueryParam(query_string, "method");
-  filter.status_regex = GetQueryParam(query_string, "status");
-  filter.type = GetQueryParam(query_string, "type");
-  std::string include_body_str = GetQueryParam(query_string, "include_body");
-  filter.include_body = (include_body_str == "true" || include_body_str == "1");
+  // Build the database filter.
+  AbpNetworkDatabase::QueryFilter db_filter;
+  db_filter.tag = tag;
+  db_filter.tab_id = tab_id_param;
+  db_filter.action_id = action_id;
+  db_filter.url_regex = url_regex;
+  db_filter.hostname_regex = hostname_regex;
+  db_filter.path_regex = path_regex;
+  db_filter.query_regex = query_regex;
+  db_filter.method_regex = method_regex;
+  db_filter.status_regex = status_regex;
+  db_filter.type = type;
+  db_filter.include_body = include_body;
 
   network_db_->QueryRequests(
-      filter,
+      db_filter,
       base::BindOnce(
-          [](ResponseCallback cb, base::Value::List results) {
+          [](ResponseCallback cb, base::Value::List buffer_results,
+             std::set<std::pair<std::string, std::string>> seen_keys,
+             base::Value::List db_results) {
+            // Merge: buffer results first, then DB results not in buffer.
+            base::Value::List merged;
+            for (auto& val : buffer_results) {
+              merged.Append(std::move(val));
+            }
+            for (auto& val : db_results) {
+              if (val.is_dict()) {
+                const std::string* tid = val.GetDict().FindString("tab_id");
+                const std::string* rid =
+                    val.GetDict().FindString("request_id");
+                if (tid && rid &&
+                    seen_keys.count(std::make_pair(*tid, *rid))) {
+                  continue;  // Skip duplicate.
+                }
+              }
+              merged.Append(std::move(val));
+            }
             base::Value::Dict response;
-            response.Set("requests", std::move(results));
+            response.Set("requests", std::move(merged));
             std::string json;
             base::JSONWriter::Write(response, &json);
             std::move(cb).Run(200, "application/json", std::move(json));
           },
-          std::move(callback)));
+          std::move(callback), std::move(buffer_results),
+          std::move(seen_keys)));
 }
 
 void AbpController::HandleNetworkSave(const std::string& body,
