@@ -12,7 +12,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/abp/abp_controller.h"
 #include "chrome/browser/abp/abp_tool_builder.h"
-#include "net/base/escape.h"
+#include "base/strings/escape.h"
 
 namespace abp {
 
@@ -1825,7 +1825,7 @@ void AbpMcpHandler::CallBrowserNetwork(const base::Value::Dict& args,
     auto add_str = [&](const char* param_name) {
       if (const std::string* v = args.FindString(param_name)) {
         qp.push_back(std::string(param_name) + "=" +
-                     net::EscapeQueryParamValue(*v, /*use_plus=*/false));
+                     base::EscapeQueryParamValue(*v, /*use_plus=*/false));
       }
     };
 
@@ -1883,7 +1883,7 @@ void AbpMcpHandler::CallBrowserNetwork(const base::Value::Dict& args,
     // DELETE /api/v1/network?tag=...
     std::string path = "/api/v1/network";
     if (const std::string* tag = args.FindString("tag")) {
-      path += "?tag=" + net::EscapeQueryParamValue(*tag, /*use_plus=*/false);
+      path += "?tag=" + base::EscapeQueryParamValue(*tag, /*use_plus=*/false);
     }
 
     controller_->HandleRequest(
