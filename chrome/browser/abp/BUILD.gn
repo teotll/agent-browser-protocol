@@ -26,6 +26,8 @@ source_set("abp") {
     "abp_curl_handler.h",
     "abp_input_dispatcher.cc",
     "abp_input_dispatcher.h",
+    "abp_input_mode_icon_view.cc",
+    "abp_input_mode_icon_view.h",
     "abp_location_provider.cc",
     "abp_location_provider.h",
     "abp_login_delegate.cc",
@@ -68,6 +70,7 @@ source_set("abp") {
   deps = [
     ":switches",
     "//base",
+    "//chrome/app/vector_icons",
     "//chrome/browser/ui",
     "//chrome/common",
     "//components/download/public/common:public",

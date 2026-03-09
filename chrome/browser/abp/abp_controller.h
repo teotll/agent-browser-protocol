@@ -200,6 +200,7 @@ class AbpController : public TabStripModelObserver {
                                    LifecycleStep step)>;
 
   void SetLifecycleObserverForTesting(LifecycleObserverCallback cb);
+  static AbpController* GetInstance();
   static AbpController* GetInstanceForTesting();
 
   // Validate markup tags — returns true if all tags are known.

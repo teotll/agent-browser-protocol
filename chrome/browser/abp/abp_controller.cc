@@ -823,6 +823,11 @@ void AbpController::SetLifecycleObserverForTesting(
 }
 
 // static
+AbpController* AbpController::GetInstance() {
+  return instance_for_testing_;
+}
+
+// static
 AbpController* AbpController::GetInstanceForTesting() {
   return instance_for_testing_;
 }
