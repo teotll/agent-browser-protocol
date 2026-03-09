@@ -4810,14 +4810,12 @@ void AbpController::SetInputMode(const base::Value::Dict& params,
 
   if (*mode_str == "human") {
     if (input_mode_ == InputMode::kHuman) {
-      // Already in human mode
       GetInputModeResponse(std::move(callback));
       return;
     }
     SwitchToHumanMode(std::move(callback));
   } else if (*mode_str == "agent") {
     if (input_mode_ == InputMode::kAgent) {
-      // Already in agent mode
       GetInputModeResponse(std::move(callback));
       return;
     }

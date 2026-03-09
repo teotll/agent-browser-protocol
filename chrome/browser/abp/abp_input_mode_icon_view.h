@@ -28,11 +28,16 @@ class AbpInputModeIconView : public PageActionIconView,
   void OnExecuting(ExecuteSource source) override;
   views::BubbleDialogDelegate* GetBubble() const override;
   const gfx::VectorIcon& GetVectorIcon() const override;
+  void UpdateIconImage() override;
 
   // AbpController::InputModeObserver:
   void OnInputModeChanged(abp::AbpController::InputMode mode) override;
 
  private:
+  void TryRegisterObserver();
+
+  // Whether we've successfully registered as an observer.
+  bool observer_registered_ = false;
   abp::AbpController::InputMode current_mode_ =
       abp::AbpController::InputMode::kAgent;
 };
