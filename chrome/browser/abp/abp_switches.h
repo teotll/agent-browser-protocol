@@ -13,9 +13,6 @@ extern const char kAbpPort[];
 // Path to ABP config file (default: ~/.config/chromium/abp_config.json)
 extern const char kAbpConfig[];
 
-// Allow system input (ABP blocks system input by default)
-extern const char kAllowSystemInputs[];
-
 // Disable execution control (Debugger.pause + virtual time) - enabled by default
 extern const char kAbpDisablePause[];
 

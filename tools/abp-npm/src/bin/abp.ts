@@ -17,7 +17,6 @@ interface ParsedArgs {
   zoom?: number;
   configFile?: string;
   disablePause: boolean;
-  allowSystemInputs: boolean;
   chromeArgs: string[];
 }
 
@@ -43,7 +42,6 @@ function parseArgs(argv: string[]): ParsedArgs {
     : undefined;
   let configFile: string | undefined = process.env.ABP_CONFIG || undefined;
   let disablePause = process.env.ABP_DISABLE_PAUSE === "1";
-  let allowSystemInputs = process.env.ABP_ALLOW_SYSTEM_INPUTS === "1";
   const chromeArgs: string[] = [];
   let pastSeparator = false;
 
@@ -114,8 +112,6 @@ function parseArgs(argv: string[]): ParsedArgs {
       configFile = argv[i].split("=").slice(1).join("=");
     } else if (argv[i] === "--disable-pause") {
       disablePause = true;
-    } else if (argv[i] === "--allow-system-inputs") {
-      allowSystemInputs = true;
     } else if (argv[i] === "--help" || argv[i] === "-h") {
       console.log(`agent-browser-protocol v${ABP_VERSION}
 
@@ -136,7 +132,6 @@ Options:
   --zoom <factor>        Default zoom factor (default: 1.0)
   --config-file <path>   Path to ABP JSON config file
   --disable-pause        Disable execution control (Debugger.pause + virtual time)
-  --allow-system-inputs  Allow system inputs (disable input blocking)
   --mcp                  Run as MCP server (JSON-RPC over stdio)
   --help, -h             Show this help message
 
@@ -153,7 +148,6 @@ Environment Variables:
   ABP_ZOOM               Default zoom factor (overridden by --zoom)
   ABP_CONFIG             Path to ABP JSON config file (overridden by --config-file)
   ABP_DISABLE_PAUSE=1    Disable execution control (overridden by --disable-pause)
-  ABP_ALLOW_SYSTEM_INPUTS=1  Allow system inputs (overridden by --allow-system-inputs)
   ABP_BROWSER_PATH       Path to a custom ABP binary
   ABP_SKIP_DOWNLOAD=1    Skip binary download during install
 
@@ -172,7 +166,7 @@ Examples:
     }
   }
 
-  return { port, headless, verbose, sessionDir, minWait, trackingTimeout, postSettle, userDataDir, profileDirectory, userAgent, zoom, configFile, disablePause, allowSystemInputs, chromeArgs };
+  return { port, headless, verbose, sessionDir, minWait, trackingTimeout, postSettle, userDataDir, profileDirectory, userAgent, zoom, configFile, disablePause, chromeArgs };
 }
 
 async function main() {
@@ -181,12 +175,12 @@ async function main() {
     return;
   }
 
-  const { port, headless, verbose, sessionDir, minWait, trackingTimeout, postSettle, userDataDir, profileDirectory, userAgent, zoom, configFile, disablePause, allowSystemInputs, chromeArgs } = parseArgs(process.argv);
+  const { port, headless, verbose, sessionDir, minWait, trackingTimeout, postSettle, userDataDir, profileDirectory, userAgent, zoom, configFile, disablePause, chromeArgs } = parseArgs(process.argv);
 
   console.log(`Agent Browser Protocol v${ABP_VERSION}`);
   console.log(`Starting on port ${port}...`);
 
-  const browser = await launch({ port, headless, verbose, sessionDir, minWait, trackingTimeout, postSettle, userDataDir, profileDirectory, userAgent, zoom, configFile, disablePause, allowSystemInputs, args: chromeArgs });
+  const browser = await launch({ port, headless, verbose, sessionDir, minWait, trackingTimeout, postSettle, userDataDir, profileDirectory, userAgent, zoom, configFile, disablePause, args: chromeArgs });
 
   console.log(`\nABP is ready!`);
   console.log(`  API:  http://localhost:${port}/api/v1`);

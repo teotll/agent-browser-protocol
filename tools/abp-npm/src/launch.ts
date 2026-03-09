@@ -34,8 +34,6 @@ export interface LaunchOptions {
   configFile?: string;
   /** Disable execution control (Debugger.pause + virtual time). */
   disablePause?: boolean;
-  /** Allow system inputs (disable input blocking). */
-  allowSystemInputs?: boolean;
   args?: string[];
 }
 
@@ -85,7 +83,6 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
     zoom,
     configFile,
     disablePause = false,
-    allowSystemInputs = false,
     args = [],
   } = options;
 
@@ -142,10 +139,6 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
 
   if (disablePause) {
     launchArgs.push("--abp-disable-pause");
-  }
-
-  if (allowSystemInputs) {
-    launchArgs.push("--allow-system-inputs");
   }
 
   // Normalize any --headless args to --headless=new (old headless is not supported)

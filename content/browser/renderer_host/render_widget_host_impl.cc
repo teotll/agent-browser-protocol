@@ -4000,10 +4000,8 @@ void RenderWidgetHostImpl::SetupRenderInputRouter() {
       this, MakeFlingScheduler(), this,
       GetUIThreadTaskRunner({BrowserTaskType::kUserInput}));
 
-  // ABP: Always enabled, check allow-system-inputs flag
+  // ABP: Always enabled, system inputs controlled dynamically via input_mode API
   render_input_router_->SetAbpEnabled(true);
-  render_input_router_->SetAllowSystemInputs(
-      base::CommandLine::ForCurrentProcess()->HasSwitch("allow-system-inputs"));
 
   SetupInputRouter();
 }

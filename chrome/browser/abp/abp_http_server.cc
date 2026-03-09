@@ -12,7 +12,6 @@
 #include <IOKit/pwr_mgt/IOPMLib.h>
 #endif
 
-#include "base/command_line.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
 #include "base/logging.h"
@@ -26,7 +25,6 @@
 #include "chrome/browser/abp/abp_event_observer.h"
 #include "chrome/browser/abp/abp_history_controller.h"
 #include "chrome/browser/abp/abp_mcp_handler.h"
-#include "chrome/browser/abp/abp_switches.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
@@ -156,18 +154,15 @@ void AbpHttpServer::Start() {
       FROM_HERE,
       base::BindOnce(&AbpHttpServer::StartOnIO, base::Unretained(this)));
 
-  // When ABP is enabled and system inputs are blocked (the default),
+  // ABP always starts in agent mode (system inputs blocked),
   // poll for browser readiness and center the mouse cursor when ready
-  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kAllowSystemInputs)) {
-    VLOG(1) << "ABP: System inputs blocked, will center mouse when ready";
-    // Start polling after a short initial delay
-    content::GetUIThreadTaskRunner({})->PostDelayedTask(
-        FROM_HERE,
-        base::BindOnce(&AbpHttpServer::PollForReadyAndCenterCursor,
-                       base::Unretained(this)),
-        base::Milliseconds(100));
-  }
+  VLOG(1) << "ABP: System inputs blocked, will center mouse when ready";
+  // Start polling after a short initial delay
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&AbpHttpServer::PollForReadyAndCenterCursor,
+                     base::Unretained(this)),
+      base::Milliseconds(100));
 }
 
 void AbpHttpServer::PollForReadyAndCenterCursor() {

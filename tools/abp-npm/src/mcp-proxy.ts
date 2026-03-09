@@ -20,7 +20,6 @@ const USER_AGENT = process.env.ABP_USER_AGENT || undefined;
 const ZOOM = process.env.ABP_ZOOM ? parseFloat(process.env.ABP_ZOOM) : undefined;
 const CONFIG_FILE = process.env.ABP_CONFIG || undefined;
 const DISABLE_PAUSE = process.env.ABP_DISABLE_PAUSE === "1";
-const ALLOW_SYSTEM_INPUTS = process.env.ABP_ALLOW_SYSTEM_INPUTS === "1";
 
 // Claude's recommended resolution for web applications (WXGA)
 // At 1280x800 = 1,024,000 pixels, under Claude's 1.15MP / 1568px limits
@@ -67,7 +66,6 @@ async function ensureBrowser(): Promise<void> {
         zoom: ZOOM,
         configFile: CONFIG_FILE,
         disablePause: DISABLE_PAUSE,
-        allowSystemInputs: ALLOW_SYSTEM_INPUTS,
         args: EXTRA_ARGS,
       });
       log(`ABP ready on port ${PORT}`);
