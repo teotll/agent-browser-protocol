@@ -1,12 +1,9 @@
-
-<p align="center">
-  <img width="256" height="256" alt="Gemini_Generated_Image_gc6jkxgc6jkxgc6j" src="https://github.com/user-attachments/assets/56c118ca-df5a-4ab6-9c8d-c45adfeb52af" />
-</p>
 <h1 align="center">Agent Browser Protocol</h1>
 
-**Web browsing is continuous and async. Agents think in tools and steps. ABP reformats web navigation into the discrete, request-response chat format agents know and love.**
+**Web browsing is continuous and async. Agents think in tools and steps. ABP reformats web navigation into the discrete, multimodal chat format agents know and love.**
 
 <p align="center"><strong>90.53% on Online Mind2Web</strong> — <a href="https://github.com/theredsix/abp-online-mind2web-results">reproducible results</a></p>
+
 
 ABP is a Chromium build with **MCP + REST** baked directly into the browser engine.
 
