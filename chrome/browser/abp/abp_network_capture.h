@@ -12,6 +12,7 @@
 
 #include "base/memory/weak_ptr.h"
 #include "base/values.h"
+#include "chrome/browser/abp/abp_network_database.h"
 #include "chrome/browser/abp/abp_types.h"
 
 // Forward declaration — include abp_controller.h in the .cc to use SendCommand.
@@ -67,6 +68,13 @@ class AbpNetworkCapture {
   const std::vector<abp::CapturedRequest>& GetRequests() const {
     return requests_;
   }
+
+  // Query captured requests with filters, returning results as a JSON list.
+  // Applies the same filtering logic as AbpNetworkDatabase::QueryFilter.
+  // |tab_id| is stamped onto each result since the buffer doesn't store it.
+  base::Value::List QueryBuffer(
+      const AbpNetworkDatabase::QueryFilter& filter,
+      const std::string& tab_id) const;
 
   // Find a request by CDP request_id. Returns nullptr if not found.
   abp::CapturedRequest* FindRequest(const std::string& request_id);

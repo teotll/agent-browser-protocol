@@ -8,6 +8,7 @@
 
 #include "base/functional/bind.h"
 #include "base/json/json_reader.h"
+#include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
@@ -110,6 +111,152 @@ bool AbpNetworkCapture::PassesTypeFilter(
     }
   }
   return false;
+}
+
+namespace {
+
+// Case-insensitive substring match (LIKE %pattern% semantics).
+bool MatchesSubstring(const std::string& value, const std::string& pattern) {
+  if (pattern.empty()) {
+    return true;
+  }
+  std::string lower_value = base::ToLowerASCII(value);
+  std::string lower_pattern = base::ToLowerASCII(pattern);
+  return lower_value.find(lower_pattern) != std::string::npos;
+}
+
+}  // namespace
+
+base::Value::List AbpNetworkCapture::QueryBuffer(
+    const AbpNetworkDatabase::QueryFilter& filter,
+    const std::string& tab_id) const {
+  base::Value::List results;
+
+  // Buffer entries have no tag, so a non-empty tag filter matches nothing.
+  if (!filter.tag.empty()) {
+    return results;
+  }
+
+  for (const auto& req : requests_) {
+    // action_id: exact match
+    if (!filter.action_id.empty() && req.action_id != filter.action_id) {
+      continue;
+    }
+
+    // type: case-insensitive exact match
+    if (!filter.type.empty() &&
+        !base::EqualsCaseInsensitiveASCII(filter.type, req.resource_type)) {
+      continue;
+    }
+
+    // url_regex: case-insensitive substring match
+    if (!MatchesSubstring(req.url, filter.url_regex)) {
+      continue;
+    }
+
+    // hostname_regex: case-insensitive substring match
+    if (!MatchesSubstring(req.url_hostname, filter.hostname_regex)) {
+      continue;
+    }
+
+    // path_regex: case-insensitive substring match
+    if (!MatchesSubstring(req.url_path, filter.path_regex)) {
+      continue;
+    }
+
+    // query_regex: case-insensitive substring match
+    if (!MatchesSubstring(req.url_query, filter.query_regex)) {
+      continue;
+    }
+
+    // method_regex: case-insensitive substring match
+    if (!MatchesSubstring(req.method, filter.method_regex)) {
+      continue;
+    }
+
+    // status_regex: substring match on stringified status code
+    if (!filter.status_regex.empty()) {
+      std::string status_str = std::to_string(req.status_code);
+      if (!MatchesSubstring(status_str, filter.status_regex)) {
+        continue;
+      }
+    }
+
+    // Build output dict matching AbpNetworkDatabase::QueryRequestsOnDB format.
+    base::Value::Dict row;
+
+    row.Set("request_id", req.request_id);
+    row.Set("action_id", req.action_id);
+    row.Set("tab_id", tab_id);
+    row.Set("url", req.url);
+    row.Set("url_hostname", req.url_hostname);
+    row.Set("url_path", req.url_path);
+    if (!req.url_query.empty()) {
+      row.Set("url_query", req.url_query);
+    }
+    row.Set("method", req.method);
+
+    if (filter.include_body) {
+      // request_headers: dict → JSON string
+      if (!req.request_headers.empty()) {
+        std::string headers_json;
+        base::JSONWriter::Write(req.request_headers, &headers_json);
+        row.Set("request_headers", headers_json);
+      }
+      if (!req.request_body.empty()) {
+        row.Set("request_body", req.request_body);
+      }
+    }
+
+    if (!req.resource_type.empty()) {
+      row.Set("resource_type", req.resource_type);
+    }
+
+    row.Set("cors_preflight", req.cors_preflight);
+
+    if (req.status_code != 0) {
+      row.Set("status", req.status_code);
+    }
+
+    if (filter.include_body) {
+      // response_headers: dict → JSON string
+      if (!req.response_headers.empty()) {
+        std::string headers_json;
+        base::JSONWriter::Write(req.response_headers, &headers_json);
+        row.Set("response_headers", headers_json);
+      }
+      if (!req.response_body.empty()) {
+        row.Set("response_body", req.response_body);
+      }
+      if (req.response_body_is_base64) {
+        row.Set("response_body_encoding", "base64");
+      }
+    }
+
+    if (!req.redirect_chain.empty()) {
+      std::string chain_json;
+      base::JSONWriter::Write(req.redirect_chain, &chain_json);
+      row.Set("redirect_chain", chain_json);
+    }
+
+    if (req.started_at_ms != 0) {
+      row.Set("started_at_ms", static_cast<double>(req.started_at_ms));
+    }
+    if (req.completed_at_ms != 0) {
+      row.Set("completed_at_ms", static_cast<double>(req.completed_at_ms));
+    }
+    if (req.started_at_ms != 0 && req.completed_at_ms != 0) {
+      row.Set("duration_ms",
+              static_cast<double>(req.completed_at_ms - req.started_at_ms));
+    }
+    if (req.virtual_time_ms != 0) {
+      row.Set("virtual_time_ms", static_cast<double>(req.virtual_time_ms));
+    }
+
+    results.Append(std::move(row));
+  }
+
+  return results;
 }
 
 void AbpNetworkCapture::RemoveAtIndex(size_t index) {
