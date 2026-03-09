@@ -7,6 +7,8 @@
 #include <memory>
 #include <optional>
 
+#include "chrome/browser/abp/abp_controller.h"
+#include "chrome/browser/abp/abp_input_mode_overlay.h"
 #include "chrome/browser/actor/ui/actor_overlay_web_view.h"
 #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
 #include "chrome/browser/enterprise/watermark/watermark_view.h"
@@ -118,6 +120,11 @@ ContentsContainerView::ContentsContainerView(BrowserView* browser_view)
         std::make_unique<ActorOverlayWebView>(browser_view->browser());
     actor_overlay_web_view->SetID(VIEW_ID_ACTOR_OVERLAY);
     actor_overlay_web_view_ = AddChildView(std::move(actor_overlay_web_view));
+  }
+
+  if (abp::AbpController::GetInstance()) {
+    abp_input_mode_overlay_ = AddChildView(
+        std::make_unique<AbpInputModeOverlay>(contents_view_));
   }
 
 #if BUILDFLAG(ENABLE_GLIC)
@@ -556,6 +563,13 @@ views::ProposedLayout ContentsContainerView::CalculateProposedLayout(
   if (actor_overlay_web_view_) {
     layouts.child_layouts.emplace_back(
         actor_overlay_web_view_.get(), actor_overlay_web_view_->GetVisible(),
+        non_devtools_contents_bounds, size_bounds);
+  }
+
+  // ABP input mode overlay covers the contents view area.
+  if (abp_input_mode_overlay_) {
+    layouts.child_layouts.emplace_back(
+        abp_input_mode_overlay_.get(), abp_input_mode_overlay_->GetVisible(),
         non_devtools_contents_bounds, size_bounds);
   }
 
