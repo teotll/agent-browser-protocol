@@ -903,17 +903,17 @@ void AbpActionContext::FinalizeResponse() {
 
   LogProfilingSummary();
 
-  // Send response first to minimize client-perceived latency.
-  // History recording happens after, in parallel with pause.
+  // Record to history BEFORE sending response. SendErrorResponse sets
+  // prevent_destroy_ = nullptr which may destroy |this|, so accessing
+  // members after it returns is a use-after-free.
+  RecordHistory(!has_error_, error_code_, error_message_);
+
   if (has_error_) {
     SendErrorResponse(500, error_code_, error_message_);
   } else {
     BuildResponseEnvelope();
     SendResponse();
   }
-
-  // Record to history after response is sent (non-blocking for client)
-  RecordHistory(!has_error_, error_code_, error_message_);
 }
 
 void AbpActionContext::RecordHistory(bool success,
