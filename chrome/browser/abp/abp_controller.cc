@@ -1010,6 +1010,8 @@ void AbpController::GetBrowserStatus(ResponseCallback callback) {
   base::Value::Dict data;
   data.Set("ready", ready);
   data.Set("state", ready ? "ready" : "initializing");
+  data.Set("input_mode",
+           input_mode_ == InputMode::kAgent ? "agent" : "human");
   data.Set("components", std::move(components));
 
   if (!ready) {

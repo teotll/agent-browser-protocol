@@ -983,6 +983,27 @@ void AbpMcpHandler::HandleToolsCall(const base::Value::Dict& params,
     args = &empty_args;
   }
 
+  // Block most tools in human input mode — only allow read-only observation
+  if (controller_->GetInputMode() == AbpController::InputMode::kHuman &&
+      *name != "browser_get_status" && *name != "browser_screenshot" &&
+      *name != "browser_text" && *name != "browser_tabs") {
+    base::Value::Dict result;
+    base::Value::List content;
+    base::Value::Dict text_block;
+    text_block.Set("type", "text");
+    text_block.Set("text",
+        "Operation blocked: browser is in human input mode. "
+        "Use browser_get_status to check current input_mode, or set "
+        "input_mode to 'agent' to switch back via "
+        "POST /api/v1/browser/input-mode");
+    content.Append(std::move(text_block));
+    result.Set("content", std::move(content));
+    result.Set("isError", true);
+    SendJsonRpcResult(std::move(request_id), base::Value(std::move(result)),
+                      std::move(callback));
+    return;
+  }
+
   // Route to tool implementation
   if (*name == "browser_action") {
     CallBrowserAction(*args, std::move(request_id), std::move(callback));
