@@ -1,0 +1,89 @@
+// Copyright 2026 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+// Robot icon for ABP input mode toggle (agent/robot mode).
+// 20x20 canvas: antenna, rectangular head with two dot eyes, rectangular body.
+
+CANVAS_DIMENSIONS, 20,
+FILL_RULE_NONZERO,
+
+// Antenna stem (vertical line from top center down to head)
+MOVE_TO, 10, 1,
+R_V_LINE_TO, 2.5,
+
+// Antenna ball
+CIRCLE, 10, 1, 0.9,
+
+// Head (rounded rectangle: 6x4 centered at x=10, y=5.5)
+MOVE_TO, 7, 3.5,
+R_H_LINE_TO, 6,
+R_CUBIC_TO, 0.55, 0, 1, 0.45, 1, 1,
+R_V_LINE_TO, 2,
+R_CUBIC_TO, 0, 0.55, -0.45, 1, -1, 1,
+H_LINE_TO, 7,
+R_CUBIC_TO, -0.55, 0, -1, -0.45, -1, -1,
+R_V_LINE_TO, -2,
+R_CUBIC_TO, 0, -0.55, 0.45, -1, 1, -1,
+CLOSE,
+
+// Left eye
+CIRCLE, 8.5, 5.5, 0.7,
+
+// Right eye
+CIRCLE, 11.5, 5.5, 0.7,
+
+// Neck (short connector from head to body)
+MOVE_TO, 9.25, 7.5,
+R_H_LINE_TO, 1.5,
+R_V_LINE_TO, 1,
+R_H_LINE_TO, -1.5,
+CLOSE,
+
+// Body (rounded rectangle: 8x6 centered at x=10, y=12)
+MOVE_TO, 6, 8.5,
+R_H_LINE_TO, 8,
+R_CUBIC_TO, 0.55, 0, 1, 0.45, 1, 1,
+R_V_LINE_TO, 4,
+R_CUBIC_TO, 0, 0.55, -0.45, 1, -1, 1,
+H_LINE_TO, 6,
+R_CUBIC_TO, -0.55, 0, -1, -0.45, -1, -1,
+R_V_LINE_TO, -4,
+R_CUBIC_TO, 0, -0.55, 0.45, -1, 1, -1,
+CLOSE,
+
+// Left arm
+MOVE_TO, 5, 9.5,
+R_H_LINE_TO, -1.5,
+R_CUBIC_TO, -0.55, 0, -1, 0.45, -1, 1,
+R_V_LINE_TO, 1.5,
+R_CUBIC_TO, 0, 0.55, 0.45, 1, 1, 1,
+R_H_LINE_TO, 1.5,
+CLOSE,
+
+// Right arm
+MOVE_TO, 15, 9.5,
+R_H_LINE_TO, 1.5,
+R_CUBIC_TO, 0.55, 0, 1, 0.45, 1, 1,
+R_V_LINE_TO, 1.5,
+R_CUBIC_TO, 0, 0.55, -0.45, 1, -1, 1,
+R_H_LINE_TO, -1.5,
+CLOSE,
+
+// Left leg
+MOVE_TO, 7.5, 14.5,
+R_H_LINE_TO, 1.5,
+R_V_LINE_TO, 2.5,
+R_CUBIC_TO, 0, 0.55, -0.45, 1, -1, 1,
+R_H_LINE_TO, -0.5,
+R_V_LINE_TO, -3.5,
+CLOSE,
+
+// Right leg
+MOVE_TO, 11, 14.5,
+R_H_LINE_TO, 1.5,
+R_V_LINE_TO, 3.5,
+R_H_LINE_TO, -0.5,
+R_CUBIC_TO, -0.55, 0, -1, -0.45, -1, -1,
+R_V_LINE_TO, -2.5,
+CLOSE
