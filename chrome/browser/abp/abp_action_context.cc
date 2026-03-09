@@ -348,7 +348,7 @@ void AbpActionContext::Start() {
             types_set.insert(t);
           }
         } else {
-          types_set = {"XHR", "Fetch"};
+          types_set = {"XHR", "Fetch", "Document"};
         }
         nc->SetCaptureTypes(types_set);
 

@@ -80,7 +80,7 @@ struct NetworkConfig {
   ~NetworkConfig();
 
   std::string tag;  // Empty = don't persist
-  std::set<std::string> types = {"XHR", "Fetch"};  // CDP resource types
+  std::set<std::string> types = {"XHR", "Fetch", "Document"};  // CDP resource types
 };
 
 // Filter for querying captured network requests (used by both buffer and DB).
