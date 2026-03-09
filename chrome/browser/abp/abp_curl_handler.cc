@@ -22,8 +22,8 @@
 
 namespace {
 
-// 50 MB max response body.
-constexpr size_t kMaxBodySize = 50 * 1024 * 1024;
+// Max response body — SimpleURLLoader caps DownloadToString at 5 MB.
+constexpr size_t kMaxBodySize = 5 * 1024 * 1024;
 
 bool IsBinaryContentType(const std::string& content_type) {
   // Treat anything that isn't text/* or a known text-based format as binary.
