@@ -1969,6 +1969,80 @@ void AbpController::HandleRequest(const std::string& method,
 
   const std::string& resource = segments[2];
 
+  // Human mode blocking guard: reject agent-loop operations when in human mode
+  if (input_mode_ == InputMode::kHuman) {
+    bool blocked = false;
+    std::string block_message =
+        "Operation blocked: browser is in human input mode";
+
+    if (resource == "tabs") {
+      if (segments.size() == 5) {
+        const std::string& action = segments[4];
+        // POST /tabs/{id}/execution — specific error message
+        if (action == "execution" && method == "POST") {
+          SendError(
+              409,
+              "Execution control blocked: browser is in human input mode. "
+              "Switch to agent mode first via POST "
+              "/api/v1/browser/input-mode",
+              std::move(callback));
+          return;
+        }
+        // POST /tabs/{id}/screenshot — blocked (GET binary is allowed)
+        if (action == "screenshot" && method == "POST") {
+          blocked = true;
+        }
+        // Tab-scoped actions that trigger action loops
+        static const base::flat_set<std::string> blocked_actions = {
+            "click",   "type",     "scroll",  "move",    "drag",
+            "slider",  "clear_text", "execute", "wait",    "navigate",
+            "reload",  "back",     "forward"};
+        if (blocked_actions.contains(action) && method == "POST") {
+          blocked = true;
+        }
+      } else if (segments.size() == 6) {
+        const std::string& action = segments[4];
+        const std::string& sub_action = segments[5];
+        if (method == "POST") {
+          // keyboard/press, keyboard/down, keyboard/up
+          if (action == "keyboard" &&
+              (sub_action == "press" || sub_action == "down" ||
+               sub_action == "up")) {
+            blocked = true;
+          }
+          // dialog/accept, dialog/dismiss
+          if (action == "dialog" &&
+              (sub_action == "accept" || sub_action == "dismiss")) {
+            blocked = true;
+          }
+          // mouse/scroll
+          if (action == "mouse" && sub_action == "scroll") {
+            blocked = true;
+          }
+        }
+      }
+    } else if (resource == "file-chooser") {
+      if (segments.size() == 4 && method == "POST") {
+        blocked = true;
+      }
+    } else if (resource == "select") {
+      if (segments.size() == 4 && method == "POST") {
+        blocked = true;
+      }
+    } else if (resource == "permissions") {
+      // POST /permissions/{id}/grant or /permissions/{id}/deny — blocked
+      // GET /permissions — allowed
+      if (segments.size() == 5 && method == "POST") {
+        blocked = true;
+      }
+    }
+
+    if (blocked) {
+      SendError(409, block_message, std::move(callback));
+      return;
+    }
+  }
+
   // Route: /api/v1/tabs
   if (resource == "tabs") {
     if (segments.size() == 3) {
@@ -2155,6 +2229,17 @@ void AbpController::HandleRequest(const std::string& method,
       // GET /api/v1/browser/session-data
       if (method == "GET") {
         GetSessionData(std::move(callback));
+      } else {
+        SendError(405, "Method not allowed", std::move(callback));
+      }
+      return;
+    }
+    if (segments.size() == 4 && segments[3] == "input-mode") {
+      // GET/POST /api/v1/browser/input-mode
+      if (method == "GET") {
+        GetInputModeResponse(std::move(callback));
+      } else if (method == "POST") {
+        SetInputMode(params, std::move(callback));
       } else {
         SendError(405, "Method not allowed", std::move(callback));
       }
