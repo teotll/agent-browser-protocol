@@ -569,6 +569,8 @@ void LocationBarView::Init() {
     params.types_enabled.push_back(PageActionIconType::kBookmarkStar);
   }
 
+  params.types_enabled.push_back(PageActionIconType::kAbpInputMode);
+
   params.icon_color = color_provider->GetColor(kColorOmniboxActionIcon);
   params.between_icon_spacing = kBetweenIconSpacing;
   params.font_list = &page_action_font_list;

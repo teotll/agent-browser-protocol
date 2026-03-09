@@ -47,6 +47,7 @@
 #include "chrome/browser/ui/views/performance_controls/memory_saver_chip_view.h"
 #include "chrome/browser/ui/views/sharing/sharing_dialog_view.h"
 #include "chrome/browser/ui/views/sharing/sharing_icon_view.h"
+#include "chrome/browser/abp/abp_input_mode_icon_view.h"
 #include "chrome/browser/ui/views/sharing_hub/sharing_hub_icon_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_icon_container_view.h"
 #include "chrome/browser/ui/views/translate/translate_icon_view.h"
@@ -290,6 +291,12 @@ void PageActionIconController::Init(const PageActionIconParams& params,
       case PageActionIconType::kContextualSidePanel:
       case PageActionIconType::kJsOptimizations:
         // Do nothing as these actions were added after the migration.
+        break;
+      case PageActionIconType::kAbpInputMode:
+        add_page_action_icon(
+            type, std::make_unique<AbpInputModeIconView>(
+                      params.icon_label_bubble_delegate,
+                      params.page_action_icon_delegate));
         break;
     }
   }
