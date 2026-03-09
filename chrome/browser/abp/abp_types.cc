@@ -65,4 +65,10 @@ CapturedRequest& CapturedRequest::operator=(CapturedRequest&&) = default;
 NetworkConfig::NetworkConfig() = default;
 NetworkConfig::~NetworkConfig() = default;
 
+NetworkQueryFilter::NetworkQueryFilter() = default;
+NetworkQueryFilter::~NetworkQueryFilter() = default;
+NetworkQueryFilter::NetworkQueryFilter(const NetworkQueryFilter&) = default;
+NetworkQueryFilter& NetworkQueryFilter::operator=(const NetworkQueryFilter&) =
+    default;
+
 }  // namespace abp

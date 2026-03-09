@@ -128,7 +128,7 @@ bool MatchesSubstring(const std::string& value, const std::string& pattern) {
 }  // namespace
 
 base::Value::List AbpNetworkCapture::QueryBuffer(
-    const AbpNetworkDatabase::QueryFilter& filter,
+    const abp::NetworkQueryFilter& filter,
     const std::string& tab_id) const {
   base::Value::List results;
 

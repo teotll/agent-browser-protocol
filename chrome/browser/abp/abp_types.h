@@ -83,6 +83,26 @@ struct NetworkConfig {
   std::set<std::string> types = {"XHR", "Fetch"};  // CDP resource types
 };
 
+// Filter for querying captured network requests (used by both buffer and DB).
+struct NetworkQueryFilter {
+  NetworkQueryFilter();
+  ~NetworkQueryFilter();
+  NetworkQueryFilter(const NetworkQueryFilter&);
+  NetworkQueryFilter& operator=(const NetworkQueryFilter&);
+
+  std::string tag;
+  std::string url_regex;
+  std::string hostname_regex;
+  std::string path_regex;
+  std::string query_regex;
+  std::string method_regex;
+  std::string status_regex;
+  std::string type;
+  std::string tab_id;
+  std::string action_id;
+  bool include_body = false;
+};
+
 }  // namespace abp
 
 #endif  // CHROME_BROWSER_ABP_ABP_TYPES_H_
