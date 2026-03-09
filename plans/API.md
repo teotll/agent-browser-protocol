@@ -651,6 +651,48 @@ Returns file paths for the current session's data storage (database, screenshots
 }
 ```
 
+### Get Input Mode
+
+```
+GET /browser/input-mode
+```
+
+Returns the current global input mode.
+
+**Response:**
+```json
+{
+  "input_mode": "agent"
+}
+```
+
+### Set Input Mode
+
+```
+POST /browser/input-mode
+```
+
+Toggles between agent-controlled and human-controlled input modes.
+
+- **`"human"`**: Aborts in-flight actions, saves execution state, resumes page, allows system input, blocks ABP action-loop operations, shows yellow gradient border.
+- **`"agent"`**: Blocks system input, restores saved execution state (re-pauses if was paused), unblocks ABP operations, hides border.
+
+**Request:**
+```json
+{
+  "input_mode": "human"
+}
+```
+
+**Response:**
+```json
+{
+  "input_mode": "human"
+}
+```
+
+**Blocked operations in human mode:** All action-loop operations (click, type, scroll, keyboard, execute, wait, screenshot POST, dialog accept/dismiss, permission grant/deny, file chooser, select), navigation (navigate, reload, back, forward), and POST /execution. Read-only endpoints (GET screenshot, text, tabs, status, dialog, downloads, permissions, history) remain available.
+
 ---
 
 ## Tab Management

@@ -19,6 +19,7 @@ A Chromium fork implementing the Agent Browser Protocol (ABP) - a REST-based API
 - **Execution Control**: Pause/resume JS execution with virtual time for deterministic state
 - **Wait**: Duration-based wait with action envelope
 - **History**: Session, action, and event history with SQLite storage
+- **Input Mode**: Toggle between agent (ABP-controlled) and human (user-controlled) input modes via API or toolbar icon. Human mode allows direct user interaction (e.g., for authentication), suspends execution control, and shows a yellow gradient border overlay.
 - **Browser Management**: Status check, graceful shutdown
 - **MCP Server**: Embedded MCP (JSON-RPC over HTTP) with 18 tools at `/mcp`
 
@@ -257,6 +258,8 @@ See `plans/API.md` for the complete REST API specification. All endpoints:
 | GET | `/api/v1/browser/status` | Get browser readiness status |
 | GET | `/api/v1/browser/session-data` | Get session data file paths |
 | POST | `/api/v1/browser/shutdown` | Graceful shutdown |
+| GET | `/api/v1/browser/input-mode` | Get current input mode (agent/human) |
+| POST | `/api/v1/browser/input-mode` | Set input mode (toggles human/agent control) |
 | **Tabs** | | |
 | GET | `/api/v1/tabs` | List all tabs |
 | GET | `/api/v1/tabs/{id}` | Get tab details |
