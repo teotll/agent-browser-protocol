@@ -19,6 +19,7 @@ AbpInputModeOverlay::AbpInputModeOverlay(views::View* contents_view) {
   SetVisible(false);
 
   bounds_observer_.Observe(contents_view);
+  SetBoundsRect(contents_view->bounds());
 
   // Register as observer for input mode changes.
   abp::AbpController* controller = abp::AbpController::GetInstance();
