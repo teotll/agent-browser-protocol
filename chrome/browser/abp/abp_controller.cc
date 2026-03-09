@@ -36,6 +36,7 @@
 #include "base/time/time.h"
 #include "chrome/browser/abp/abp_curl_handler.h"
 #include "chrome/browser/abp/abp_download_observer.h"
+#include "chrome/browser/abp/abp_input_mode_overlay.h"
 #include "chrome/browser/abp/abp_event_collector.h"
 #include "chrome/browser/abp/abp_event_observer.h"
 #include "chrome/browser/abp/abp_history_controller.h"
@@ -44,6 +45,8 @@
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/contents_container_view.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -979,6 +982,35 @@ bool AbpController::IsBrowserReady() {
   }
   VLOG(1) << "ABP DEBUG L1: IsBrowserReady - not ready yet";
   return false;
+}
+
+void AbpController::InstallOverlay() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  if (input_mode_overlay_) {
+    return;  // Already installed.
+  }
+
+  const BrowserList* browser_list = BrowserList::GetInstance();
+  for (auto it = browser_list->begin(); it != browser_list->end(); ++it) {
+    Browser* browser = *it;
+    BrowserView* browser_view =
+        BrowserView::GetBrowserViewForBrowser(browser);
+    if (!browser_view) {
+      continue;
+    }
+    ContentsContainerView* container =
+        browser_view->GetActiveContentsContainerView();
+    if (!container) {
+      continue;
+    }
+    auto overlay =
+        std::make_unique<AbpInputModeOverlay>(container->contents_view());
+    input_mode_overlay_ = container->AddChildView(std::move(overlay));
+    VLOG(1) << "ABP: Input mode overlay installed";
+    return;
+  }
+  VLOG(1) << "ABP: Could not find a suitable browser view for overlay";
 }
 
 void AbpController::GetBrowserStatus(ResponseCallback callback) {
@@ -2000,11 +2032,12 @@ void AbpController::HandleRequest(const std::string& method,
           blocked = true;
         }
         // Tab-scoped actions that trigger action loops
-        static const base::flat_set<std::string> blocked_actions = {
-            "click",   "type",     "scroll",  "move",    "drag",
-            "slider",  "clear_text", "execute", "wait",    "navigate",
-            "reload",  "back",     "forward"};
-        if (blocked_actions.contains(action) && method == "POST") {
+        static const base::NoDestructor<base::flat_set<std::string>>
+            blocked_actions(base::flat_set<std::string>{
+                "click",   "type",     "scroll",  "move",    "drag",
+                "slider",  "clear_text", "execute", "wait",    "navigate",
+                "reload",  "back",     "forward"});
+        if (blocked_actions->contains(action) && method == "POST") {
           blocked = true;
         }
       } else if (segments.size() == 6) {

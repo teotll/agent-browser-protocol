@@ -54,6 +54,12 @@ class AbpHistoryController;
 class AbpInputDispatcher;
 class AbpPopupInterceptor;
 
+}  // namespace abp
+
+class AbpInputModeOverlay;
+
+namespace abp {
+
 // Key information for CDP Input.dispatchKeyEvent
 struct KeyInfo {
   KeyInfo();
@@ -342,6 +348,10 @@ class AbpController : public TabStripModelObserver {
   void GetInputModeResponse(ResponseCallback callback);
   void SetInputMode(const base::Value::Dict& params,
                     ResponseCallback callback);
+
+  // Install the input-mode overlay into the browser's view hierarchy.
+  // Called once the browser window is ready.
+  void InstallOverlay();
 
   // Check if browser is ready for ABP operations
   // Returns true if there's a browser window with a tab that has a valid view
@@ -1163,6 +1173,9 @@ class AbpController : public TabStripModelObserver {
   InputMode input_mode_ = InputMode::kAgent;
   std::map<std::string, SavedExecutionState> saved_execution_states_;
   base::ObserverList<InputModeObserver> input_mode_observers_;
+
+  // Input mode overlay installed in the browser view hierarchy.
+  raw_ptr<AbpInputModeOverlay> input_mode_overlay_ = nullptr;
 
   base::WeakPtrFactory<AbpController> weak_factory_{this};
 };

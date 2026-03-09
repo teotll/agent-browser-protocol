@@ -16,7 +16,6 @@
 #include "ui/views/layout/delegating_layout_manager.h"
 #include "ui/views/view.h"
 
-class AbpInputModeOverlay;
 class BrowserView;
 class ContentsContainerOutline;
 class ContentsWebView;
@@ -184,10 +183,6 @@ class ContentsContainerView : public views::View,
   // The view that contains the Glic Actor Overlay. The Actor Overlay is a UI
   // overlay that is shown on top of the web contents.
   raw_ptr<ActorOverlayWebView> actor_overlay_web_view_ = nullptr;
-
-  // ABP input mode overlay — draws a yellow gradient border when in human
-  // input mode.  Only created when AbpController is active.
-  raw_ptr<AbpInputModeOverlay> abp_input_mode_overlay_ = nullptr;
 
   // The glic browser view that renders around the web contents area.
   raw_ptr<glic::ContextSharingBorderView> glic_border_ = nullptr;
