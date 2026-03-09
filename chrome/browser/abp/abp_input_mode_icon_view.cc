@@ -8,6 +8,7 @@
 #include "base/functional/callback_helpers.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/views/accessibility/view_accessibility.h"
 
 AbpInputModeIconView::AbpInputModeIconView(
     IconLabelBubbleView::Delegate* icon_label_bubble_delegate,
@@ -18,6 +19,7 @@ AbpInputModeIconView::AbpInputModeIconView(
                          page_action_icon_delegate,
                          "AbpInputMode") {
   SetVisible(true);  // Always visible when ABP is active
+  GetViewAccessibility().SetName(u"Toggle input mode");
 
   // Register as observer for input mode changes.
   abp::AbpController* controller = abp::AbpController::GetInstance();
