@@ -222,7 +222,9 @@ base::Value::List GetToolDefinitions() {
       base::Value::Dict ntag;
       ntag.Set("type", "string");
       ntag.Set("description",
-               "Tag name to save captured network requests to the DB");
+               "Tag name to auto-save this action's network requests. "
+                "Saved requests persist across actions and can be queried "
+                "later by tag.");
       properties.Set("network_tag", std::move(ntag));
     }
 
@@ -328,7 +330,9 @@ base::Value::List GetToolDefinitions() {
                 std::move(scroll_item_props),
                 std::move(scroll_item_required))
             .OptionalString("network_tag",
-                "Tag name to save captured network requests to the DB")
+                "Tag name to auto-save this action's network requests. "
+                "Saved requests persist across actions and can be queried "
+                "later by tag.")
             .Build());
   }
 
@@ -343,7 +347,9 @@ base::Value::List GetToolDefinitions() {
                    .OptionalStringEnum("action", "Navigation action",
                                        {"back", "forward", "reload"})
                    .OptionalString("network_tag",
-                       "Tag name to save captured network requests to the DB")
+                       "Tag name to auto-save this action's network requests. "
+                "Saved requests persist across actions and can be queried "
+                "later by tag.")
                    .Build());
 
   // 4. browser_screenshot
@@ -373,7 +379,9 @@ base::Value::List GetToolDefinitions() {
               {"clickable", "typeable", "scrollable", "grid", "selected"})
           .OptionalString("format", "Image format: png, webp, jpeg")
           .OptionalString("network_tag",
-              "Tag name to save captured network requests to the DB")
+              "Tag name to auto-save this action's network requests. "
+                "Saved requests persist across actions and can be queried "
+                "later by tag.")
           .Build());
 
   // 4b. browser_wait — wait for network to settle
@@ -397,7 +405,9 @@ base::Value::List GetToolDefinitions() {
               {"clickable", "typeable", "scrollable", "grid", "selected"})
           .OptionalString("format", "Image format: png, webp, jpeg")
           .OptionalString("network_tag",
-              "Tag name to save captured network requests to the DB")
+              "Tag name to auto-save this action's network requests. "
+                "Saved requests persist across actions and can be queried "
+                "later by tag.")
           .Build());
 
   // 5. browser_tabs — list/new/close/info/activate/stop
@@ -429,7 +439,9 @@ base::Value::List GetToolDefinitions() {
           .OptionalString("tab_id", "Target tab ID")
           .RequiredString("expression", "JavaScript expression to evaluate")
           .OptionalString("network_tag",
-              "Tag name to save captured network requests to the DB")
+              "Tag name to auto-save this action's network requests. "
+                "Saved requests persist across actions and can be queried "
+                "later by tag.")
           .Build());
 
   // 7. browser_text
@@ -439,7 +451,9 @@ base::Value::List GetToolDefinitions() {
                    .OptionalString("selector",
                        "CSS selector to scope text extraction")
                    .OptionalString("network_tag",
-                       "Tag name to save captured network requests to the DB")
+                       "Tag name to auto-save this action's network requests. "
+                "Saved requests persist across actions and can be queried "
+                "later by tag.")
                    .Build());
 
   // 8. browser_dialog — check/accept/dismiss
@@ -584,7 +598,9 @@ base::Value::List GetToolDefinitions() {
           .RequiredNumber("target_value",
               "Desired logical value to set the slider to")
           .OptionalString("network_tag",
-              "Tag name to save captured network requests to the DB")
+              "Tag name to auto-save this action's network requests. "
+                "Saved requests persist across actions and can be queried "
+                "later by tag.")
           .Build());
 
   // 16. browser_clear_text — clear focused input via backspace
@@ -601,7 +617,9 @@ base::Value::List GetToolDefinitions() {
           .RequiredNumber("y",
               "Y coordinate of the center of the input field")
           .OptionalString("network_tag",
-              "Tag name to save captured network requests to the DB")
+              "Tag name to auto-save this action's network requests. "
+                "Saved requests persist across actions and can be queried "
+                "later by tag.")
           .Build());
 
   // 17. respond_to_permission — handle permission prompts
@@ -632,21 +650,26 @@ base::Value::List GetToolDefinitions() {
                           "used when granting geolocation.")
           .Build());
 
-  // 18. browser_network — query/save/clear saved network requests
+  // 18. browser_network — query/save/clear captured network requests
   tools.Append(
       ToolBuilder("browser_network")
           .Description(
-              "Query, save, or clear captured network requests stored in the "
-              "session database.\n\n"
-              "action=\"query\": Filter and retrieve saved requests. Supports "
-              "regex filters on url, hostname, path, query, method, status, "
-              "and resource type. Use include_body=true to include request/"
+              "Query, save, or clear captured network requests. Every browser "
+              "action automatically captures network requests (XHR, Fetch, and "
+              "Document types by default).\n\n"
+              "Captured requests from the most recent action are always "
+              "available to query. Wait actions accumulate requests from prior "
+              "actions; all other actions start with a fresh capture. To retain "
+              "requests across actions, use save or network_tag on the "
+              "action.\n\n"
+              "action=\"query\": Search captured network requests. Supports "
+              "filters on url, hostname, path, method, status, type, "
+              "action_id, and tag. Use include_body=true to include request/"
               "response bodies.\n\n"
-              "action=\"save\": Snapshot the current in-memory network buffer "
-              "to the database with an optional tag. Use tab_id to scope to a "
-              "specific tab.\n\n"
-              "action=\"clear\": Remove saved requests from the database, "
-              "optionally filtered by tag.")
+              "action=\"save\": Persist captured requests with a tag name so "
+              "they remain available across future actions.\n\n"
+              "action=\"clear\": Remove previously saved requests, optionally "
+              "filtered by tag.")
           .RequiredStringEnum("action", "Operation: query, save, or clear",
                               {"query", "save", "clear"})
           .OptionalString("tag",
