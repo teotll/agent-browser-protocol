@@ -54,6 +54,7 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/storage_partition.h"
+#include "components/input/render_input_router.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
@@ -4651,6 +4652,165 @@ void AbpController::OnTabStripModelChanged(
     // when ActivateTab already called ForegroundTab).
     if (it != tab_states_.end() && it->second.backgrounded) {
       ForegroundTab(new_tab_id);
+    }
+  }
+}
+
+// ==========================================================================
+// Input mode management
+// ==========================================================================
+
+void AbpController::AddInputModeObserver(InputModeObserver* observer) {
+  input_mode_observers_.AddObserver(observer);
+}
+
+void AbpController::RemoveInputModeObserver(InputModeObserver* observer) {
+  input_mode_observers_.RemoveObserver(observer);
+}
+
+void AbpController::GetInputModeResponse(ResponseCallback callback) {
+  base::Value::Dict response;
+  response.Set("input_mode",
+               input_mode_ == InputMode::kAgent ? "agent" : "human");
+  SendJson(200, base::Value(std::move(response)), std::move(callback));
+}
+
+void AbpController::SetInputMode(const base::Value::Dict& params,
+                                 ResponseCallback callback) {
+  const std::string* mode_str = params.FindString("input_mode");
+  if (!mode_str) {
+    SendError(400, "Missing 'input_mode' parameter", std::move(callback));
+    return;
+  }
+
+  if (*mode_str == "human") {
+    if (input_mode_ == InputMode::kHuman) {
+      // Already in human mode
+      GetInputModeResponse(std::move(callback));
+      return;
+    }
+    SwitchToHumanMode(std::move(callback));
+  } else if (*mode_str == "agent") {
+    if (input_mode_ == InputMode::kAgent) {
+      // Already in agent mode
+      GetInputModeResponse(std::move(callback));
+      return;
+    }
+    SwitchToAgentMode(std::move(callback));
+  } else {
+    SendError(400, "Invalid input_mode: must be 'agent' or 'human'",
+              std::move(callback));
+  }
+}
+
+void AbpController::SwitchToHumanMode(ResponseCallback callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  // 1. Abort in-flight actions for all tabs.
+  for (auto& [tab_id, state] : tab_states_) {
+    AbortActiveAction(tab_id);
+  }
+
+  // 2. Save execution state and resume paused tabs.
+  saved_execution_states_.clear();
+  for (auto& [tab_id, state] : tab_states_) {
+    if (state.execution.IsEnabled()) {
+      SavedExecutionState saved;
+      saved.was_enabled = true;
+      saved.was_paused = state.execution.IsPaused();
+      saved.virtual_time_base_ms = state.execution.virtual_time_base_ticks_ms;
+      saved_execution_states_[tab_id] = saved;
+
+      if (state.execution.IsPaused()) {
+        ResumeExecution(tab_id, base::DoNothing());
+      }
+    }
+  }
+
+  // 3. Allow system inputs on all tabs.
+  SetAllowSystemInputsForAllTabs(true);
+
+  // 4. Update state and notify observers.
+  input_mode_ = InputMode::kHuman;
+  for (auto& observer : input_mode_observers_) {
+    observer.OnInputModeChanged(InputMode::kHuman);
+  }
+
+  GetInputModeResponse(std::move(callback));
+}
+
+void AbpController::SwitchToAgentMode(ResponseCallback callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  // 1. Block system inputs on all tabs.
+  SetAllowSystemInputsForAllTabs(false);
+
+  // 2. Restore saved execution state — re-pause tabs that were paused.
+  for (auto& [tab_id, saved] : saved_execution_states_) {
+    if (saved.was_enabled && saved.was_paused) {
+      auto it = tab_states_.find(tab_id);
+      if (it != tab_states_.end() && it->second.execution.IsEnabled()) {
+        PauseExecution(tab_id, base::DoNothing());
+      }
+    }
+  }
+  saved_execution_states_.clear();
+
+  // 3. Update state and notify observers.
+  input_mode_ = InputMode::kAgent;
+  for (auto& observer : input_mode_observers_) {
+    observer.OnInputModeChanged(InputMode::kAgent);
+  }
+
+  GetInputModeResponse(std::move(callback));
+}
+
+void AbpController::AbortActiveAction(const std::string& tab_id) {
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end()) {
+    return;
+  }
+
+  TabState& state = it->second;
+  if (!state.action_in_flight) {
+    return;
+  }
+
+  // Invalidate the current action epoch. The active AbpActionContext will
+  // see IsCurrentAction() return false at its next async checkpoint and
+  // self-destruct, releasing the HTTP response callback (closing the
+  // connection).
+  state.action_in_flight = false;
+  state.active_action_epoch = 0;
+
+  // Drain queued actions — they'll discover the tab has no active slot
+  // and self-destruct similarly.
+  state.queued_action_starters.clear();
+}
+
+void AbpController::SetAllowSystemInputsForAllTabs(bool allow) {
+  const BrowserList* browser_list = BrowserList::GetInstance();
+  for (auto it = browser_list->begin(); it != browser_list->end(); ++it) {
+    Browser* browser = *it;
+    TabStripModel* tab_strip = browser->tab_strip_model();
+    for (int i = 0; i < tab_strip->count(); ++i) {
+      content::WebContents* wc = tab_strip->GetWebContentsAt(i);
+      if (!wc) {
+        continue;
+      }
+      content::RenderWidgetHostView* view = wc->GetRenderWidgetHostView();
+      if (!view) {
+        continue;
+      }
+      auto* rwhi = static_cast<content::RenderWidgetHostImpl*>(
+          view->GetRenderWidgetHost());
+      if (!rwhi) {
+        continue;
+      }
+      input::RenderInputRouter* router = rwhi->GetRenderInputRouter();
+      if (router) {
+        router->SetAllowSystemInputs(allow);
+      }
     }
   }
 }

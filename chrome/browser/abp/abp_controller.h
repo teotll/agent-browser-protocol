@@ -17,6 +17,7 @@
 #include "base/files/file_path.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/observer_list.h"
 #include "base/timer/timer.h"
 #include "base/values.h"
 #include "content/public/browser/devtools_agent_host.h"
@@ -313,6 +314,33 @@ class AbpController : public TabStripModelObserver {
   base::WeakPtr<AbpController> GetWeakPtr() {
     return weak_factory_.GetWeakPtr();
   }
+
+  // Global input mode: agent (ABP-controlled) vs human (user-controlled).
+  enum class InputMode {
+    kAgent,
+    kHuman,
+  };
+
+  // Saved per-tab execution state for mode switch restore.
+  struct SavedExecutionState {
+    bool was_enabled = false;
+    bool was_paused = false;
+    double virtual_time_base_ms = 0.0;
+  };
+
+  // Input mode observer interface
+  class InputModeObserver : public base::CheckedObserver {
+   public:
+    virtual void OnInputModeChanged(InputMode mode) = 0;
+  };
+  void AddInputModeObserver(InputModeObserver* observer);
+  void RemoveInputModeObserver(InputModeObserver* observer);
+
+  // Input mode accessors
+  InputMode GetInputMode() const { return input_mode_; }
+  void GetInputModeResponse(ResponseCallback callback);
+  void SetInputMode(const base::Value::Dict& params,
+                    ResponseCallback callback);
 
   // Check if browser is ready for ABP operations
   // Returns true if there's a browser window with a tab that has a valid view
@@ -1059,6 +1087,12 @@ class AbpController : public TabStripModelObserver {
   // Deferred timer start for time wait (after page load)
   void OnLoadFiredForTimeWait(const std::string& tab_id);
 
+  // Input mode switching
+  void SwitchToHumanMode(ResponseCallback callback);
+  void SwitchToAgentMode(ResponseCallback callback);
+  void AbortActiveAction(const std::string& tab_id);
+  void SetAllowSystemInputsForAllTabs(bool allow);
+
   // Dialog endpoint methods
   void GetDialog(const std::string& tab_id, ResponseCallback callback);
   void AcceptDialog(const std::string& tab_id,
@@ -1123,6 +1157,11 @@ class AbpController : public TabStripModelObserver {
   static AbpController* instance_for_testing_;
 
   AbpConfig::TimingConfig timing_config_;
+
+  // Global input mode state
+  InputMode input_mode_ = InputMode::kAgent;
+  std::map<std::string, SavedExecutionState> saved_execution_states_;
+  base::ObserverList<InputModeObserver> input_mode_observers_;
 
   base::WeakPtrFactory<AbpController> weak_factory_{this};
 };
