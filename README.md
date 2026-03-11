@@ -343,22 +343,23 @@ See [TRAINING.md](TRAINING.md) for the SQLite schema, `abp-debug` UI, and traini
 
 ## Comparison
 
-| Feature | ABP | CDP/Puppeteer | Playwright | Selenium |
-|---------|-----|---------------|------------|----------|
-| REST API | Yes | No (WebSocket) | No (RPC) | Yes |
-| JS execution pause | Engine-level | Debugger | No | No |
-| Virtual time | Yes | Partial (CDP only) | Partial (Clock API) | No |
-| Virtual cursor | Compositor | No | No | No |
-| Action screenshots | Automatic | Manual | Manual | Manual |
-| Event detection | Built-in | Manual subscription | Manual | Manual |
-| Element markup | Built-in | No | No | No |
-| Session recording | Built-in | DevTools Recorder | Codegen + Trace | Selenium IDE |
-| Engine integration | Native C++ | Protocol wrapper | Protocol + browser patches | Protocol wrapper |
-| Runtime.enable required | No | Yes | Yes | N/A |
-| Input dispatch | Native (RenderWidgetHost) | CDP synthetic (Input.dispatch*) | CDP/Juggler synthetic | WebDriver → CDP synthetic |
-| Scroll method | Native wheel events | CDP Input.dispatchMouseEvent | CDP or JS scrollIntoView | JS or Actions API |
-| Compositor hit-testing | Yes (full input pipeline) | No (bypasses compositor) | No | No |
-| Blocks real user input | Yes (default) | No | No | No |
+| Feature | ABP | CDP/Puppeteer | Playwright | Selenium | [agent-browser](https://github.com/vercel-labs/agent-browser) |
+|---------|-----|---------------|------------|----------|----------------|
+| REST API | Yes | No (WebSocket) | No (RPC) | Yes | No (CLI) |
+| JS execution pause | Engine-level | Debugger | No | No | No |
+| Virtual time | Yes | Partial (CDP only) | Partial (Clock API) | No | No |
+| Virtual cursor | Compositor | No | No | No | No |
+| Action screenshots | Automatic | Manual | Manual | Manual | Manual (CLI flag) |
+| Event detection | Built-in | Manual subscription | Manual | Manual | No |
+| Element markup | Built-in | No | No | No | Annotated screenshots |
+| Session recording | Built-in | DevTools Recorder | Codegen + Trace | Selenium IDE | No |
+| Engine integration | Native C++ | Protocol wrapper | Protocol + browser patches | Protocol wrapper | CDP wrapper (Rust) |
+| Runtime.enable required | No | Yes | Yes | N/A | Yes |
+| Input dispatch | Native (RenderWidgetHost) | CDP synthetic (Input.dispatch*) | CDP/Juggler synthetic | WebDriver → CDP synthetic | CDP synthetic |
+| Scroll method | Native wheel events | CDP Input.dispatchMouseEvent | CDP or JS scrollIntoView | JS or Actions API | CDP synthetic |
+| Compositor hit-testing | Yes (full input pipeline) | No (bypasses compositor) | No | No | No |
+| Blocks real user input | Yes (default) | No | No | No | No |
+| A11y tree snapshot | No | Manual | Yes | No | Yes (built-in) |
 
 ---
 
