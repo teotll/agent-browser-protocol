@@ -359,7 +359,6 @@ See [TRAINING.md](TRAINING.md) for the SQLite schema, `abp-debug` UI, and traini
 | Scroll method | Native wheel events | CDP Input.dispatchMouseEvent | CDP or JS scrollIntoView | JS or Actions API | CDP synthetic |
 | Compositor hit-testing | Yes (full input pipeline) | No (bypasses compositor) | No | No | No |
 | Blocks real user input | Yes (default) | No | No | No | No |
-| A11y tree snapshot | No | Manual | Yes | No | Yes (built-in) |
 
 ---
 
