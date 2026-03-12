@@ -431,6 +431,8 @@ ABP is under active development. Current implementation:
 **Not yet implemented:**
 - Action success/failure tracking
 - Recording of human browsing sessions as training data for agent fine-tuning
+- Full headless support
+- Console MCP actions
 
 ---
 
