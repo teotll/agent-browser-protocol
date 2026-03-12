@@ -208,7 +208,11 @@ void AbpHttpServer::StartOnIO() {
   VLOG(1) << "ABP: HTTP server started on http://localhost:" << port_;
 }
 
-void AbpHttpServer::OnConnect(int connection_id) {}
+void AbpHttpServer::OnConnect(int connection_id) {
+  // Increase write buffer from default 1MB to 10MB. Network API responses
+  // with bodies can exceed 1MB, causing writes to fail and connections to hang.
+  server_->SetSendBufferSize(connection_id, 10 * 1024 * 1024);
+}
 
 void AbpHttpServer::OnHttpRequest(int connection_id,
                                   const net::HttpServerRequestInfo& info) {

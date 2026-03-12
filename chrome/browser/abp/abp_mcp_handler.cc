@@ -695,6 +695,9 @@ base::Value::List GetToolDefinitions() {
           .OptionalBoolean("include_body",
               "Include request/response bodies in results (default: false, "
               "query only)")
+          .OptionalNumber("max_body_size",
+              "Truncate request/response bodies to this many characters "
+              "(0 = no limit, query only)")
           .Build());
 
   // 19. browser_curl — session-aware HTTP client using tab cookies
@@ -720,6 +723,31 @@ base::Value::List GetToolDefinitions() {
               "(e.g. {\"Content-Type\": \"application/json\"})")
           .OptionalString("tag",
               "Tag name to persist this request to the network database")
+          .Build());
+
+  // 20. browser_console — query JavaScript console messages
+  tools.Append(
+      ToolBuilder("browser_console")
+          .Description(
+              "Query JavaScript console messages including logs, errors, "
+              "warnings, and browser messages (CORS, CSP). Use to debug "
+              "page behavior without requiring an action cycle.\n\n"
+              "Returns buffered console messages with optional filters. "
+              "Use after_id to poll for new messages since last query.\n\n"
+              "Set clear=true to clear the buffer instead of querying.")
+          .OptionalStringEnum("level",
+              "Minimum severity level",
+              {"verbose", "info", "warning", "error"})
+          .OptionalString("pattern",
+              "RE2 regex filter on message text (case-insensitive)")
+          .OptionalString("tab_id",
+              "Filter to specific tab ID")
+          .OptionalNumber("limit",
+              "Maximum entries to return (default 100)")
+          .OptionalNumber("after_id",
+              "Return only entries with id greater than this value")
+          .OptionalBoolean("clear",
+              "Clear the buffer instead of querying (uses tab_id if set)")
           .Build());
 
   return tools;
@@ -1009,7 +1037,8 @@ void AbpMcpHandler::HandleToolsCall(const base::Value::Dict& params,
   // Block most tools in human input mode — only allow read-only observation
   if (controller_->GetInputMode() == AbpController::InputMode::kHuman &&
       *name != "browser_get_status" && *name != "browser_screenshot" &&
-      *name != "browser_text" && *name != "browser_tabs") {
+      *name != "browser_text" && *name != "browser_tabs" &&
+      *name != "browser_console") {
     base::Value::Dict result;
     base::Value::List content;
     base::Value::Dict text_block;
@@ -1066,6 +1095,8 @@ void AbpMcpHandler::HandleToolsCall(const base::Value::Dict& params,
     CallBrowserNetwork(*args, std::move(request_id), std::move(callback));
   } else if (*name == "browser_curl") {
     CallBrowserCurl(*args, std::move(request_id), std::move(callback));
+  } else if (*name == "browser_console") {
+    CallBrowserConsole(*args, std::move(request_id), std::move(callback));
   } else {
     SendJsonRpcError(std::move(request_id), kMethodNotFound,
                      "Unknown tool: " + *name, std::move(callback));
@@ -1889,6 +1920,9 @@ void AbpMcpHandler::CallBrowserNetwork(const base::Value::Dict& args,
         qp.push_back("include_body=true");
       }
     }
+    if (auto max_body = args.FindInt("max_body_size")) {
+      qp.push_back("max_body_size=" + base::NumberToString(*max_body));
+    }
 
     if (!qp.empty()) {
       path += "?";
@@ -2059,6 +2093,64 @@ void AbpMcpHandler::OnCurlControllerResponse(base::Value request_id,
     OnControllerResponse(std::move(request_id), std::move(callback), status,
                          content_type, std::move(body));
   }
+}
+
+void AbpMcpHandler::CallBrowserConsole(
+    const base::Value::Dict& args,
+    base::Value request_id,
+    ResponseWithHeadersCallback callback) {
+  // Check if this is a clear operation.
+  if (auto clear = args.FindBool("clear"); clear && *clear) {
+    std::string path = "/api/v1/console";
+    if (const std::string* tab_id = args.FindString("tab_id")) {
+      path += "?tab_id=" +
+              base::EscapeQueryParamValue(*tab_id, /*use_plus=*/false);
+    }
+    controller_->HandleRequest(
+        "DELETE", path, "",
+        base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                       weak_factory_.GetWeakPtr(), std::move(request_id),
+                       std::move(callback)));
+    return;
+  }
+
+  // Build query string from optional filter params.
+  std::string path = "/api/v1/console";
+  std::vector<std::string> qp;
+
+  if (const std::string* level = args.FindString("level")) {
+    qp.push_back("level=" +
+                 base::EscapeQueryParamValue(*level, /*use_plus=*/false));
+  }
+  if (const std::string* pattern = args.FindString("pattern")) {
+    qp.push_back("pattern=" +
+                 base::EscapeQueryParamValue(*pattern, /*use_plus=*/false));
+  }
+  if (const std::string* tab_id = args.FindString("tab_id")) {
+    qp.push_back("tab_id=" +
+                 base::EscapeQueryParamValue(*tab_id, /*use_plus=*/false));
+  }
+  if (auto limit = args.FindDouble("limit")) {
+    qp.push_back("limit=" + base::NumberToString(static_cast<int>(*limit)));
+  }
+  if (auto after_id = args.FindDouble("after_id")) {
+    qp.push_back("after_id=" +
+                 base::NumberToString(static_cast<int64_t>(*after_id)));
+  }
+
+  if (!qp.empty()) {
+    path += "?";
+    for (size_t i = 0; i < qp.size(); ++i) {
+      if (i > 0) path += "&";
+      path += qp[i];
+    }
+  }
+
+  controller_->HandleRequest(
+      "GET", path, "",
+      base::BindOnce(&AbpMcpHandler::OnControllerResponse,
+                     weak_factory_.GetWeakPtr(), std::move(request_id),
+                     std::move(callback)));
 }
 
 void AbpMcpHandler::OnControllerResponse(base::Value request_id,

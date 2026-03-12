@@ -101,6 +101,30 @@ struct NetworkQueryFilter {
   std::string tab_id;
   std::string action_id;
   bool include_body = false;
+  int max_body_size = 0;  // 0 = no limit; truncates response/request bodies
+};
+
+// A single console message captured from the renderer via
+// WebContentsObserver::OnDidAddMessageToConsole.
+struct ConsoleEntry {
+  ConsoleEntry();
+  ~ConsoleEntry();
+  ConsoleEntry(const ConsoleEntry&);
+  ConsoleEntry& operator=(const ConsoleEntry&);
+  ConsoleEntry(ConsoleEntry&&);
+  ConsoleEntry& operator=(ConsoleEntry&&);
+
+  int64_t id = 0;               // Monotonic sequence number for pagination
+  std::string tab_id;            // DevToolsAgentHost ID of source tab
+  std::string level;             // "verbose", "info", "warning", "error"
+  std::string message;           // Message text
+  int32_t line_number = 0;       // Source line number (0 if unavailable)
+  std::string source_url;        // Script URL or empty
+  std::string stack_trace;       // Stack trace (errors only, if available)
+  int64_t timestamp_ms = 0;      // Wall clock milliseconds since epoch
+
+  // Serialize to JSON dict for API responses.
+  base::Value::Dict ToDict() const;
 };
 
 }  // namespace abp

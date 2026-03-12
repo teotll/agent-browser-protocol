@@ -419,7 +419,14 @@ base::Value::List AbpNetworkDatabase::QueryRequestsOnDB(
         row.Set("request_headers", stmt.ColumnString(9));
       }
       if (stmt.GetColumnType(10) != sql::ColumnType::kNull) {
-        row.Set("request_body", stmt.ColumnString(10));
+        std::string body = stmt.ColumnString(10);
+        if (filter.max_body_size > 0 &&
+            static_cast<int>(body.size()) > filter.max_body_size) {
+          row.Set("request_body", body.substr(0, filter.max_body_size));
+          row.Set("request_body_truncated", true);
+        } else {
+          row.Set("request_body", std::move(body));
+        }
       }
     }
 
@@ -439,7 +446,14 @@ base::Value::List AbpNetworkDatabase::QueryRequestsOnDB(
         row.Set("response_headers", stmt.ColumnString(14));
       }
       if (stmt.GetColumnType(15) != sql::ColumnType::kNull) {
-        row.Set("response_body", stmt.ColumnString(15));
+        std::string body = stmt.ColumnString(15);
+        if (filter.max_body_size > 0 &&
+            static_cast<int>(body.size()) > filter.max_body_size) {
+          row.Set("response_body", body.substr(0, filter.max_body_size));
+          row.Set("response_body_truncated", true);
+        } else {
+          row.Set("response_body", std::move(body));
+        }
       }
       if (stmt.GetColumnType(16) != sql::ColumnType::kNull) {
         row.Set("response_body_encoding", stmt.ColumnString(16));

@@ -21,7 +21,8 @@ A Chromium fork implementing the Agent Browser Protocol (ABP) - a REST-based API
 - **History**: Session, action, and event history with SQLite storage
 - **Input Mode**: Toggle between agent (ABP-controlled) and human (user-controlled) input modes via API or toolbar icon. Human mode allows direct user interaction (e.g., for authentication), suspends execution control, and shows a yellow gradient border overlay.
 - **Browser Management**: Status check, graceful shutdown
-- **MCP Server**: Embedded MCP (JSON-RPC over HTTP) with 18 tools at `/mcp`
+- **Console Capture**: In-memory 5000-entry FIFO buffer capturing console.log/warn/error, CORS errors, CSP violations, uncaught exceptions via WebContentsObserver (non-fingerprintable, no CDP)
+- **MCP Server**: Embedded MCP (JSON-RPC over HTTP) with 19 tools at `/mcp`
 
 ### Architecture
 
@@ -75,6 +76,7 @@ chrome/browser/abp/
 ├── abp_history_controller.h/cc  # Session/action history API
 ├── abp_history_database.h/cc    # SQLite history storage
 ├── abp_download_observer.h/cc   # Download tracking
+├── abp_console_capture.h/cc     # Console message capture (WebContentsObserver)
 ├── abp_config.h/cc              # Runtime configuration
 └── abp_types.h                  # Shared type definitions
 ```
@@ -308,6 +310,9 @@ See `plans/API.md` for the complete REST API specification. All endpoints:
 | GET | `/api/v1/permissions` | List pending permission requests |
 | POST | `/api/v1/permissions/{id}/grant` | Grant permission (requires permission_type; geolocation requires lat/lng) |
 | POST | `/api/v1/permissions/{id}/deny` | Deny permission (requires permission_type) |
+| **Console** | | |
+| GET | `/api/v1/console` | Query console messages (level, pattern, tab_id, limit, after_id) |
+| DELETE | `/api/v1/console` | Clear console buffer (optional tab_id filter) |
 | **Network** | | |
 | GET | `/api/v1/network` | Query saved network calls with regex filters |
 | POST | `/api/v1/network/save` | Retroactively tag & persist in-memory buffer |
@@ -327,7 +332,7 @@ See `plans/API.md` for the complete REST API specification. All endpoints:
 | DELETE | `/api/v1/history/events` | Delete events |
 | DELETE | `/api/v1/history` | Delete all history |
 | **MCP** | | |
-| POST | `/mcp` | MCP JSON-RPC endpoint (18 tools) |
+| POST | `/mcp` | MCP JSON-RPC endpoint (19 tools) |
 
 ## Development Notes
 

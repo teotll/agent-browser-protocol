@@ -14,7 +14,9 @@
 #include "base/containers/flat_set.h"
 #include "base/no_destructor.h"
 #include "chrome/browser/abp/abp_action_context.h"
+#include "chrome/browser/abp/abp_console_capture.h"
 #include "chrome/browser/abp/abp_input_dispatcher.h"
+#include "third_party/re2/src/re2/re2.h"
 #include "chrome/browser/abp/abp_popup_interceptor.h"
 #include "services/device/public/cpp/geolocation/buildflags.h"
 #if BUILDFLAG(OS_LEVEL_GEOLOCATION_PERMISSION_SUPPORTED)
@@ -339,6 +341,9 @@ void AbpController::CleanupTabState(const std::string& tab_id) {
   if (it == tab_states_.end()) {
     return;
   }
+
+  // Remove console observer before erasing tab state.
+  console_observers_.erase(tab_id);
 
   // Drain queued actions — each AbpActionContext will discover the tab
   // is gone during Start() and send a 404 error response to the client.
@@ -805,7 +810,8 @@ AbpController::AbpController()
     : event_collector_(std::make_unique<AbpEventCollector>(this)),
       input_dispatcher_(std::make_unique<AbpInputDispatcher>(this)),
       popup_interceptor_(std::make_unique<AbpPopupInterceptor>(this)),
-      permission_observer_(std::make_unique<AbpPermissionObserver>(this)) {
+      permission_observer_(std::make_unique<AbpPermissionObserver>(this)),
+      console_capture_(std::make_unique<AbpConsoleCapture>()) {
   instance_for_testing_ = this;
 }
 
@@ -2433,6 +2439,22 @@ void AbpController::HandleRequest(const std::string& method,
     return;
   }
 
+  // Route: /api/v1/console
+  if (resource == "console") {
+    if (segments.size() == 3) {
+      if (method == "GET") {
+        HandleConsoleQuery(query_string, std::move(callback));
+      } else if (method == "DELETE") {
+        HandleConsoleClear(query_string, std::move(callback));
+      } else {
+        SendError(405, "Method not allowed", std::move(callback));
+      }
+      return;
+    }
+    SendError(404, "Not found", std::move(callback));
+    return;
+  }
+
   SendError(404, "Not found", std::move(callback));
 }
 
@@ -2527,6 +2549,11 @@ void AbpController::CreateTab(const base::Value::Dict& params,
     }
     if (permission_observer_) {
       permission_observer_->AttachToTab(host->GetId(), wc);
+    }
+    if (console_capture_ &&
+        console_observers_.find(host->GetId()) == console_observers_.end()) {
+      console_observers_[host->GetId()] = std::make_unique<AbpConsoleObserver>(
+          wc, host->GetId(), console_capture_.get());
     }
 
     base::Value::Dict tab;
@@ -3508,6 +3535,11 @@ content::WebContents* AbpController::FindWebContents(
         }
         if (permission_observer_) {
           permission_observer_->AttachToTab(tab_id, wc);
+        }
+        if (console_capture_ &&
+            console_observers_.find(tab_id) == console_observers_.end()) {
+          console_observers_[tab_id] = std::make_unique<AbpConsoleObserver>(
+              wc, tab_id, console_capture_.get());
         }
         return wc;
       }
@@ -4615,6 +4647,11 @@ void AbpController::PauseAllTabs() {
       }
       if (permission_observer_) {
         permission_observer_->AttachToTab(tab_id, wc);
+      }
+      if (console_capture_ &&
+          console_observers_.find(tab_id) == console_observers_.end()) {
+        console_observers_[tab_id] = std::make_unique<AbpConsoleObserver>(
+            wc, tab_id, console_capture_.get());
       }
 
       // Register as tab strip observer to detect page-interaction tab opens
@@ -7378,6 +7415,12 @@ void AbpController::HandleNetworkQuery(const std::string& query_string,
   std::string type = GetQueryParam(query_string, "type");
   std::string include_body_str = GetQueryParam(query_string, "include_body");
   bool include_body = (include_body_str == "true" || include_body_str == "1");
+  std::string max_body_size_str =
+      GetQueryParam(query_string, "max_body_size");
+  int max_body_size = 0;
+  if (!max_body_size_str.empty()) {
+    base::StringToInt(max_body_size_str, &max_body_size);
+  }
 
   // Query the in-memory buffer first.
   base::Value::List buffer_results;
@@ -7394,6 +7437,7 @@ void AbpController::HandleNetworkQuery(const std::string& query_string,
     buf_filter.status_regex = status_regex;
     buf_filter.type = type;
     buf_filter.include_body = include_body;
+    buf_filter.max_body_size = max_body_size;
 
     if (!tab_id_param.empty()) {
       // Query a specific tab's buffer.
@@ -7450,6 +7494,7 @@ void AbpController::HandleNetworkQuery(const std::string& query_string,
   db_filter.status_regex = status_regex;
   db_filter.type = type;
   db_filter.include_body = include_body;
+  db_filter.max_body_size = max_body_size;
 
   network_db_->QueryRequests(
       db_filter,
@@ -7555,6 +7600,76 @@ void AbpController::HandleNetworkClear(const std::string& query_string,
                  std::move(cb).Run(200, "application/json", std::move(json));
                },
                std::move(callback)));
+}
+
+void AbpController::HandleConsoleQuery(const std::string& query_string,
+                                       ResponseCallback callback) {
+  if (!console_capture_) {
+    SendError(503, "Console capture not initialized", std::move(callback));
+    return;
+  }
+
+  std::string tab_id = GetQueryParam(query_string, "tab_id");
+  std::string level = GetQueryParam(query_string, "level");
+  std::string pattern = GetQueryParam(query_string, "pattern");
+  std::string limit_str = GetQueryParam(query_string, "limit");
+  std::string after_id_str = GetQueryParam(query_string, "after_id");
+
+  int limit = 100;
+  if (!limit_str.empty()) {
+    base::StringToInt(limit_str, &limit);
+  }
+  int64_t after_id = 0;
+  if (!after_id_str.empty()) {
+    base::StringToInt64(after_id_str, &after_id);
+  }
+
+  // Validate regex before querying.
+  if (!pattern.empty()) {
+    RE2 test_regex(pattern);
+    if (!test_regex.ok()) {
+      SendError(400, "Invalid regex pattern: " + test_regex.error(),
+                std::move(callback));
+      return;
+    }
+  }
+
+  auto entries = console_capture_->Query(tab_id, level, pattern, limit,
+                                         after_id);
+
+  base::Value::List entries_list;
+  for (const auto& entry : entries) {
+    entries_list.Append(entry.ToDict());
+  }
+
+  base::Value::Dict response;
+  response.Set("entries", std::move(entries_list));
+  response.Set("total_buffered",
+               static_cast<int>(console_capture_->Size()));
+  response.Set("oldest_id",
+               static_cast<double>(console_capture_->OldestId()));
+
+  std::string json;
+  base::JSONWriter::Write(response, &json);
+  std::move(callback).Run(200, "application/json", std::move(json));
+}
+
+void AbpController::HandleConsoleClear(const std::string& query_string,
+                                       ResponseCallback callback) {
+  if (!console_capture_) {
+    SendError(503, "Console capture not initialized", std::move(callback));
+    return;
+  }
+
+  std::string tab_id = GetQueryParam(query_string, "tab_id");
+  size_t cleared = console_capture_->Clear(tab_id);
+
+  base::Value::Dict response;
+  response.Set("cleared", static_cast<int>(cleared));
+
+  std::string json;
+  base::JSONWriter::Write(response, &json);
+  std::move(callback).Run(200, "application/json", std::move(json));
 }
 
 void AbpController::HandleCurl(const std::string& tab_id,

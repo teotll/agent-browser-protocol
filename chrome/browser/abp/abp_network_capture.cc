@@ -204,7 +204,14 @@ base::Value::List AbpNetworkCapture::QueryBuffer(
         row.Set("request_headers", headers_json);
       }
       if (!req.request_body.empty()) {
-        row.Set("request_body", req.request_body);
+        if (filter.max_body_size > 0 &&
+            static_cast<int>(req.request_body.size()) > filter.max_body_size) {
+          row.Set("request_body",
+                  req.request_body.substr(0, filter.max_body_size));
+          row.Set("request_body_truncated", true);
+        } else {
+          row.Set("request_body", req.request_body);
+        }
       }
     }
 
@@ -226,7 +233,15 @@ base::Value::List AbpNetworkCapture::QueryBuffer(
         row.Set("response_headers", headers_json);
       }
       if (!req.response_body.empty()) {
-        row.Set("response_body", req.response_body);
+        if (filter.max_body_size > 0 &&
+            static_cast<int>(req.response_body.size()) >
+                filter.max_body_size) {
+          row.Set("response_body",
+                  req.response_body.substr(0, filter.max_body_size));
+          row.Set("response_body_truncated", true);
+        } else {
+          row.Set("response_body", req.response_body);
+        }
       }
       if (req.response_body_is_base64) {
         row.Set("response_body_encoding", "base64");

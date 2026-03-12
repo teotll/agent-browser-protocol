@@ -71,4 +71,24 @@ NetworkQueryFilter::NetworkQueryFilter(const NetworkQueryFilter&) = default;
 NetworkQueryFilter& NetworkQueryFilter::operator=(const NetworkQueryFilter&) =
     default;
 
+ConsoleEntry::ConsoleEntry() = default;
+ConsoleEntry::~ConsoleEntry() = default;
+ConsoleEntry::ConsoleEntry(const ConsoleEntry&) = default;
+ConsoleEntry& ConsoleEntry::operator=(const ConsoleEntry&) = default;
+ConsoleEntry::ConsoleEntry(ConsoleEntry&&) = default;
+ConsoleEntry& ConsoleEntry::operator=(ConsoleEntry&&) = default;
+
+base::Value::Dict ConsoleEntry::ToDict() const {
+  base::Value::Dict dict;
+  dict.Set("id", static_cast<double>(id));
+  dict.Set("tab_id", tab_id);
+  dict.Set("level", level);
+  dict.Set("message", message);
+  dict.Set("line_number", line_number);
+  dict.Set("source_url", source_url);
+  dict.Set("stack_trace", stack_trace);
+  dict.Set("timestamp_ms", static_cast<double>(timestamp_ms));
+  return dict;
+}
+
 }  // namespace abp

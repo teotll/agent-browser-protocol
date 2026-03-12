@@ -47,6 +47,8 @@ class WebContents;
 namespace abp {
 
 class AbpActionContext;
+class AbpConsoleCapture;
+class AbpConsoleObserver;
 class AbpDownloadObserver;
 class AbpEventCollector;
 class AbpEventObserver;
@@ -637,6 +639,11 @@ class AbpController : public TabStripModelObserver {
                   const std::string& body,
                   ResponseCallback callback);
 
+  // Console capture endpoints
+  void HandleConsoleQuery(const std::string& query_string,
+                          ResponseCallback callback);
+  void HandleConsoleClear(const std::string& query_string,
+                          ResponseCallback callback);
 
   // Internal: capture step of CaptureActionScreenshot (after markup inject)
   // Uses GetSnapshotFromBrowser(from_surface=false) for ForceRedraw + capture.
@@ -1150,6 +1157,12 @@ class AbpController : public TabStripModelObserver {
 
   // Permission observer (owned)
   std::unique_ptr<AbpPermissionObserver> permission_observer_;
+
+  // Console capture buffer (shared across all tabs)
+  std::unique_ptr<AbpConsoleCapture> console_capture_;
+
+  // Per-tab console observers (keyed by tab_id)
+  std::map<std::string, std::unique_ptr<AbpConsoleObserver>> console_observers_;
 
   // Pending permission requests (keyed by permission ID)
   std::map<std::string, PendingPermissionRequest> pending_permissions_;

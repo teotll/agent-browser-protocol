@@ -57,6 +57,7 @@ class AbpNetworkDatabase {
     std::string tab_id;
     std::string action_id;
     bool include_body = false;
+    int max_body_size = 0;  // 0 = no limit; truncates bodies
   };
 
   using QueryCallback = base::OnceCallback<void(base::Value::List results)>;

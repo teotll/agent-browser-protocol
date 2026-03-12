@@ -71,8 +71,11 @@ void FrameConsole::ReportMessageToClient(
     mojom::blink::ConsoleMessageLevel level,
     const String& message,
     SourceLocation* location) {
-  if (source == mojom::blink::ConsoleMessageSource::kNetwork)
-    return;
+  // ABP: Forward network-source console messages (CORS, CSP, mixed content)
+  // to the browser process via DidAddMessageToConsole. Stock Chromium filters
+  // these out since they're redundant with the Log domain, but ABP captures
+  // console messages via WebContentsObserver to avoid enabling CDP domains
+  // that could be fingerprinted by page JavaScript.
 
   String url = location->Url();
   String stack_trace;
