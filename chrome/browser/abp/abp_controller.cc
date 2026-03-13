@@ -3091,6 +3091,9 @@ void AbpController::WaitForNetwork(const std::string& tab_id,
   options.request_tracking_timeout = base::Seconds(5);
   options.post_tracking_settle_time = base::Milliseconds(750);
   options.all_requests = true;
+  if (params.FindBool("animation").value_or(false)) {
+    options.animation_wait_time = base::Seconds(5);
+  }
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "wait_for_network", params, options,
