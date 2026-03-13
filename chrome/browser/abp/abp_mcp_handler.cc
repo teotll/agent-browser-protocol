@@ -396,7 +396,9 @@ base::Value::List GetToolDefinitions() {
               "or form submission when the page is actively loading and you "
               "need to wait for network activity to finish. Use "
               "browser_screenshot instead when the page is already settled "
-              "and you just want to observe its current state.")
+              "and you just want to observe its current state. Set "
+              "animation=true on first wait after navigation to guarantee "
+              "5s of page execution for CSS/JS animations.")
           .OptionalString("tab_id", "Target tab ID")
           .OptionalStringArrayEnum("markup",
               "Markup overlays to enable (none by default). clickable "
@@ -408,6 +410,9 @@ base::Value::List GetToolDefinitions() {
               "Tag name to auto-save this action's network requests. "
                 "Saved requests persist across actions and can be queried "
                 "later by tag.")
+          .OptionalBoolean("animation",
+              "Guarantees 5s of page execution for animations to play "
+              "forward. Set true on first wait after navigation.")
           .Build());
 
   // 5. browser_tabs — list/new/close/info/activate/stop
@@ -1362,6 +1367,10 @@ void AbpMcpHandler::CallBrowserWait(const base::Value::Dict& args,
     screenshot_opts.Set("format", *format);
   }
   body_dict.Set("screenshot", std::move(screenshot_opts));
+
+  if (args.FindBool("animation").value_or(false)) {
+    body_dict.Set("animation", true);
+  }
 
   if (const std::string* network_tag = args.FindString("network_tag")) {
     base::Value::Dict network_dict;
