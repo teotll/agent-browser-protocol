@@ -5485,6 +5485,21 @@ void AbpController::OnMinWaitTimeElapsed(const std::string& tab_id) {
   CheckActionCompleteConditions(tab_id);
 }
 
+void AbpController::OnAnimationWaitTimeElapsed(const std::string& tab_id) {
+  auto it = tab_states_.find(tab_id);
+  if (it == tab_states_.end() || !it->second.action_waiter) {
+    return;
+  }
+
+  ActionCompleteWaiter* waiter = it->second.action_waiter.get();
+  waiter->animation_time_elapsed = true;
+  VLOG(1) << "ABP PROFILE [wait] animation_timer ELAPSED"
+          << " elapsed=" << (base::TimeTicks::Now() - waiter->action_start_time).InMilliseconds() << "ms"
+          << " tab=" << tab_id;
+
+  CheckActionCompleteConditions(tab_id);
+}
+
 void AbpController::OnRequestTrackingTimeout(const std::string& tab_id) {
   auto it = tab_states_.find(tab_id);
   if (it == tab_states_.end() || !it->second.action_waiter) {
@@ -5586,6 +5601,7 @@ void AbpController::OnWaitTimeout(const std::string& tab_id,
                << " min_elapsed=" << it->second.action_waiter->min_time_elapsed
                << " tracked_resolved=" << it->second.action_waiter->tracked_requests_resolved
                << " post_settled=" << it->second.action_waiter->post_tracking_settled
+               << " anim_elapsed=" << it->second.action_waiter->animation_time_elapsed
                << " tab=" << tab_id;
 
   // Force complete - removing the waiter stops OnCdpEventForWait from processing events

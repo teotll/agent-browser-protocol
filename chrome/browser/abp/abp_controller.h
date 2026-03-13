@@ -1085,6 +1085,7 @@ class AbpController : public TabStripModelObserver {
 
   // Timer callback for minimum wait time (takes request tracking snapshot)
   void OnMinWaitTimeElapsed(const std::string& tab_id);
+  void OnAnimationWaitTimeElapsed(const std::string& tab_id);
 
   // Timer callback for request tracking timeout (Phase 2 deadline)
   void OnRequestTrackingTimeout(const std::string& tab_id);
