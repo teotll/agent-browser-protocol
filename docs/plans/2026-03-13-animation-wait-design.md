@@ -58,11 +58,30 @@ if (wait_type == "action_complete") {
 
 When `animation_timer_started` is false (normal calls without `animation: true`), `animation_ok` is always true — zero behavior change for existing callers.
 
-#### 3. `abp_controller.cc` — WaitForNetwork + WaitForActionComplete
+#### 3. `abp_controller.cc` — WaitForNetwork + WaitForActionComplete + DoWaitUntil
 
 **WaitForNetwork**: Read `"animation"` from params. If true, set `options.animation_wait_time = base::Seconds(5)`.
 
-**WaitForActionComplete**: If `animation_wait_time` is non-zero, start a parallel timer (same pattern as the existing `min_wait_time` timer) that sets `animation_time_elapsed = true` and calls `CheckActionComplete()` when it fires. Set `animation_timer_started = true`.
+**WaitForActionComplete**: Add `base::TimeDelta animation_wait_time` parameter (default zero). If non-zero, start the animation timer **immediately** when the waiter is created (not gated on page load events like `min_wait_time`). The timer sets `animation_time_elapsed = true` and calls `CheckActionComplete()` when it fires. Set `animation_timer_started = true`.
+
+**DoWaitUntil** (`abp_action_context.cc`): Forward `options_.animation_wait_time` to the new `WaitForActionComplete` parameter.
+
+#### Plumbing path
+
+```
+WaitForNetwork (reads "animation" from JSON params)
+  → Options.animation_wait_time = 5s
+    → AbpActionContext::RunWithOptions (stores Options)
+      → DoWaitUntil (reads options_.animation_wait_time)
+        → WaitForActionComplete(animation_wait_time=5s)
+          → starts immediate 5s timer in ActionCompleteWaiter
+```
+
+#### Timer semantics
+
+- **Starts immediately** in `WaitForActionComplete`, not gated on load/DCL/first-paint (unlike `min_wait_time`). This ensures the 5s measures total wall time from action start.
+- **Not reset on mid-wait `Page.frameNavigated`**: If a client-side redirect occurs 2s into the wait, the timer keeps running. The purpose is "5s total execution time," not "5s per page."
+- **Bounded by 10s safety timeout**: `OnWaitTimeout` force-completes the waiter at 10s regardless, so the animation timer can never cause an indefinite hang.
 
 #### 4. `abp_mcp_handler.cc` / `abp_tool_builder.cc` — MCP layer
 
