@@ -826,6 +826,8 @@ class AbpController : public TabStripModelObserver {
     bool network_idle = false;
     bool min_time_elapsed = false;
     bool min_wait_timer_started = false;
+    bool animation_time_elapsed = false;
+    bool animation_timer_started = false;
 
     // Observer for page lifecycle events (destroyed with waiter)
     std::unique_ptr<AbpPageLoadObserver> page_load_observer;
@@ -877,9 +879,11 @@ class AbpController : public TabStripModelObserver {
 
     bool IsComplete() const {
       if (wait_type == "action_complete") {
+        bool animation_ok = !animation_timer_started || animation_time_elapsed;
         return load_fired && dom_content_loaded_fired &&
                first_paint_fired && min_time_elapsed &&
-               tracked_requests_resolved && post_tracking_settled;
+               tracked_requests_resolved && post_tracking_settled &&
+               animation_ok;
       } else if (wait_type == "network_idle") {
         return network_idle;
       } else if (wait_type == "text") {
