@@ -66,6 +66,11 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
  public:
   // Options for running an action
   struct Options {
+    Options();
+    Options(const Options&);
+    Options& operator=(const Options&);
+    ~Options();
+
     // If true, skip Debugger.resume at start.
     bool skip_resume = false;
 

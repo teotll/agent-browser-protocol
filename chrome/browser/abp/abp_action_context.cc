@@ -114,6 +114,11 @@ std::string AbpActionContext::GenerateActionId() {
   return id;
 }
 
+AbpActionContext::Options::Options() = default;
+AbpActionContext::Options::Options(const Options&) = default;
+AbpActionContext::Options& AbpActionContext::Options::operator=(const Options&) = default;
+AbpActionContext::Options::~Options() = default;
+
 // static
 void AbpActionContext::Run(AbpController* controller,
                            const std::string& tab_id,
