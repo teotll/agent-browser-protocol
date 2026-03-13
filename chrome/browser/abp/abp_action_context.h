@@ -95,6 +95,10 @@ class AbpActionContext : public base::RefCounted<AbpActionContext> {
     // Lets the page process network responses and update DOM.
     base::TimeDelta post_tracking_settle_time = base::Milliseconds(350);
 
+    // Animation wait: minimum page execution time for CSS/JS animations.
+    // Runs in parallel with all other wait phases. Zero = disabled.
+    base::TimeDelta animation_wait_time;
+
     // If true, WaitForActionComplete seeds tracked_requests from the tab's
     // persistent network tracker (all in-flight requests, not just new ones).
     // Used by browser_wait to catch requests started before the wait began.
