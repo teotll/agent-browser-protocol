@@ -414,7 +414,8 @@ class AbpController : public TabStripModelObserver {
       base::TimeDelta request_tracking_timeout = base::Seconds(1),
       base::TimeDelta post_tracking_settle_time = base::Milliseconds(750),
       bool page_was_loaded_before_action = false,
-      bool all_requests = false);
+      bool all_requests = false,
+      base::TimeDelta animation_wait_time = base::TimeDelta());
 
   // Wait for a specific condition before calling callback
   // Supports wait types: "text", "url", "network_idle", "time"

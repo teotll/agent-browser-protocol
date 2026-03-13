@@ -625,7 +625,8 @@ void AbpActionContext::DoWaitUntil() {
       options_.request_tracking_timeout,
       options_.post_tracking_settle_time,
       page_was_loaded_before_action_,
-      options_.all_requests);
+      options_.all_requests,
+      options_.animation_wait_time);
 }
 
 void AbpActionContext::OnWaitUntilComplete() {

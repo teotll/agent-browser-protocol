@@ -5109,7 +5109,8 @@ void AbpController::WaitForActionComplete(
     base::TimeDelta request_tracking_timeout,
     base::TimeDelta post_tracking_settle_time,
     bool page_was_loaded_before_action,
-    bool all_requests) {
+    bool all_requests,
+    base::TimeDelta animation_wait_time) {
   content::WebContents* wc = FindWebContents(tab_id);
   if (!wc) {
     // Tab not found, call callback immediately
@@ -5128,6 +5129,20 @@ void AbpController::WaitForActionComplete(
   waiter->request_tracking_timeout = request_tracking_timeout;
   waiter->post_tracking_settle_time = post_tracking_settle_time;
   waiter->all_requests = all_requests;
+
+  // Start animation timer immediately (not gated on load events).
+  // Runs in parallel with all other wait conditions.
+  if (!animation_wait_time.is_zero()) {
+    waiter->animation_timer_started = true;
+    VLOG(1) << "ABP PROFILE [wait] animation_timer STARTED"
+            << " duration=" << animation_wait_time.InMilliseconds() << "ms"
+            << " tab=" << tab_id;
+    content::GetUIThreadTaskRunner({})->PostDelayedTask(
+        FROM_HERE,
+        base::BindOnce(&AbpController::OnAnimationWaitTimeElapsed,
+                       weak_factory_.GetWeakPtr(), tab_id),
+        animation_wait_time);
+  }
 
   // Extract page's registrable domain (eTLD+1) for same-site request filtering.
   // Only requests to this domain or its subdomains will be tracked.
@@ -5153,7 +5168,8 @@ void AbpController::WaitForActionComplete(
             << " skip_load_events=" << skip_load_events
             << " min_wait=" << min_wait_time.InMilliseconds() << "ms"
             << " tracking_timeout=" << request_tracking_timeout.InMilliseconds() << "ms"
-            << " settle=" << post_tracking_settle_time.InMilliseconds() << "ms";
+            << " settle=" << post_tracking_settle_time.InMilliseconds() << "ms"
+            << " animation=" << animation_wait_time.InMilliseconds() << "ms";
 
   // For pages that were already loaded (either before the action or right now),
   // set load events as fired so the min_wait timer starts immediately.
