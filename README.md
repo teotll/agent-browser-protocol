@@ -449,10 +449,6 @@ ABP also exposes a full REST API for direct HTTP integration. See [docs/REST-API
 ## Maintainers
 * Han Wang ([@theredsix](https://github.com/theredsix))
 
-## Sponsors
-* [Skyvern](https://github.com/Skyvern-AI/skyvern/blob/main/docs/images/skyvern_logo_blackbg.png)
-![Skyvern](./sponsors/skyvern.png)
-
 ## Uninstall
 
 Remove the MCP server from your client:
@@ -479,4 +475,8 @@ Chromium is licensed under the BSD 3-Clause License. ABP modifications are Copyr
 
 ## Acknowledgments
 
-ABP builds on the incredible work of the Chromium team. We're grateful for their commitment to open source. This fork was created with the assistance of Claude Code.
+ABP builds on the incredible work of the Chromium team. We're grateful for their commitment to open source. This fork was created with the assistance of Claude Code. We're also extremely appreciative for our sponsors for their generousity.
+
+## Sponsors
+* [Skyvern](https://github.com/Skyvern-AI/skyvern/blob/main/docs/images/skyvern_logo_blackbg.png)
+![Skyvern](./sponsors/skyvern.png)
