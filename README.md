@@ -427,12 +427,12 @@ ABP is under active development. Current implementation:
 - Virtual cursor rendering (compositor layer)
 - Browser management (status, shutdown)
 - Embedded MCP server with 18 tools at `/mcp`
+- Console MCP actions
 
 **Not yet implemented:**
 - Action success/failure tracking
 - Recording of human browsing sessions as training data for agent fine-tuning
 - Full headless support
-- Console MCP actions
 
 ---
 
