@@ -450,7 +450,8 @@ ABP also exposes a full REST API for direct HTTP integration. See [docs/REST-API
 * Han Wang ([@theredsix](https://github.com/theredsix))
 
 ## Sponsors
-* [Skyvern](https://github.com/Skyvern-AI/skyvern/blob/main/docs/images/skyvern_logo_blackbg.png) 
+* [Skyvern](https://github.com/Skyvern-AI/skyvern/blob/main/docs/images/skyvern_logo_blackbg.png)
+![Skyvern](./sponsors/skyvern.png)
 
 ## Uninstall
 
