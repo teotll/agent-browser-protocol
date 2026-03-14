@@ -185,8 +185,10 @@ const blink::UserAgentBrandList GetUserAgentBrandList(
   bool parse_result = base::StringToInt(major_version, &major_version_number);
   DCHECK(parse_result);
   std::optional<std::string> brand;
-#if !BUILDFLAG(CHROMIUM_BRANDING)
-  brand = version_info::GetProductName();
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING) || BUILDFLAG(CHROMIUM_BRANDING)
+  // Always report as "Google Chrome" so the UA client hints match a standard
+  // Chrome build, regardless of product branding.
+  brand = "Google Chrome";
 #endif
 
   std::string brand_version =
