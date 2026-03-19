@@ -27,6 +27,24 @@ abp.exe
 
 The API starts on `localhost:8222`.
 
+### Linux Notes
+
+ABP needs a working compositor path to capture screenshots. On Linux, do not
+launch it with both `--disable-gpu` and `--disable-software-rasterizer`.
+
+If you need a safer fallback launch on Arch or another distro with flaky GPU
+drivers, prefer:
+
+```bash
+./abp --disable-gpu
+```
+
+The `IBUS-WARNING` line and the repeated
+`Registration response error message: DEPRECATED_ENDPOINT` messages are noisy
+but usually not the cause of a crash. If you see a warning about
+`eglChooseConfig`, check that you are running from the unpacked ABP directory so
+the bundled runtime libraries are next to `abp`.
+
 ## 3. Connect
 
 ### Claude Code

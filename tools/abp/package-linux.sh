@@ -52,15 +52,18 @@ echo "=== Copying files ==="
 # Core binary
 cp "$BUILD_DIR/abp" "$STAGING_APP/"
 
-# Crashpad handler (required for crash reporting)
-if [[ -f "$BUILD_DIR/chrome_crashpad_handler" ]]; then
-    cp "$BUILD_DIR/chrome_crashpad_handler" "$STAGING_APP/"
-fi
-
-# Chrome sandbox (if exists)
-if [[ -f "$BUILD_DIR/chrome_sandbox" ]]; then
-    cp "$BUILD_DIR/chrome_sandbox" "$STAGING_APP/"
-fi
+# Optional Chromium runtime binaries and metadata.
+optional_files=(
+    chrome_crashpad_handler
+    chrome_management_service
+    chrome_sandbox
+    vk_swiftshader_icd.json
+)
+for file in "${optional_files[@]}"; do
+    if [[ -f "$BUILD_DIR/$file" ]]; then
+        cp "$BUILD_DIR/$file" "$STAGING_APP/"
+    fi
+done
 
 # Shared libraries
 cp "$BUILD_DIR"/*.so "$STAGING_APP/" 2>/dev/null || true
@@ -82,9 +85,19 @@ fi
 cp -r "$BUILD_DIR/locales" "$STAGING_APP/"
 
 # Resources directory (if exists)
-if [[ -d "$BUILD_DIR/resources" ]]; then
-    cp -r "$BUILD_DIR/resources" "$STAGING_APP/"
-fi
+optional_dirs=(
+    resources
+    default_apps
+    lib
+    MEIPreload
+    PrivacySandboxAttestationsPreloaded
+    WidevineCdm
+)
+for dir in "${optional_dirs[@]}"; do
+    if [[ -d "$BUILD_DIR/$dir" ]]; then
+        cp -r "$BUILD_DIR/$dir" "$STAGING_APP/"
+    fi
+done
 
 # Create dist directory
 mkdir -p "$DIST_DIR"

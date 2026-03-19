@@ -523,12 +523,31 @@ void AbpActionContext::OnBeforeScreenshotCaptured(std::string history_path,
   }
 
   if (options_.action_before_resume) {
-    // Navigation path: execute the action (LoadURL) BEFORE resuming JS.
-    // This queues the navigation IPC while the renderer is still frozen,
-    // so when JS resumes, the navigation teardown preempts pending
-    // microtasks/streams from the old page.
-    profile_action_start_ = base::TimeTicks::Now();
-    ExecuteAction();
+    // Navigation path: execute the action (LoadURL) BEFORE resuming virtual
+    // time. Blink task fences stay up, blocking microtasks/timers from
+    // the old page. But first, disable the debugger to unblock the
+    // renderer main thread — otherwise cross-origin navigation hangs
+    // waiting for beforeunload on a debugger-paused renderer.
+    // Debugger.disable exits the debugger's nested RunLoop and prevents
+    // debugger; statements from re-entering one (the original DCHECK
+    // concern). SendDeterministicPause() will re-enable before next pause.
+    if (client_) {
+      base::Value::Dict params;
+      client_->SendCommand(
+          "Debugger.disable", params,
+          base::BindOnce(
+              [](base::WeakPtr<AbpActionContext> ctx,
+                 bool success, const std::string& result) {
+                if (!ctx) return;
+                if (!ctx->IsCurrentAction()) return;
+                ctx->profile_action_start_ = base::TimeTicks::Now();
+                ctx->ExecuteAction();
+              },
+              weak_factory_.GetWeakPtr()));
+    } else {
+      profile_action_start_ = base::TimeTicks::Now();
+      ExecuteAction();
+    }
   } else {
     // Normal path: resume execution first, then execute the action
     profile_resume_start_ = base::TimeTicks::Now();
@@ -909,9 +928,6 @@ void AbpActionContext::FinalizeResponse() {
 
   LogProfilingSummary();
 
-  // Record to history BEFORE sending response. SendErrorResponse sets
-  // prevent_destroy_ = nullptr which may destroy |this|, so accessing
-  // members after it returns is a use-after-free.
   RecordHistory(!has_error_, error_code_, error_message_);
 
   if (has_error_) {
@@ -1112,8 +1128,6 @@ void AbpActionContext::SendErrorResponse(int status,
     return;
   }
   if (!response_callback_) {
-    ReleaseDeterministicSlot();
-    prevent_destroy_ = nullptr;
     return;
   }
 
@@ -1133,9 +1147,9 @@ void AbpActionContext::SendErrorResponse(int status,
   controller_->SendJson(status, base::Value(std::move(envelope)),
                         std::move(response_callback_));
 
-  ReleaseDeterministicSlot();
-  // Clear self-reference to allow destruction
-  prevent_destroy_ = nullptr;
+  // NOTE: Do NOT release slot or clear prevent_destroy_ here.
+  // The caller (OnAfterScreenshotCaptured) handles cleanup after this returns.
+  // Releasing here would destroy |this| while the caller still accesses members.
 }
 
 void AbpActionContext::Fail(int http_status,

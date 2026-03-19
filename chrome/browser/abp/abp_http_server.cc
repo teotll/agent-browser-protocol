@@ -12,6 +12,7 @@
 #include <IOKit/pwr_mgt/IOPMLib.h>
 #endif
 
+#include "base/command_line.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
 #include "base/logging.h"
@@ -25,7 +26,9 @@
 #include "chrome/browser/abp/abp_event_observer.h"
 #include "chrome/browser/abp/abp_history_controller.h"
 #include "chrome/browser/abp/abp_mcp_handler.h"
+#include "chrome/browser/lifetime/application_lifetime.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/common/content_switches.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
 #include "net/server/http_server_request_info.h"
@@ -56,6 +59,15 @@ constexpr net::NetworkTrafficAnnotationTag kAbpTrafficAnnotation =
         policy_exception_justification:
           "ABP HTTP server is always active in ABP builds."
       })");
+
+#if BUILDFLAG(IS_LINUX)
+bool HasUnsupportedRenderingFlags() {
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
+  return command_line.HasSwitch(switches::kDisableGpu) &&
+         command_line.HasSwitch(switches::kDisableSoftwareRasterizer);
+}
+#endif
 
 }  // namespace
 
@@ -90,6 +102,19 @@ AbpHttpServer::~AbpHttpServer() {
 
 void AbpHttpServer::Start() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+#if BUILDFLAG(IS_LINUX)
+  if (HasUnsupportedRenderingFlags()) {
+    LOG(ERROR)
+        << "ABP: refusing to start with both --disable-gpu and "
+           "--disable-software-rasterizer. ABP needs either hardware GPU "
+           "rendering or the software rasterizer for compositor-backed "
+           "screenshots. Remove --disable-software-rasterizer, or keep GPU "
+           "disabled and use the bundled software fallback instead.";
+    chrome::AttemptExit();
+    return;
+  }
+#endif
 
   // Load configuration
   AbpConfig config = LoadAbpConfig();

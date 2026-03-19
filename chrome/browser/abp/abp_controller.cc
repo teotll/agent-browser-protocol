@@ -2679,13 +2679,15 @@ void AbpController::Navigate(const std::string& tab_id,
   std::string url_copy = gurl.spec();
 
   // Center cursor after navigation so it's in the viewport center.
-  // Execute LoadURL BEFORE resuming JS: queue the navigation IPC while the
-  // renderer is frozen, then resume. This way the navigation teardown
-  // preempts old page microtasks/streams, preventing DCHECK races.
+  // action_before_resume: execute LoadURL before virtual time resume so that
+  // the navigation IPC is queued while blink task fences are still up,
+  // preventing old-page microtasks/timers from racing with teardown.
+  // Debugger.disable is sent before ExecuteAction to unblock the renderer
+  // main thread so beforeunload can be processed without hanging.
   auto options = GetDefaultActionOptions();
   options.center_cursor_after = true;
   options.action_before_resume = true;
-
+  options.request_tracking_timeout = base::Milliseconds(5000);
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "navigate", params, options,
@@ -2722,7 +2724,7 @@ void AbpController::Reload(const std::string& tab_id,
   auto options = GetDefaultActionOptions();
   options.center_cursor_after = true;
   options.action_before_resume = true;
-
+  options.request_tracking_timeout = base::Milliseconds(5000);
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "reload", params, options,
@@ -2759,7 +2761,7 @@ void AbpController::GoBack(const std::string& tab_id,
   auto options = GetDefaultActionOptions();
   options.center_cursor_after = true;
   options.action_before_resume = true;
-
+  options.request_tracking_timeout = base::Milliseconds(5000);
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "back", params, options,
@@ -2801,7 +2803,7 @@ void AbpController::GoForward(const std::string& tab_id,
   auto options = GetDefaultActionOptions();
   options.center_cursor_after = true;
   options.action_before_resume = true;
-
+  options.request_tracking_timeout = base::Milliseconds(5000);
 
   AbpActionContext::RunWithOptions(
       this, tab_id, "forward", params, options,
