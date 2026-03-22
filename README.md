@@ -5,7 +5,7 @@
 <p align="center"><strong>90.53% on Online Mind2Web</strong> — <a href="https://github.com/theredsix/abp-online-mind2web-results">reproducible results</a></p>
 
 
-ABP is a Chromium build with **MCP + REST** baked directly into the browser engine.
+ABP is a Chromium fork with **MCP + REST** baked directly into the browser engine.
 
 - **One request = one completed step**: settled state + screenshot + event log
 - **No WebSocket. No CDP session management.** Just HTTP.
