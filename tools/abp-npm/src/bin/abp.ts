@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
-import { launch } from "../launch.js";
+import { launch, DEFAULT_START_PORT } from "../launch.js";
 import { ABP_VERSION } from "../paths.js";
 
 interface ParsedArgs {
-  port: number;
+  port?: number;
   headless: boolean;
   verbose: boolean;
   sessionDir?: string;
@@ -21,7 +21,9 @@ interface ParsedArgs {
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
-  let port = parseInt(process.env.ABP_PORT || "8222", 10);
+  let port: number | undefined = process.env.ABP_PORT
+    ? parseInt(process.env.ABP_PORT, 10)
+    : undefined;
   let headless = process.env.ABP_HEADLESS === "1";
   let verbose = process.env.ABP_VERBOSE === "1";
   let sessionDir: string | undefined;
@@ -119,7 +121,7 @@ Usage:
   agent-browser-protocol [options] [-- chrome-args...]
 
 Options:
-  --port <port>          Port to listen on (default: 8222)
+  --port <port>          Port to listen on (default: auto, starting at ${DEFAULT_START_PORT})
   --headless             Run without a visible window
   --verbose, -v          Show browser output (pipe to stderr)
   --session-dir <path>   Directory for session data (database, screenshots)
@@ -136,7 +138,7 @@ Options:
   --help, -h             Show this help message
 
 Environment Variables:
-  ABP_PORT               Port to listen on (overridden by --port)
+  ABP_PORT               Port to listen on (overridden by --port, default: auto)
   ABP_HEADLESS=1         Run headless (overridden by --headless)
   ABP_VERBOSE=1          Show browser output (overridden by --verbose)
   ABP_MIN_WAIT           Pre-network settlement wait in ms
@@ -178,13 +180,17 @@ async function main() {
   const { port, headless, verbose, sessionDir, minWait, trackingTimeout, postSettle, userDataDir, profileDirectory, userAgent, zoom, configFile, disablePause, chromeArgs } = parseArgs(process.argv);
 
   console.log(`Agent Browser Protocol v${ABP_VERSION}`);
-  console.log(`Starting on port ${port}...`);
+  if (port !== undefined) {
+    console.log(`Starting on port ${port}...`);
+  } else {
+    console.log(`Finding available port (starting at ${DEFAULT_START_PORT})...`);
+  }
 
   const browser = await launch({ port, headless, verbose, sessionDir, minWait, trackingTimeout, postSettle, userDataDir, profileDirectory, userAgent, zoom, configFile, disablePause, args: chromeArgs });
 
   console.log(`\nABP is ready!`);
-  console.log(`  API:  http://localhost:${port}/api/v1`);
-  console.log(`  MCP:  http://localhost:${port}/mcp`);
+  console.log(`  API:  http://localhost:${browser.port}/api/v1`);
+  console.log(`  MCP:  http://localhost:${browser.port}/mcp`);
   console.log(`\nPress Ctrl+C to stop.\n`);
 
   const shutdown = async () => {

@@ -4,11 +4,13 @@
 
 import { createInterface } from "node:readline";
 import http from "node:http";
-import { launch, type Browser } from "./launch.js";
+import { launch, DEFAULT_START_PORT, type Browser } from "./launch.js";
 import { transformMcpResponse } from "./transform.js";
 
 const cliArgs = process.argv.slice(2);
-const PORT = parseInt(process.env.ABP_PORT || "8222", 10);
+const PORT: number | undefined = process.env.ABP_PORT
+  ? parseInt(process.env.ABP_PORT, 10)
+  : undefined;
 const HEADLESS =
   process.env.ABP_HEADLESS === "1" || cliArgs.includes("--headless");
 const VERBOSE =
@@ -27,6 +29,7 @@ const WINDOW_WIDTH = 1280;
 const WINDOW_HEIGHT = 800;
 
 let browser: Browser | null = null;
+let resolvedPort: number | null = null;
 let mcpSessionId: string | null = null;
 let launching: Promise<void> | null = null;
 
@@ -39,21 +42,11 @@ async function ensureBrowser(): Promise<void> {
   if (launching) return launching;
 
   launching = (async () => {
-    // Check if ABP is already running on this port
-    try {
-      const status = await httpGet(
-        `http://localhost:${PORT}/api/v1/browser/status`,
-      );
-      if (JSON.parse(status)?.data?.ready) {
-        log(`Connected to existing ABP on port ${PORT}`);
-        launching = null;
-        return;
-      }
-    } catch {
-      // Not running, will launch
+    if (PORT !== undefined) {
+      log(`Launching ABP on port ${PORT}...`);
+    } else {
+      log(`Finding available port (starting at ${DEFAULT_START_PORT})...`);
     }
-
-    log(`Launching ABP on port ${PORT}...`);
     try {
       browser = await launch({
         port: PORT,
@@ -68,7 +61,8 @@ async function ensureBrowser(): Promise<void> {
         disablePause: DISABLE_PAUSE,
         args: EXTRA_ARGS,
       });
-      log(`ABP ready on port ${PORT}`);
+      resolvedPort = browser.port;
+      log(`ABP ready on port ${resolvedPort}`);
     } catch (err: any) {
       log(`Failed to launch ABP: ${err.message}`);
       throw err;
@@ -95,7 +89,7 @@ async function forwardToMcp(message: string): Promise<string> {
     const req = http.request(
       {
         hostname: "localhost",
-        port: PORT,
+        port: resolvedPort!,
         path: "/mcp",
         method: "POST",
         headers,
@@ -131,23 +125,6 @@ async function forwardToMcp(message: string): Promise<string> {
   });
 }
 
-function httpGet(url: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    http
-      .get(url, { timeout: 2000 }, (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (c: Buffer) => chunks.push(c));
-        res.on("end", () =>
-          resolve(Buffer.concat(chunks).toString("utf-8")),
-        );
-      })
-      .on("error", reject)
-      .on("timeout", function (this: http.ClientRequest) {
-        this.destroy();
-        reject(new Error("timeout"));
-      });
-  });
-}
 
 function sendError(id: unknown, code: number, message: string) {
   const error = JSON.stringify({

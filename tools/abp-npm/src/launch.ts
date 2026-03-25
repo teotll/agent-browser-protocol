@@ -3,9 +3,48 @@
 // found in the LICENSE file.
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { createServer, type Server } from "node:net";
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { ABPClient } from "./client.js";
 import { getExecutablePath } from "./paths.js";
 import { request } from "./http.js";
+
+/** Default starting port for auto-detection. */
+export const DEFAULT_START_PORT = 15678;
+
+/**
+ * Test whether a single TCP port is available to bind.
+ * Resolves `true` if the port is free, `false` if it is already taken.
+ */
+function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const srv: Server = createServer();
+    srv.once("error", () => resolve(false));
+    srv.listen(port, "127.0.0.1", () => {
+      srv.close(() => resolve(true));
+    });
+  });
+}
+
+/**
+ * Find the first available TCP port starting at `startPort` and
+ * incrementing by 1 for each port that is already bound.
+ * Gives up after 100 attempts.
+ */
+export async function findAvailablePort(startPort: number = DEFAULT_START_PORT): Promise<number> {
+  const maxAttempts = 100;
+  for (let i = 0; i < maxAttempts; i++) {
+    const candidate = startPort + i;
+    if (await isPortAvailable(candidate)) {
+      return candidate;
+    }
+  }
+  throw new Error(
+    `Could not find an available port after probing ${startPort}–${startPort + maxAttempts - 1}`,
+  );
+}
 
 export interface LaunchOptions {
   port?: number;
@@ -68,7 +107,6 @@ async function waitForReady(
 
 export async function launch(options: LaunchOptions = {}): Promise<Browser> {
   const {
-    port = 8222,
     sessionDir,
     executablePath,
     headless = false,
@@ -85,6 +123,9 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
     disablePause = false,
     args = [],
   } = options;
+
+  // If no explicit port, probe for the first available one starting at DEFAULT_START_PORT.
+  const port = options.port ?? await findAvailablePort();
 
   const binaryPath = getExecutablePath(executablePath);
 
@@ -117,9 +158,9 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
     launchArgs.push(`--abp-post-settle=${postSettle}`);
   }
 
-  if (userDataDir) {
-    launchArgs.push(`--user-data-dir=${userDataDir}`);
-  }
+  // Always set --user-data-dir so each launch gets an isolated Chrome instance.
+  // Without this, Chrome signals the first instance and exits.
+  launchArgs.push(`--user-data-dir=${userDataDir ?? mkdtempSync(join(tmpdir(), "abp-"))}`);
 
   if (profileDirectory) {
     launchArgs.push(`--profile-directory=${profileDirectory}`);

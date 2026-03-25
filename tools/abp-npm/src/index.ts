@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 export { ABPClient } from "./client.js";
-export { launch } from "./launch.js";
+export { launch, findAvailablePort, DEFAULT_START_PORT } from "./launch.js";
 export { getExecutablePath } from "./paths.js";
 export { ABP_VERSION } from "./paths.js";
 export type { LaunchOptions, Browser } from "./launch.js";
